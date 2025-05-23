@@ -1,0 +1,22 @@
+
+{
+  "name": "rtms-developer-preview-js",
+  "version": "1.1.0",
+  "description": "A simple sample to preview the RTMS Node.js SDK",
+  "main": "index.js",
+  "type": "module",
+  "scripts": {
+    "fetch": "npm --prefix node_modules/@zoom/rtms run fetch",
+    "start": "node --env-file=.env index.js"
+  },
+  "license": "MIT",
+  "dependencies": {
+    "@zoom/rtms": "github:zoom/rtms",
+    "@aws-sdk/client-s3": "^3.804.0",
+    "@aws-sdk/credential-providers": "^3.804.0",
+    "dotenv": "^16.4.1",
+    "express": "^4.21.2",
+    "ws": "^8.16.0"
+  }
+}
+
