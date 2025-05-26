@@ -8,8 +8,7 @@ const { promisify } = require('util');
 
 
 
-const { processAudio }= require('./audioHandler.js');
-const { processVideo } = require('./videoHandler.js');
+
 
 // Load environment variables from a .env file
 dotenv.config();
@@ -31,7 +30,7 @@ const activeConnections = new Map();
 
 
 // Handle POST requests to the webhook endpoint
-app.post('/', (req, res) => {
+app.post('/webhook', (req, res) => {
     console.log('RTMS Webhook received:', JSON.stringify(req.body, null, 2));
     const { event, payload } = req.body;
 
@@ -252,7 +251,7 @@ function connectToMediaWebSocket(mediaUrl, meetingUuid, streamId, signalingSocke
                 let buffer = Buffer.from(audioData, 'base64');
                 let timestamp = Date.now();
 
-                 //processAudio(buffer);
+           
               
             }
 
@@ -262,7 +261,7 @@ function connectToMediaWebSocket(mediaUrl, meetingUuid, streamId, signalingSocke
                 let buffer = Buffer.from(videoData, 'base64');
                 //let timestamp = Date.now();
 
-                 processVideo(buffer,timestamp);
+               
               
             }
             // Handle transcript data
