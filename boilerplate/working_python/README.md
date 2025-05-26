@@ -1,6 +1,7 @@
-# Print Incoming Audio Example
+# Print Incoming Audio Video Transcript message type Example
 
-This example demonstrates how to receive and print incoming audio data from a Zoom meeting using the RTMS (Real-Time Media Streaming) service.
+This example demonstrates how to receive audio video and transcript from a Zoom meeting using the RTMS (Real-Time Media Streaming) service.
+It does not print out the data, but uses an if else statement to seperate audio, video and transcript via the msg_type parameter.
 
 ## Prerequisites
 
@@ -27,7 +28,7 @@ ZM_CLIENT_SECRET=your_client_secret
 
 1. Start the server:
 ```bash
-python start.py
+gunicorn index:app --bind 0.0.0.0:3000
 ```
 
 2. The server will start on port 3000. You'll need to expose this port to the internet using a tool like ngrok:
@@ -43,11 +44,11 @@ ngrok http 3000
 
 1. The server listens for webhook events from Zoom
 2. When RTMS starts, it establishes WebSocket connections to Zoom's signaling and media servers
-3. Audio data is received through the media WebSocket connection
-4. The raw audio data is printed to the console in hexadecimal format
+3. Audio, Video and Transcript data is received through the media WebSocket connection
+4. The audio/video/transcript msg type is printed to the console
 
 ## Notes
 
-- This is a basic example that prints the raw audio data. In a production environment, you would typically process or save this data.
+- This is a basic example that checks the msg type and prints the data type received. In a production environment, you would typically process or save this data.
 - The server handles both signaling and media WebSocket connections
 - Keep-alive messages are automatically responded to maintain the connection 

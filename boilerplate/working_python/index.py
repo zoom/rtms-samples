@@ -63,20 +63,32 @@ def connect_to_media_ws(media_url, meeting_uuid, stream_id, signaling_socket):
         ws.send(json.dumps(handshake))
 
     def on_message(ws, message):
+        # logger.info(f"Received message from media WebSocket: {message}")
         try:
             msg = json.loads(message)
-            if msg.get("msg_type") == 4 and msg.get("status_code") == 0:
+            msg_type = msg.get("msg_type")
+
+            if msg_type == 4 and msg.get("status_code") == 0:
                 signaling_socket.send(json.dumps({
                     "msg_type": 7,
                     "rtms_stream_id": stream_id
                 }))
                 logger.info("Media handshake successful, sent start streaming request")
-            elif msg.get("msg_type") == 12:
+            elif msg_type == 12:
                 ws.send(json.dumps({
                     "msg_type": 13,
                     "timestamp": msg["timestamp"]
                 }))
                 logger.info("Responded to Media KEEP_ALIVE_REQ")
+            elif msg_type == 14:
+                logger.info("Received AUDIO data")
+                # Handle audio data if needed
+            elif msg_type == 15:
+                logger.info("Received VIDEO data")
+                # Handle video data if needed
+            elif msg_type == 17:
+                logger.info("Received TRANSCRIPT data")
+                # Handle transcript data if needed
         except Exception as e:
             logger.error(f"Error processing media message: {e}")
 

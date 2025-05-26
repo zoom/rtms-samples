@@ -1,5 +1,2 @@
-websockets
-fastapi
-aiohttp
-uvicorn[standard]
-python-dotenv
+websocket-client
+gunicorn
