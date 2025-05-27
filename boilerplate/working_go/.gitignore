@@ -1,0 +1,34 @@
+# Binaries
+*.exe
+*.exe~
+*.dll
+*.so
+*.dylib
+*.test
+*.out
+
+# Build output
+/build/
+/bin/
+/dist/
+
+# Vendor dependencies (if you use `go mod vendor`)
+/vendor/
+
+# Go workspace file (Go 1.18+)
+/go.work
+/go.work.sum
+
+# IDE/editor settings
+.vscode/
+.idea/
+*.swp
+
+# Logs and temp files
+*.log
+*.tmp
+*.cache
+
+# OS junk
+.DS_Store
+Thumbs.db

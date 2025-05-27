@@ -1,178 +1,304 @@
-import os
-import json
-import hmac
-import hashlib
-import logging
-import random
-from flask import Flask, request, jsonify
-from dotenv import load_dotenv
-import websocket
-import threading
+const express = require('express');
+const crypto = require('crypto');
+const WebSocket = require('ws');
+const dotenv = require('dotenv');
+const fs = require('fs');
+const { exec } = require('child_process');
+const { promisify } = require('util');
 
-# Load environment variables
-load_dotenv()
 
-PORT = int(os.getenv("PORT", 5050))
-WEBHOOK_PATH = os.getenv("WEBHOOK_PATH", "/")
-LOG_LEVEL = os.getenv("LOG_LEVEL", "DEBUG")
-ZOOM_SECRET_TOKEN = os.getenv("ZOOM_SECRET_TOKEN")
-CLIENT_ID = os.getenv("ZM_CLIENT_ID")
-CLIENT_SECRET = os.getenv("ZM_CLIENT_SECRET")
 
-# Setup logging
-logging.basicConfig(level=getattr(logging, LOG_LEVEL.upper(), logging.DEBUG))
-logger = logging.getLogger(__name__)
 
-app = Flask(__name__)
-active_connections = {}
 
-def generate_signature(client_id, meeting_uuid, stream_id, client_secret):
-    message = f"{client_id},{meeting_uuid},{stream_id}"
-    signature = hmac.new(client_secret.encode(), message.encode(), hashlib.sha256).hexdigest()
-    return signature
+// Load environment variables from a .env file
+dotenv.config();
 
-def connect_to_media_ws(media_url, meeting_uuid, stream_id, signaling_socket):
-    logger.info(f"Connecting to media WebSocket at {media_url}")
+const app = express();
+const port = process.env.PORT || 3000;
+const execAsync = promisify(exec);
 
-    def on_open(ws):
-        signature = generate_signature(CLIENT_ID, meeting_uuid, stream_id, CLIENT_SECRET)
-        handshake = {
-            "msg_type": 3,
-            "protocol_version": 1,
-            "meeting_uuid": meeting_uuid,
-            "rtms_stream_id": stream_id,
-            "signature": signature,
-            "media_type": 32,
-            "payload_encryption": False,
-            "media_params": {
-                "audio": {
-                    "content_type": 1,
-                    "sample_rate": 1,
-                    "channel": 1,
-                    "codec": 1,
-                    "data_opt": 1,
-                    "send_rate": 100
-                },
-                "video": {
-                    "codec": 7,
-                    "resolution": 2,
-                    "fps": 25
+const ZOOM_SECRET_TOKEN = process.env.ZOOM_SECRET_TOKEN;
+const CLIENT_ID = process.env.ZM_CLIENT_ID;
+const CLIENT_SECRET = process.env.ZM_CLIENT_SECRET;
+
+
+// Middleware to parse JSON bodies in incoming requests
+app.use(express.json());
+
+// Map to keep track of active WebSocket connections and audio chunks
+const activeConnections = new Map();
+
+
+// Handle POST requests to the webhook endpoint
+app.post('/webhook', (req, res) => {
+    console.log('RTMS Webhook received:', JSON.stringify(req.body, null, 2));
+    const { event, payload } = req.body;
+
+    // Handle URL validation event
+    if (event === 'endpoint.url_validation' && payload?.plainToken) {
+        // Generate a hash for URL validation using the plainToken and a secret token
+        const hash = crypto
+            .createHmac('sha256', ZOOM_SECRET_TOKEN)
+            .update(payload.plainToken)
+            .digest('hex');
+        console.log('Responding to URL validation challenge');
+        return res.json({
+            plainToken: payload.plainToken,
+            encryptedToken: hash,
+        });
+    }
+
+    // Handle RTMS started event
+    if (event === 'meeting.rtms_started') {
+        console.log('RTMS Started event received');
+        const { meeting_uuid, rtms_stream_id, server_urls } = payload;
+        // Initiate connection to the signaling WebSocket server
+        connectToSignalingWebSocket(meeting_uuid, rtms_stream_id, server_urls);
+    }
+
+    // Handle RTMS stopped event
+    if (event === 'meeting.rtms_stopped') {
+        console.log('RTMS Stopped event received');
+        const { meeting_uuid } = payload;
+
+        // Close all active WebSocket connections for the given meeting UUID
+        if (activeConnections.has(meeting_uuid)) {
+            const connections = activeConnections.get(meeting_uuid);
+            for (const conn of Object.values(connections)) {
+                if (conn && typeof conn.close === 'function') {
+                    conn.close();
                 }
             }
+            activeConnections.delete(meeting_uuid);
         }
-        ws.send(json.dumps(handshake))
+    }
 
-    def on_message(ws, message):
-        try:
-            msg = json.loads(message)
-            if msg.get("msg_type") == 4 and msg.get("status_code") == 0:
-                signaling_socket.send(json.dumps({
-                    "msg_type": 7,
-                    "rtms_stream_id": stream_id
-                }))
-                logger.info("Media handshake successful, sent start streaming request")
-            elif msg.get("msg_type") == 12:
-                ws.send(json.dumps({
-                    "msg_type": 13,
-                    "timestamp": msg["timestamp"]
-                }))
-                logger.info("Responded to Media KEEP_ALIVE_REQ")
-        except Exception as e:
-            logger.error(f"Error processing media message: {e}")
+    // Respond with HTTP 200 status
+    res.sendStatus(200);
+});
 
-    def on_error(ws, error):
-        logger.error(f"Media socket error: {error}")
+// Function to generate a signature for authentication
+function generateSignature(CLIENT_ID, meetingUuid, streamId, CLIENT_SECRET) {
+    console.log('Generating signature with parameters:');
+    console.log('meetingUuid:', meetingUuid);
+    console.log('streamId:', streamId);
 
-    def on_close(ws, close_status_code, close_msg):
-        logger.info("Media socket closed")
-        if meeting_uuid in active_connections:
-            active_connections[meeting_uuid].pop("media", None)
+    // Create a message string and generate an HMAC SHA256 signature
+    const message = `${CLIENT_ID},${meetingUuid},${streamId}`;
+    return crypto.createHmac('sha256', CLIENT_SECRET).update(message).digest('hex');
+}
 
-    ws = websocket.WebSocketApp(media_url,
-                                on_open=on_open,
-                                on_message=on_message,
-                                on_error=on_error,
-                                on_close=on_close)
-    active_connections[meeting_uuid]["media"] = ws
-    threading.Thread(target=ws.run_forever, daemon=True).start()
+// Function to connect to the signaling WebSocket server
+function connectToSignalingWebSocket(meetingUuid, streamId, serverUrl) {
+    console.log(`Connecting to signaling WebSocket for meeting ${meetingUuid}`);
 
-def connect_to_signaling_ws(meeting_uuid, stream_id, server_url):
-    logger.info(f"Connecting to signaling WebSocket for meeting {meeting_uuid}")
+    const ws = new WebSocket(serverUrl);
 
-    def on_open(ws):
-        signature = generate_signature(CLIENT_ID, meeting_uuid, stream_id, CLIENT_SECRET)
-        handshake = {
-            "msg_type": 1,
-            "protocol_version": 1,
-            "meeting_uuid": meeting_uuid,
-            "rtms_stream_id": stream_id,
-            "sequence": random.randint(0, int(1e9)),
-            "signature": signature
+    // Store connection for cleanup later
+    if (!activeConnections.has(meetingUuid)) {
+        activeConnections.set(meetingUuid, {});
+    }
+    activeConnections.get(meetingUuid).signaling = ws;
+
+    ws.on('open', () => {
+        console.log(`Signaling WebSocket connection opened for meeting ${meetingUuid}`);
+        const signature = generateSignature(
+            CLIENT_ID,
+            meetingUuid,
+            streamId,
+            CLIENT_SECRET
+        );
+
+        // Send handshake message to the signaling server
+        const handshake = {
+            msg_type: 1, // SIGNALING_HAND_SHAKE_REQ
+            protocol_version: 1,
+            meeting_uuid: meetingUuid,
+            rtms_stream_id: streamId,
+            sequence: Math.floor(Math.random() * 1e9),
+            signature,
+        };
+        ws.send(JSON.stringify(handshake));
+        console.log('Sent handshake to signaling server');
+    });
+
+    ws.on('message', (data) => {
+        const msg = JSON.parse(data);
+        console.log('Signaling Message:', JSON.stringify(msg, null, 2));
+
+        // Handle successful handshake response
+        if (msg.msg_type === 2 && msg.status_code === 0) { // SIGNALING_HAND_SHAKE_RESP
+            const mediaUrl = msg.media_server?.server_urls?.all;
+            if (mediaUrl) {
+                // Connect to the media WebSocket server using the media URL
+                connectToMediaWebSocket(mediaUrl, meetingUuid, streamId, ws);
+            }
         }
-        ws.send(json.dumps(handshake))
-        logger.info("Sent handshake to signaling server")
 
-    def on_message(ws, message):
-        try:
-            msg = json.loads(message)
-            if msg.get("msg_type") == 2 and msg.get("status_code") == 0:
-                media_url = msg.get("media_server", {}).get("server_urls", {}).get("all")
-                if media_url:
-                    connect_to_media_ws(media_url, meeting_uuid, stream_id, ws)
-            elif msg.get("msg_type") == 12:
-                ws.send(json.dumps({
-                    "msg_type": 13,
-                    "timestamp": msg["timestamp"]
-                }))
-                logger.info("Responded to Signaling KEEP_ALIVE_REQ")
-        except Exception as e:
-            logger.error(f"Error processing signaling message: {e}")
+        // Respond to keep-alive requests
+        if (msg.msg_type === 12) { // KEEP_ALIVE_REQ
+            const keepAliveResponse = {
+                msg_type: 13, // KEEP_ALIVE_RESP
+                timestamp: msg.timestamp,
+            };
+            console.log('Responding to Signaling KEEP_ALIVE_REQ:', keepAliveResponse);
+            ws.send(JSON.stringify(keepAliveResponse));
+        }
+    });
 
-    def on_error(ws, error):
-        logger.error(f"Signaling socket error: {error}")
+    ws.on('error', (err) => {
+        console.error('Signaling socket error:', err);
+    });
 
-    def on_close(ws, close_status_code, close_msg):
-        logger.info("Signaling socket closed")
-        if meeting_uuid in active_connections:
-            active_connections[meeting_uuid].pop("signaling", None)
+    ws.on('close', () => {
+        console.log('Signaling socket closed');
+        if (activeConnections.has(meetingUuid)) {
+            delete activeConnections.get(meetingUuid).signaling;
+        }
+    });
+}
 
-    ws = websocket.WebSocketApp(server_url,
-                                on_open=on_open,
-                                on_message=on_message,
-                                on_error=on_error,
-                                on_close=on_close)
-    active_connections[meeting_uuid] = {"signaling": ws}
-    threading.Thread(target=ws.run_forever, daemon=True).start()
+// Function to connect to the media WebSocket server
+function connectToMediaWebSocket(mediaUrl, meetingUuid, streamId, signalingSocket) {
+    console.log(`Connecting to media WebSocket at ${mediaUrl}`);
 
-@app.route(WEBHOOK_PATH, methods=['POST'])
-def handle_webhook():
-    data = request.get_json(force=True)
-    logger.debug(f"Received POST request at {WEBHOOK_PATH} with data: {json.dumps(data, indent=2)}")
+    const mediaWs = new WebSocket(mediaUrl, { rejectUnauthorized: false });
 
-    event = data.get("event")
-    payload = data.get("payload", {})
+    // Store connection for cleanup later
+    if (activeConnections.has(meetingUuid)) {
+        activeConnections.get(meetingUuid).media = mediaWs;
+    }
 
-    if event == "endpoint.url_validation" and payload.get("plainToken"):
-        hash_ = hmac.new(ZOOM_SECRET_TOKEN.encode(), payload["plainToken"].encode(), hashlib.sha256).hexdigest()
-        return jsonify({"plainToken": payload["plainToken"], "encryptedToken": hash_})
 
-    if event == "meeting.rtms_started":
-        meeting_uuid = payload.get("meeting_uuid")
-        stream_id = payload.get("rtms_stream_id")
-        server_url = payload.get("server_urls")
-        connect_to_signaling_ws(meeting_uuid, stream_id, server_url)
 
-    if event == "meeting.rtms_stopped":
-        meeting_uuid = payload.get("meeting_uuid")
-        if meeting_uuid in active_connections:
-            for conn in active_connections[meeting_uuid].values():
-                try:
-                    conn.close()
-                except Exception:
-                    pass
-            del active_connections[meeting_uuid]
+    mediaWs.on('open', () => {
+        const signature = generateSignature(
+            CLIENT_ID,
+            meetingUuid,
+            streamId,
+            CLIENT_SECRET
+        );
+        const handshake = {
+            msg_type: 3, // DATA_HAND_SHAKE_REQ
+            protocol_version: 1,
+            meeting_uuid: meetingUuid,
+            rtms_stream_id: streamId,
+            signature,
+            media_type: 32, // AUDIO+VIDEO+TRANSCRIPT
+            payload_encryption: false,
+            media_params: {
+                audio: {
+                    content_type: 1,
+                    sample_rate: 1,
+                    channel: 1,
+                    codec: 1,
+                    data_opt: 1,
+                    send_rate: 100
+                },
+                video: {
+                    codec: 7, //H264
+                    resolution: 2,
+                    fps: 25
+                }
+            }
+        };
+        mediaWs.send(JSON.stringify(handshake));
+    });
 
-    return '', 200
+    mediaWs.on('message', (data) => {
+        try {
+            // Try to parse as JSON first
+            const msg = JSON.parse(data.toString());
+            // debugging
+            //console.log('Media JSON Message:', JSON.stringify(msg, null, 2));
 
-if __name__ == '__main__':
-    app.run(host='0.0.0.0', port=PORT)
+            // Handle successful media handshake
+            if (msg.msg_type === 4 && msg.status_code === 0) { // DATA_HAND_SHAKE_RESP
+                signalingSocket.send(
+                    JSON.stringify({
+                        msg_type: 7, // CLIENT_READY_ACK
+                        rtms_stream_id: streamId,
+                    })
+                );
+                console.log('Media handshake successful, sent start streaming request');
+            }
+
+            // Respond to keep-alive requests
+            if (msg.msg_type === 12) { // KEEP_ALIVE_REQ
+                mediaWs.send(
+                    JSON.stringify({
+                        msg_type: 13, // KEEP_ALIVE_RESP
+                        timestamp: msg.timestamp,
+                    })
+                );
+                console.log('Responded to Media KEEP_ALIVE_REQ');
+            }
+
+    // Respond to keep-alive requests
+        if (msg.msg_type === 12) {
+            mediaWs.send(
+                JSON.stringify({
+                    msg_type: 13,
+                    timestamp: msg.timestamp,
+                })
+            );
+            console.log('Responded to Media KEEP_ALIVE_REQ');
+        }
+
+            // Handle audio data
+            if (msg.msg_type === 14 && msg.content && msg.content.data) {
+                let { user_id, user_name, data: audioData } = msg.content;
+                let buffer = Buffer.from(audioData, 'base64');
+                let timestamp = Date.now();
+
+           
+              
+            }
+
+            // Handle video data
+            if (msg.msg_type === 15 && msg.content && msg.content.data) {
+                let { user_id, user_name, data: videoData,timestamp } = msg.content;
+                let buffer = Buffer.from(videoData, 'base64');
+                //let timestamp = Date.now();
+
+               
+              
+            }
+            // Handle transcript data
+            if (msg.msg_type === 17 && msg.content && msg.content.data) {
+
+            }
+        } catch (err) {
+            console.error('Error processing media message:', err);
+        }
+    });
+
+    mediaWs.on('error', (err) => {
+        console.error('Media socket error:', err);
+    });
+
+    mediaWs.on('close', () => {
+        console.log('Media socket closed');
+        if (activeConnections.has(meetingUuid)) {
+            delete activeConnections.get(meetingUuid).media;
+
+
+
+
+
+
+
+
+
+
+
+        }
+    });
+}
+
+
+// Start the server and listen on the specified port
+app.listen(port, () => {
+    console.log(`Server running at http://localhost:${port}`);
+    console.log(`Webhook endpoint available at http://localhost:${port}/webhook`);
+});
