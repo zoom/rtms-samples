@@ -240,7 +240,9 @@ function connectToMediaWebSocket(mediaUrl, meetingUuid, streamId, signalingSocke
                 let buffer = Buffer.from(audioData, 'base64');
                 let timestamp = Date.now();  // Use server timestamp
                 const metadata = { user_id, user_name, timestamp };
+                //console.log(buffer);
                 sendAudioBuffer(buffer,timestamp);
+              
             }
             // Handle video data
             if (msg.msg_type === 15 && msg.content && msg.content.data) {
@@ -248,7 +250,9 @@ function connectToMediaWebSocket(mediaUrl, meetingUuid, streamId, signalingSocke
                  let buffer = Buffer.from(videoData,'base64');
                 let timestamp = Date.now();  // Use server timestamp
                 const metadata = { user_id, user_name, timestamp };
+                 //console.log(buffer);
                 sendVideoBuffer(buffer,timestamp);
+                
             }
             // Handle transcript data
             if (msg.msg_type === 17 && msg.content && msg.content.data) {
