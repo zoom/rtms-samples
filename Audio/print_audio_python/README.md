@@ -1,6 +1,6 @@
-# Print Audio Example
+# Print Incoming Audio Example
 
-This example demonstrates how to receive and print incoming audio data from a Zoom meeting using the RTMS (Realtime Media Streaming) service.
+This example demonstrates how to receive and print incoming audio data from a Zoom meeting using the RTMS (Real-Time Media Streaming) service.
 
 ## Prerequisites
 

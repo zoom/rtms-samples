@@ -1,15 +1,14 @@
 # Audio Processing Project
 
-A Node.js implementation demonstrating Zoom's Realtime Media Streams (RTMS) for capturing meeting audio data.
+A Node.js implementation demonstrating Zoom's Real-Time Media Streams (RTMS) for capturing meeting audio data.
 
 ## Features
 
-- Realtime audio data capture from Zoom meetings
+- Real-time audio data capture from Zoom meetings
 - Displays raw audio data in hexadecimal format
 - Handles WebSocket connections for both signaling and media servers
 - Automatic connection cleanup on meeting end
 - Built-in URL validation for Zoom webhooks
-- Realtime console output
 
 ## Prerequisites
 
@@ -54,7 +53,7 @@ ZM_CLIENT_SECRET=your_client_secret
 ### 3. Audio Data Processing
 - Receives raw audio data through media WebSocket
 - Displays audio data in hexadecimal format
-- Realtime console output
+- Real-time console output
 
 ## Usage
 
@@ -103,7 +102,7 @@ const activeConnections = new Map();
 
 ## Notes
 - Server runs on port 3000 by default
-- Audio data is displayed in realtime, not stored
+- Audio data is displayed in real-time, not stored
 - Connections are automatically cleaned up
 - Keep-alive messages are handled automatically
 
