@@ -1,10 +1,10 @@
 # Zoom RTMS Audio Recording SDK
 
-This SDK provides functionality to record and save audio from Zoom meetings using the Realtime Media Streaming (RTMS).
+This SDK provides functionality to record and save audio from Zoom meetings using the Real-Time Media Streaming (RTMS).
 
 ## Features
 
-- Captures audio data from Zoom meetings in realtime
+- Captures audio data from Zoom meetings in real-time
 - Automatically saves recordings when meetings end
 - Converts raw audio data to WAV format
 - Handles multiple meeting recordings with unique identifiers
