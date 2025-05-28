@@ -1,186 +1,237 @@
-import os
-import json
-import hmac
-import hashlib
-import asyncio
-import websockets
-import uvicorn
-from fastapi import FastAPI, Request, WebSocket
-from dotenv import load_dotenv
+import express from 'express';
+import crypto from 'crypto';
+import WebSocket from 'ws';
+import dotenv from 'dotenv';
 
-# Load environment variables from .env file
-print("Loading environment variables...")
-load_dotenv()
+// Load environment variables
+dotenv.config();
 
-app = FastAPI()
-port = 3000
+const app = express();
+const port = 3000;
 
-# Environment variables
-ZOOM_SECRET_TOKEN = os.getenv("ZOOM_SECRET_TOKEN")
-CLIENT_ID = os.getenv("ZM_CLIENT_ID")
-CLIENT_SECRET = os.getenv("ZM_CLIENT_SECRET")
+const ZOOM_SECRET_TOKEN = process.env.ZOOM_SECRET_TOKEN;
+const CLIENT_ID = process.env.ZM_CLIENT_ID;
+const CLIENT_SECRET = process.env.ZM_CLIENT_SECRET;
 
-# Dictionary to manage active WebSocket connections
-active_connections = {}
+app.use(express.json());
 
-def generate_signature(client_id, meeting_uuid, stream_id, client_secret):
-    """Generate signature for authentication."""
-    print(f"Generating signature for client_id: {client_id}, meeting_uuid: {meeting_uuid}, stream_id: {stream_id}")
-    message = f"{client_id},{meeting_uuid},{stream_id}"
-    signature = hmac.new(
-        client_secret.encode(),
-        message.encode(),
-        hashlib.sha256
-    ).hexdigest()
-    print(f"Generated signature: {signature}")
-    return signature
+const activeConnections = new Map();
 
-@app.post("/webhook")
-async def webhook(request: Request):
-    """Handle webhook events."""
-    body = await request.json()
-    print("RTMS Webhook received:", json.dumps(body, indent=2))
+app.post('/webhook', (req, res) => {
+    const { event, payload } = req.body;
+    console.log('Webhook received:', event);
+    console.log('Payload:', JSON.stringify(payload, null, 2));
 
-    event = body.get("event")
-    payload = body.get("payload", {})
+    if (event === 'endpoint.url_validation' && payload?.plainToken) {
+        const hash = crypto.createHmac('sha256', ZOOM_SECRET_TOKEN)
+            .update(payload.plainToken)
+            .digest('hex');
+        return res.json({
+            plainToken: payload.plainToken,
+            encryptedToken: hash,
+        });
+    }
 
-    # URL validation event
-    if event == "endpoint.url_validation" and payload.get("plainToken"):
-        hash_obj = hmac.new(
-            ZOOM_SECRET_TOKEN.encode(),
-            payload["plainToken"].encode(),
-            hashlib.sha256
-        )
-        print("Responding to URL validation challenge")
-        return {
-            "plainToken": payload["plainToken"],
-            "encryptedToken": hash_obj.hexdigest()
+    if (event === 'meeting.rtms_started') {
+        const { meeting_uuid, rtms_stream_id, server_urls } = payload;
+        console.log(`Starting RTMS for meeting ${meeting_uuid}`);
+        connectToSignalingWebSocket(meeting_uuid, rtms_stream_id, server_urls);
+    }
+
+    if (event === 'meeting.rtms_stopped') {
+        const { meeting_uuid } = payload;
+        console.log(`Stopping RTMS for meeting ${meeting_uuid}`);
+        if (activeConnections.has(meeting_uuid)) {
+            const connections = activeConnections.get(meeting_uuid);
+            for (const [type, connObj] of Object.entries(connections)) {
+                const ws = connObj?.socket;
+                if (ws && typeof ws.close === 'function') {
+                    if (ws.readyState === WebSocket.CONNECTING) {
+                        console.warn(`[${type}] socket is connecting, will close after open.`);
+                        ws.once('open', () => ws.close());
+                    } else {
+                        ws.close();
+                    }
+                }
+            }
+            activeConnections.delete(meeting_uuid);
+        }
+    }
+
+    res.sendStatus(200);
+});
+
+function generateSignature(meetingUuid, streamId) {
+    const message = `${CLIENT_ID},${meetingUuid},${streamId}`;
+    console.log('Generating signature for message:', message);
+    return crypto.createHmac('sha256', CLIENT_SECRET).update(message).digest('hex');
+}
+
+function connectToSignalingWebSocket(meetingUuid, streamId, serverUrls) {
+    console.log(`Connecting to signaling WebSocket for meeting ${meetingUuid}`);
+    const signalingWs = new WebSocket(serverUrls);
+
+    if (!activeConnections.has(meetingUuid)) {
+        activeConnections.set(meetingUuid, {
+            signaling: { socket: null, state: 'connecting', lastKeepAlive: null, url: serverUrls },
+            media: { socket: null, state: 'idle', lastKeepAlive: null }
+        });
+    }
+
+    const conn = activeConnections.get(meetingUuid);
+    conn.signaling.socket = signalingWs;
+
+    signalingWs.on('open', () => {
+        // Stop here if RTMS already stopped
+        if (!activeConnections.has(meetingUuid)) {
+            console.warn(`Signaling WebSocket opened but RTMS was stopped for ${meetingUuid}, aborting.`);
+            signalingWs.close();
+            return;
         }
 
-    # RTMS started event
-    if event == "meeting.rtms_started":
-        print("RTMS Started event received")
-        meeting_uuid = payload.get("meeting_uuid")
-        rtms_stream_id = payload.get("rtms_stream_id")
-        server_urls = payload.get("server_urls")
-        if meeting_uuid and rtms_stream_id and server_urls:
-            asyncio.create_task(
-                connect_to_signaling_websocket(meeting_uuid, rtms_stream_id, server_urls)
-            )
+        console.log(`Signaling WebSocket opened for meeting ${meetingUuid}`);
+        const signature = generateSignature(meetingUuid, streamId);
+        const handshakeMsg = {
+            msg_type: 1,
+            meeting_uuid: meetingUuid,
+            rtms_stream_id: streamId,
+            signature
+        };
+        console.log('Sending signaling handshake:', handshakeMsg);
+        signalingWs.send(JSON.stringify(handshakeMsg));
+        conn.signaling.state = 'authenticated';
+    });
 
-    # RTMS stopped event
-    if event == "meeting.rtms_stopped":
-        print("RTMS Stopped event received")
-        meeting_uuid = payload.get("meeting_uuid")
-        if meeting_uuid in active_connections:
-            connections = active_connections[meeting_uuid]
-            for conn in connections.values():
-                if conn and hasattr(conn, "close"):
-                    await conn.close()
-            active_connections.pop(meeting_uuid, None)
+    signalingWs.on('message', (data) => {
+        const msg = JSON.parse(data);
+        console.log('Received signaling message:', msg);
+        if (msg.msg_type === 2 && msg.status_code === 0) {
+            const mediaUrl = msg.media_server.server_urls.all;
+            console.log('Signaling handshake successful. Media server URL:', mediaUrl);
+            connectToMediaWebSocket(mediaUrl, meetingUuid, streamId, signalingWs);
+            conn.signaling.state = 'ready';
+        }
+        if (msg.msg_type === 12) {
+            conn.signaling.lastKeepAlive = Date.now();
+            console.log('Responding to KEEP_ALIVE_REQ');
+            signalingWs.send(JSON.stringify({
+                msg_type: 13,
+                timestamp: msg.timestamp
+            }));
+        }
+    });
 
-    return {"status": "ok"}
+    signalingWs.on('close', () => {
+        console.log(`Signaling WebSocket closed for meeting ${meetingUuid}`);
+        const conn = activeConnections.get(meetingUuid);
+        if (conn) conn.signaling.state = 'closed';
+    });
 
-async def connect_to_signaling_websocket(meeting_uuid, stream_id, server_url):
-    """Connect to the signaling WebSocket server."""
-    print(f"Connecting to signaling WebSocket for meeting {meeting_uuid}")
-    try:
-        async with websockets.connect(server_url) as ws:
-            if meeting_uuid not in active_connections:
-                active_connections[meeting_uuid] = {}
-            active_connections[meeting_uuid]["signaling"] = ws
+    signalingWs.on('error', (err) => {
+        const conn = activeConnections.get(meetingUuid);
+        if (conn) conn.signaling.state = 'error';
+        console.error('Signaling error:', err);
+    });
+}
 
-            signature = generate_signature(CLIENT_ID, meeting_uuid, stream_id, CLIENT_SECRET)
+function connectToMediaWebSocket(mediaUrl, meetingUuid, streamId, signalingSocket) {
+    console.log(`Connecting to media WebSocket at ${mediaUrl} for meeting ${meetingUuid}`);
+    const mediaWs = new WebSocket(mediaUrl);
+    const conn = activeConnections.get(meetingUuid);
+    conn.media.socket = mediaWs;
+    conn.media.state = 'connecting';
 
-            # Handshake message
-            handshake = {
-                "msg_type": 1,
-                "protocol_version": 1,
-                "meeting_uuid": meeting_uuid,
-                "rtms_stream_id": stream_id,
-                "sequence": int(asyncio.get_event_loop().time() * 1e9),
-                "signature": signature
+    mediaWs.on('open', () => {
+        // Stop here if RTMS already stopped
+        if (!activeConnections.has(meetingUuid)) {
+            console.warn(`Media WebSocket opened but RTMS was stopped for ${meetingUuid}, aborting handshake.`);
+            mediaWs.close();
+            return;
+        }
+
+        const signature = generateSignature(meetingUuid, streamId);
+        const handshakeMsg = {
+            msg_type: 3,
+            protocol_version: 1,
+            meeting_uuid: meetingUuid,
+            rtms_stream_id: streamId,
+            signature,
+            media_type: 32,
+            payload_encryption: false,
+            media_params: {
+                audio: {
+                    content_type: 1,
+                    sample_rate: 1,
+                    channel: 1,
+                    codec: 1,
+                    data_opt: 1,
+                    send_rate: 100
+                },
+                video: {
+                    codec: 7,
+                    resolution: 2,
+                    fps: 25
+                }
             }
-            await ws.send(json.dumps(handshake))
-            print("Sent handshake to signaling server")
+        };
+        console.log('Sending media handshake:', handshakeMsg);
+        mediaWs.send(JSON.stringify(handshakeMsg));
+        conn.media.state = 'authenticated';
+    });
 
-            while True:
-                try:
-                    data = await ws.recv()
-                    print("Raw Signaling Data:", data)
-                    msg = json.loads(data)
-                    print("Signaling Message:", json.dumps(msg, indent=2))
-
-                    if msg.get("msg_type") == 2 and msg.get("status_code") == 0:
-                        media_url = msg.get("media_server", {}).get("server_urls", {}).get("all")
-                        if media_url:
-                            asyncio.create_task(
-                                connect_to_media_websocket(media_url, meeting_uuid, stream_id, ws)
-                            )
-
-                    if msg.get("msg_type") == 12:
-                        response = {
-                            "msg_type": 13,
-                            "timestamp": msg.get("timestamp")
-                        }
-                        await ws.send(json.dumps(response))
-                        print("Sent KEEP_ALIVE_RESP")
-                except Exception as e:
-                    print(f"Error in signaling WebSocket: {e}")
-                    break
-    except Exception as e:
-        print(f"Signaling WebSocket error: {e}")
-    finally:
-        print("Signaling WebSocket closed")
-        if meeting_uuid in active_connections:
-            active_connections[meeting_uuid].pop("signaling", None)
-
-async def connect_to_media_websocket(media_url, meeting_uuid, stream_id, signaling_socket):
-    """Connect to the media WebSocket server."""
-    print(f"Connecting to media WebSocket at {media_url}")
-    try:
-        async with websockets.connect(media_url, ssl=False) as media_ws:
-            signature = generate_signature(CLIENT_ID, meeting_uuid, stream_id, CLIENT_SECRET)
-            handshake = {
-                "msg_type": 3,
-                "protocol_version": 1,
-                "meeting_uuid": meeting_uuid,
-                "rtms_stream_id": stream_id,
-                "signature": signature,
-                "media_type": 1,
-                "payload_encryption": False
+    mediaWs.on('message', (data) => {
+        try {
+            const msg = JSON.parse(data.toString());
+            //console.log('Received media message:', msg);
+            if (msg.msg_type === 4 && msg.status_code === 0) {
+                console.log('Media handshake successful, sending CLIENT_READY_ACK');
+                signalingSocket.send(JSON.stringify({
+                    msg_type: 7,
+                    rtms_stream_id: streamId
+                }));
+                conn.media.state = 'streaming';
+            } else if (msg.msg_type === 12) {
+                conn.media.lastKeepAlive = Date.now();
+                console.log('Responding to KEEP_ALIVE_REQ');
+                mediaWs.send(JSON.stringify({
+                    msg_type: 13,
+                    timestamp: msg.timestamp
+                }));
+            } else if (msg.msg_type === 14 && msg.content?.data) {
+                const base64Data = msg.content.data.toString('base64');
+                console.log('Base64 audio data:', base64Data);
             }
-            await media_ws.send(json.dumps(handshake))
-            print("Media WebSocket handshake sent")
+        } catch (err) {
+            console.log('Raw audio data (hex):', data.toString('hex'));
+        }
+    });
 
-            while True:
-                try:
-                    data = await media_ws.recv()
-                    print("Received media data:", data)
-                    try:
-                        msg = json.loads(data)
-                        print("Media Message:", json.dumps(msg, indent=2))
+    mediaWs.on('error', (err) => {
+        console.error('Media socket error:', err);
+        conn.media.state = 'error';
+    });
 
-                        if msg.get("msg_type") == 4 and msg.get("status_code") == 0:
-                            await signaling_socket.send(json.dumps({
-                                "msg_type": 7,
-                                "rtms_stream_id": stream_id
-                            }))
-                            print("Sent start streaming request")
+    mediaWs.on('close', () => {
+        console.log('Media socket closed for meeting', meetingUuid);
+        if (!activeConnections.has(meetingUuid)) {
+            console.warn(`RTMS already stopped for meeting ${meetingUuid}, skipping reconnection.`);
+            return;
+        }
 
-                        if msg.get("msg_type") == 12:
-                            await media_ws.send(json.dumps({
-                                "msg_type": 13,
-                                "timestamp": msg.get("timestamp")
-                            }))
-                    except json.JSONDecodeError:
-                        print("Raw audio data:", data.hex())
-                except Exception as e:
-                    print(f"Media WebSocket error: {e}")
-                    break
-    except Exception as e:
-        print(f"Error connecting to media WebSocket: {e}")
+        const conn = activeConnections.get(meetingUuid);
+        if (conn.signaling.state === 'ready' && conn.signaling.socket?.readyState === WebSocket.OPEN) {
+            console.log('Reconnecting media socket...');
+            connectToMediaWebSocket(mediaUrl, meetingUuid, streamId, conn.signaling.socket);
+        } else if (conn.signaling.url) {
+            console.warn('Signaling socket not usable. Reconnecting both signaling and media...');
+            connectToSignalingWebSocket(meetingUuid, streamId, conn.signaling.url);
+        } else {
+            console.warn('Cannot reconnect media: no signaling URL found.');
+            conn.media.state = 'closed';
+        }
+    });
+}
 
-if __name__ == "__main__":
-    print(f"Server running at http://0.0.0.0:{port}")
-    uvicorn.run(app, host="0.0.0.0", port=port)
+app.listen(port, () => {
+    console.log(`Server running on http://localhost:${port}`);
+});
