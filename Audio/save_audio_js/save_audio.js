@@ -273,5 +273,5 @@ async function convertRawToWav(inputFile, outputFile) {
 // Start the server and listen on the specified port
 app.listen(port, () => {
     console.log(`Server running at http://localhost:${port}`);
-    console.log(`Webhook endpoint available at http://localhost:${port}/webhook`);
+    console.log(`Webhook endpoint available at http://localhost:${port}${WEBHOOK_PATH}`);
 });

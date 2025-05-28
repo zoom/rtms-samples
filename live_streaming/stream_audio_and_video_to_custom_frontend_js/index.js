@@ -323,6 +323,6 @@ function connectToMediaWebSocket(mediaUrl, meetingUuid, streamId, signalingSocke
 // Start the server and listen on the specified port
 app.listen(port, () => {
     console.log(`Server running at http://localhost:${port}`);
-    console.log(`Webhook endpoint available at http://localhost:${port}/webhook`);
+    console.log(`Webhook endpoint available at http://localhost:${port}${WEBHOOK_PATH}`);
     console.log(`Player available at http://localhost:${port}/player`);
 });
