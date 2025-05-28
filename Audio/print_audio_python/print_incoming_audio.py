@@ -13,7 +13,8 @@ from dotenv import load_dotenv
 load_dotenv()
 
 app = FastAPI()
-port = 3000
+port = int(os.getenv("PORT", 3000))
+
 
 ZOOM_SECRET_TOKEN = os.getenv("ZOOM_SECRET_TOKEN")
 CLIENT_ID = os.getenv("ZM_CLIENT_ID")
@@ -214,5 +215,5 @@ async def webhook(request: Request):
 
 if __name__ == "__main__":
     print(f"Server running at http://localhost:{port}")
-    print(f"Webhook endpoint available at http://localhost:{port}/webhook")
+    print(f"Webhook endpoint available at http://localhost:{port}{WEBHOOK_PATH}")
     uvicorn.run(app, host="0.0.0.0", port=port) 

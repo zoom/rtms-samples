@@ -214,5 +214,5 @@ async def webhook(request: Request):
 
 if __name__ == "__main__":
     print(f"Server running at http://localhost:{port}")
-    print(f"Webhook endpoint available at http://localhost:{port}/webhook")
+    print(f"Webhook endpoint available at http://localhost:{port}{WEBHOOK_PATH}")
     uvicorn.run(app, host="0.0.0.0", port=port) 

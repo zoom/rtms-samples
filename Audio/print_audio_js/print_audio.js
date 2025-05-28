@@ -7,17 +7,18 @@ import dotenv from 'dotenv';
 dotenv.config();
 
 const app = express();
-const port = 3000;
+const port = process.env.PORT || 3000;
 
 const ZOOM_SECRET_TOKEN = process.env.ZOOM_SECRET_TOKEN;
 const CLIENT_ID = process.env.ZM_CLIENT_ID;
 const CLIENT_SECRET = process.env.ZM_CLIENT_SECRET;
+const WEBHOOK_PATH = os.getenv("WEBHOOK_PATH", "/webhook")
 
 app.use(express.json());
 
 const activeConnections = new Map();
 
-app.post('/webhook', (req, res) => {
+app.post(WEBHOOK_PATH, (req, res) => {
     const { event, payload } = req.body;
     console.log('Webhook received:', event);
     console.log('Payload:', JSON.stringify(payload, null, 2));

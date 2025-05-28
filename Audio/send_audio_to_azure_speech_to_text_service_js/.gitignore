@@ -27,6 +27,9 @@ audio_output/
 temp/
 processed/
 
+recordings/*
+!recordings/.gitkeep
+
 # Logs
 *.log
 logs/
@@ -44,5 +47,3 @@ debug.log
 # Yarn Integrity file
 .yarn-integrity 
 
-recordings/*
-!recordings/.gitkeep

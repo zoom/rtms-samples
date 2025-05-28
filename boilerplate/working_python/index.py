@@ -12,8 +12,8 @@ import threading
 # Load environment variables
 load_dotenv()
 
-PORT = int(os.getenv("PORT", 5050))
-WEBHOOK_PATH = os.getenv("WEBHOOK_PATH", "/")
+PORT = int(os.getenv("PORT", 3000))
+WEBHOOK_PATH = os.getenv("WEBHOOK_PATH", "/webhook")
 LOG_LEVEL = os.getenv("LOG_LEVEL", "DEBUG")
 ZOOM_SECRET_TOKEN = os.getenv("ZOOM_SECRET_TOKEN")
 CLIENT_ID = os.getenv("ZM_CLIENT_ID")

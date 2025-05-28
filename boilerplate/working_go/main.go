@@ -227,7 +227,7 @@ func main() {
 
 	port := os.Getenv("PORT")
 	if port == "" {
-		port = "5050"
+		port = "3000"
 	}
 	zoomToken := os.Getenv("ZOOM_SECRET_TOKEN")
 	clientID := os.Getenv("ZM_CLIENT_ID")
