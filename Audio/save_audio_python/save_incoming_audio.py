@@ -21,6 +21,7 @@ port = 3000
 ZOOM_SECRET_TOKEN = os.getenv("ZOOM_SECRET_TOKEN")
 CLIENT_ID = os.getenv("ZM_CLIENT_ID")
 CLIENT_SECRET = os.getenv("ZM_CLIENT_SECRET")
+WEBHOOK_PATH = os.getenv("WEBHOOK_PATH", "/webhook")
 
 # Dictionary to keep track of active WebSocket connections and audio chunks
 active_connections = {}
@@ -204,7 +205,7 @@ async def connect_to_media_websocket(media_url, meeting_uuid, stream_id, signali
         if meeting_uuid in active_connections:
             active_connections[meeting_uuid].pop("media", None)
 
-@app.post("/webhook")
+@app.post(WEBHOOK_PATH)
 async def webhook(request: Request):
     """Handle webhook requests."""
     body = await request.json()

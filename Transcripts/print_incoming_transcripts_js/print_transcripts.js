@@ -12,6 +12,7 @@ const port = 3000;
 const ZOOM_SECRET_TOKEN = process.env.ZOOM_SECRET_TOKEN;
 const CLIENT_ID = process.env.ZM_CLIENT_ID;
 const CLIENT_SECRET = process.env.ZM_CLIENT_SECRET;
+const WEBHOOK_PATH = process.env.WEBHOOK_PATH || '/webhook';
 
 // Middleware to parse JSON bodies in incoming requests
 app.use(express.json());
@@ -20,7 +21,7 @@ app.use(express.json());
 const activeConnections = new Map();
 
 // Handle POST requests to the webhook endpoint
-app.post('/webhook', (req, res) => {
+app.post(WEBHOOK_PATH, (req, res) => {
     console.log('RTMS Webhook received:', JSON.stringify(req.body, null, 2));
     const { event, payload } = req.body;
 
