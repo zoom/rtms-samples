@@ -13,7 +13,8 @@ from dotenv import load_dotenv
 load_dotenv()
 
 app = FastAPI()
-port = 3000
+port = int(os.getenv("PORT", 3000))
+
 
 ZOOM_SECRET_TOKEN = os.getenv("ZOOM_SECRET_TOKEN")
 CLIENT_ID = os.getenv("ZM_CLIENT_ID")
