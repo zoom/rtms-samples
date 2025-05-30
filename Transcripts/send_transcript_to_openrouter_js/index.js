@@ -6,7 +6,7 @@ import fs from 'fs';
 import { exec } from 'child_process';
 import { promisify } from 'util';
 
-import { chatWithOpenRouter } from './chatWithOpenrouter.js';
+import { chatWithOpenRouter, chatWithMultipleModels, contextualSynthesisFromMultipleModels } from './chatWithOpenrouter.js';
 // Load environment variables from a .env file
 dotenv.config();
 
@@ -232,34 +232,7 @@ function connectToMediaWebSocket(mediaUrl, meetingUuid, streamId, signalingSocke
                 console.log('Media JSON Message:', JSON.stringify(msg, null, 2));
                 let { user_id, user_name, data, timestamp } = msg.content;
 
-                (async () => {
-                    const models = [
-                        'meta-llama/llama-4-maverick:free',
-                        'meta-llama/llama-4-scout:free',
-                    ];
-
-
-                    const tasks = models.map(async (model) => {
-                        try {
-                            const reply = await chatWithOpenRouter(data, model);
-
-                            let output = '';
-                            output += '='.repeat(60) + '\n';
-                            output += `🧠 MODEL: ${model}\n`;
-                            output += '-'.repeat(60) + '\n';
-                            output += `💬 RESPONSE:\n${reply}\n`;
-                            output += '='.repeat(60) + '\n';
-
-                            console.log(output);
-
-                        } catch (err) {
-                            console.error(`❌ ERROR for ${model}: ${err.message}`);
-                            console.log('='.repeat(60));
-                        }
-                    });
-
-                    await Promise.all(tasks);
-                })();
+                contextualSynthesisFromMultipleModels(data);
 
 
 
