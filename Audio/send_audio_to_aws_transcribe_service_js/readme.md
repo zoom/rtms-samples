@@ -8,10 +8,12 @@ Before running the application, ensure you have the following environment variab
 - `ZOOM_SECRET_TOKEN`: Secret token for URL validation
 - `ZM_CLIENT_ID`: Zoom client ID
 - `ZM_CLIENT_SECRET`: Zoom client secret
+- `PORT`: 3000
+- `WEBHOOK_PATH`: "/webhook"
 - `AWS_ACCESS_KEY_ID`: AWS Access Key ID
 - `AWS_SECRET_ACCESS_KEY`: AWS Secret Access Key
 - `AWS_REGION`: AWS region where the Transcribe service is hosted (e.g., us-east-1)
-
+- `LANGUAGE_CODE`: en-US
 ## Implementation Details
 
 The application follows this sequence:

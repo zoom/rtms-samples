@@ -11,6 +11,8 @@ import { sendAudioChunk,startDeepgramTranscription } from './deepgram.js';
 // Load environment variables from a .env file
 dotenv.config();
 
+startDeepgramTranscription();
+
 const app = express();
 const port = process.env.PORT || 3000;
 const execAsync = promisify(exec);
@@ -20,7 +22,7 @@ const CLIENT_ID = process.env.ZM_CLIENT_ID;
 const CLIENT_SECRET = process.env.ZM_CLIENT_SECRET;
 const WEBHOOK_PATH = process.env.WEBHOOK_PATH || '/webhook';
 
-startDeepgramTranscription();
+
 
 // Middleware to parse JSON bodies in incoming requests
 app.use(express.json());

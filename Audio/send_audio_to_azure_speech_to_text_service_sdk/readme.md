@@ -11,7 +11,6 @@ Before running the application, ensure you have the following environment variab
 - `ZM_RTMS_SECRET`:Your Zoom OAuth Client Secret (required)
 
 ### Additional Environment Variables:
-- `PORT`: The port on which the server runs (default: 8080)
 - `AZURE_SPEECH_KEY`: Azure Speech Service key
 - `AZURE_REGION`: Region the Azure Speech Service is in
 
@@ -21,7 +20,7 @@ The application follows this sequence:
 
 
 1. Starts an server on port 8080
-2. Listens for webhook events at `/` endpoint
+2. Listens for webhook events at `/webhook` endpoint
 3. Handles URL validation challenges from Zoom
 4. When a meeting starts:
    - Receives `meeting.rtms_started` event
@@ -67,7 +66,7 @@ The application follows this sequence:
 - The application processes audio data at 16kHz sample rate, mono channel
 - API used is from Microsoft Azure
 - Server runs on port 8080
-- Webhook endpoint is available at `http://localhost:PORT/`
+- Webhook endpoint is available at `http://localhost:8080/webhook`
 
 ## Additional Setup Requirements  
 

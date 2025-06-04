@@ -7,14 +7,13 @@ import { promisify } from 'util';
 
 // Import the transcription function
 import { sendAudioChunk,startDeepgramTranscription } from './deepgram.js';
-// Load environment variables from a .env file
-
-
-startDeepgramTranscription();
 
 // Load secrets from .env
 import dotenv from 'dotenv';
 dotenv.config();
+
+startDeepgramTranscription();
+
 // Import the RTMS SDK
 import rtms from "@zoom/rtms";
 

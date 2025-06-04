@@ -12,6 +12,8 @@ import { startAssemblyTranscription, sendAudioChunk, closeAssemblyTranscription 
 // Load environment variables from a .env file
 dotenv.config();
 
+await startAssemblyTranscription();
+
 const app = express();
 const port = process.env.PORT || 3000;
 const execAsync = promisify(exec);
@@ -21,8 +23,6 @@ const CLIENT_ID = process.env.ZM_CLIENT_ID;
 const CLIENT_SECRET = process.env.ZM_CLIENT_SECRET;
 const WEBHOOK_PATH = process.env.WEBHOOK_PATH || '/webhook';
 
-
-await startAssemblyTranscription();
 
 // Middleware to parse JSON bodies in incoming requests
 app.use(express.json());
@@ -186,16 +186,16 @@ function connectToMediaWebSocket(mediaUrl, meetingUuid, streamId, signalingSocke
             rtms_stream_id: streamId,
             signature,
             media_type: 1, // MEDIA_DATA_AUDIO
-            payload_encryption: false,    
+            payload_encryption: false,
             media_params: {
-              audio: {
-                content_type: 1,
-                sample_rate: 1,
-                channel: 1,
-                codec: 1,
-                data_opt: 1,
-                send_rate: 20
-              }
+                audio: {
+                    content_type: 1,
+                    sample_rate: 1,
+                    channel: 1,
+                    codec: 1,
+                    data_opt: 1,
+                    send_rate: 20
+                }
             }
         };
         mediaWs.send(JSON.stringify(handshake));
@@ -205,7 +205,7 @@ function connectToMediaWebSocket(mediaUrl, meetingUuid, streamId, signalingSocke
         try {
             // Try to parse as JSON first
             const msg = JSON.parse(data.toString());
-            // debugging
+            //debugging
             //console.log('Media JSON Message:', JSON.stringify(msg, null, 2));
 
             // Handle successful media handshake
@@ -233,18 +233,15 @@ function connectToMediaWebSocket(mediaUrl, meetingUuid, streamId, signalingSocke
             // Handle audio data
             if (msg.msg_type === 14 && msg.content && msg.content.data) {
                 let { user_id, user_name, data: audioData, timestamp } = msg.content, buffer = Buffer.from(audioData, 'base64');
-
-              sendAudioChunk(buffer);
-
-    
+                sendAudioChunk(buffer);
             }
             // Handle video data
             if (msg.msg_type === 15 && msg.content && msg.content.data) {
-              
+
             }
             // Handle transcript data
             if (msg.msg_type === 17 && msg.content && msg.content.data) {
-              
+
             }
         } catch (err) {
             console.error('Error processing media message:', err);

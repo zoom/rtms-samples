@@ -8,6 +8,7 @@ import { promisify } from 'util';
 
 // Import the transcription function
 import { feedAudioData } from "./awsTranscribeToText.js ";
+
 // Load environment variables from a .env file
 dotenv.config();
 
@@ -182,16 +183,16 @@ function connectToMediaWebSocket(mediaUrl, meetingUuid, streamId, signalingSocke
             rtms_stream_id: streamId,
             signature,
             media_type: 1, // MEDIA_DATA_AUDIO
-            payload_encryption: false,    
+            payload_encryption: false,
             media_params: {
-              audio: {
-                content_type: 1,
-                sample_rate: 1,
-                channel: 1,
-                codec: 1,
-                data_opt: 1,
-                send_rate: 100
-              }
+                audio: {
+                    content_type: 1,
+                    sample_rate: 1,
+                    channel: 1,
+                    codec: 1,
+                    data_opt: 1,
+                    send_rate: 100
+                }
             }
         };
         mediaWs.send(JSON.stringify(handshake));
@@ -229,18 +230,15 @@ function connectToMediaWebSocket(mediaUrl, meetingUuid, streamId, signalingSocke
             // Handle audio data
             if (msg.msg_type === 14 && msg.content && msg.content.data) {
                 let { user_id, user_name, data: audioData, timestamp } = msg.content, buffer = Buffer.from(audioData, 'base64');
-
-              feedAudioData(buffer);
-
-    
+                feedAudioData(buffer);
             }
             // Handle video data
             if (msg.msg_type === 15 && msg.content && msg.content.data) {
-              
+
             }
             // Handle transcript data
             if (msg.msg_type === 17 && msg.content && msg.content.data) {
-              
+
             }
         } catch (err) {
             console.error('Error processing media message:', err);

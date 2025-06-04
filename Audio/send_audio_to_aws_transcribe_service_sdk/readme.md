@@ -5,18 +5,21 @@ This project demonstrates the use of a 3rd party speech-to-text service that acc
 ## Prerequisites
 
 Before running the application, ensure you have the following environment variables set in a `.env` file:
-- `ZOOM_SECRET_TOKEN`: Secret token for URL validation
-- `ZM_CLIENT_ID`: Zoom client ID
-- `ZM_CLIENT_SECRET`: Zoom client secret
+- `ZM_RTMS_CLIENT`: Zoom client ID
+- `ZM_RTMS_SECRET`: Zoom client secret
 - `AWS_ACCESS_KEY_ID`: AWS Access Key ID
 - `AWS_SECRET_ACCESS_KEY`: AWS Secret Access Key
 - `AWS_REGION`: AWS region where the Transcribe service is hosted (e.g., us-east-1)
+- `LANGUAGE_CODE`: en-US
+
+
+# Your Zoom OAuth Client Secret (required)
 
 ## Implementation Details
 
 The application follows this sequence:
 
-1. Starts an Express server on port 3000
+1. Starts an Express server on port 8080
 2. Listens for webhook events at `/webhook` endpoint
 3. Handles URL validation challenges from Zoom
 4. When a meeting starts:
@@ -64,8 +67,8 @@ The application follows this sequence:
 
 - The application processes audio data at 16kHz sample rate, mono channel
 - API used is from AWS Transcribe Streaming
-- Server runs on port 3000
-- Webhook endpoint is available at `http://localhost:3000/webhook`
+- Server runs on port 8080
+- Webhook endpoint is available at `http://localhost:8080/webhook`
 
 ## Additional Setup Requirements 
 

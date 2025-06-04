@@ -11,11 +11,12 @@ Before running the application, ensure you have the following environment variab
 - `ASSEMBLYAI_API_KEY`: assemblyai apikey
 
 
+
 ## Implementation Details
 
 The application follows this sequence:
 
-1. Starts an Express server on port 3000
+1. Starts an Express server on port 8080
 2. Listens for webhook events at `/webhook` endpoint
 3. Handles URL validation challenges from Zoom
 4. When a meeting starts:
@@ -63,8 +64,8 @@ The application follows this sequence:
 
 - The application processes audio data at 16kHz sample rate, mono channel
 - API used is from Assembly AI
-- Server runs on port 3000
-- Webhook endpoint is available at `http://localhost:3000/webhook`
+- Server runs on port 8080
+- Webhook endpoint is available at `http://localhost:8080/webhook`
 
 ## Additional Setup Requirements 
 

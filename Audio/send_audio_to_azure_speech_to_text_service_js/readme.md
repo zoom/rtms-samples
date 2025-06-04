@@ -8,8 +8,11 @@ Before running the application, ensure you have the following environment variab
 - `ZOOM_SECRET_TOKEN`: Secret token for URL validation
 - `ZM_CLIENT_ID`: Zoom client ID
 - `ZM_CLIENT_SECRET`: Zoom client secret
+- `PORT`: 3000
+- `WEBHOOK_PATH`: "/webhook"
 - `AZURE_SPEECH_KEY`: Azure Speech Service key
 - `AZURE_REGION`: Region the Azure Speech Service is in
+
 
 ## Implementation Details
 

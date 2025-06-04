@@ -17,10 +17,10 @@ rtms.onWebhookEvent(({ event, payload }) => {
     return;
   }
 
-  
+
   // Create a client instance for this specific meeting
   const client = new rtms.Client();
-  
+
 
   // Configure HD video (720p H.264 at 25fps)
   client.setVideoParameters({
@@ -44,7 +44,7 @@ rtms.onWebhookEvent(({ event, payload }) => {
   client.onVideoData((data, size, timestamp, metadata) => {
     //console.log(`Video data: ${size} bytes from ${metadata.userName}`);
   });
-    
+
 
   // Set up audio data handler
   client.onAudioData((data, size, timestamp, metadata) => {
@@ -52,7 +52,7 @@ rtms.onWebhookEvent(({ event, payload }) => {
 
     let buffer = Buffer.from(data, 'base64');
     feedAudioData(buffer);
-  }); 
+  });
 
 
   // Set up transcript data handler
