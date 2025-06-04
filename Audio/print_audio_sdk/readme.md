@@ -23,7 +23,7 @@ ZOOM_API_SECRET=your_api_secret
 
 ## Project Structure
 
-- `js/Audio/print_audio_sdk/print_audio_sdk.js`: Main implementation file that handles RTMS audio data
+- `print_audio_sdk.js`: Main implementation file that handles RTMS audio data
 
 ## Features
 
@@ -36,7 +36,7 @@ ZOOM_API_SECRET=your_api_secret
 
 1. Start the application:
 ```bash
-node js/Audio/print_audio_sdk/print_audio_sdk.js
+node print_audio_sdk.js
 ```
 
 2. The application will:

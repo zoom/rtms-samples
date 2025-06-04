@@ -21,6 +21,8 @@ pip install -r requirements.txt
 ZOOM_SECRET_TOKEN=your_secret_token
 ZM_CLIENT_ID=your_client_id
 ZM_CLIENT_SECRET=your_client_secret
+PORT=3000
+WEBHOOK_PATH = '/webhook'
 ```
 
 ## Running the Example

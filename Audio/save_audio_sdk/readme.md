@@ -18,10 +18,16 @@ This SDK provides functionality to record and save audio from Zoom meetings usin
 
 ## Installation
 
-1. Install the required dependencies:
+1. Install the required dependencies and start the server
 ```bash
 npm install @zoom/rtms dotenv
 ```
+
+
+```bash
+node save_audio.js
+```
+
 
 2. Ensure FFmpeg is installed on your system:
 - For macOS: `brew install ffmpeg`

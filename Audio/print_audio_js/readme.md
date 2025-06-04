@@ -18,7 +18,9 @@ A Node.js implementation demonstrating Zoom's Real-Time Media Streams (RTMS) for
   - `ZOOM_SECRET_TOKEN`: For webhook validation
   - `ZM_CLIENT_ID`: Your Zoom client ID
   - `ZM_CLIENT_SECRET`: Your Zoom client secret
-
+  - `PORT`: default is 3000
+  - `WEBHOOK_PATH`: default is /webhook
+  
 ## Installation
 
 1. Install dependencies:
