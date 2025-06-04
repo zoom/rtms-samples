@@ -228,7 +228,7 @@ function connectToMediaWebSocket(mediaUrl, meetingUuid, streamId, signalingSocke
             // Try to parse as JSON first
             const msg = JSON.parse(data.toString());
             // debugging
-            //console.log('Media JSON Message:', JSON.stringify(msg, null, 2));
+            console.log('Media JSON Message:', JSON.stringify(msg, null, 2));
 
             // Handle successful media handshake
             if (msg.msg_type === 4 && msg.status_code === 0) { // DATA_HAND_SHAKE_RESP

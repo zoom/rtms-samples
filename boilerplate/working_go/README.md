@@ -1,55 +1,79 @@
-# Print Incoming Audio Video Transcript message type Example
+# Zoom RTMS Media Receiver (Go)
 
-This example demonstrates how to receive audio video and transcript from a Zoom meeting using the RTMS (Real-Time Media Streaming) service.
-It does not print out the data, but uses an if else statement to seperate audio, video and transcript via the msg_type parameter.
+This Go example demonstrates how to receive real-time audio, video, and transcript data from a Zoom meeting using the RTMS (Real-Time Media Streaming) service.
+
+The server connects to Zoom’s RTMS infrastructure via WebSocket, handles webhook events, and logs media data types to the console.
 
 ## Prerequisites
 
-- Python 3.7 or higher
+- Go 1.18 or higher
 - A Zoom account with RTMS enabled
 - Zoom App credentials (Client ID and Client Secret)
 - Zoom Secret Token for webhook validation
 
 ## Setup
 
-1. Install the required dependencies:
+1. Install dependencies (via `go get` or your preferred Go module system):
+
 ```bash
 go get github.com/gorilla/websocket github.com/joho/godotenv
 
 ```
 
-2. Create a `.env` file in the same directory with your Zoom credentials:
+```bash
+go mod tidy
+```
+
+2. Create a `.env` file in the root directory with the following content:
 ```
 ZOOM_SECRET_TOKEN=your_secret_token
 ZM_CLIENT_ID=your_client_id
 ZM_CLIENT_SECRET=your_client_secret
+PORT=3000
+WEBHOOK_PATH=/webhook
 ```
 
 ## Running the Example
 
-1. Start the server:
+1. Start the Go server:
 ```bash
 go run main.go
 ```
 
-2. The server will start on port 3000. You'll need to expose this port to the internet using a tool like ngrok:
+2. Expose your local server using a tool like ngrok:
 ```bash
 ngrok http 3000
 ```
 
-3. Configure your Zoom App's webhook URL to point to your exposed endpoint (e.g., `https://your-ngrok-url/webhook`)
+3. Configure your Zoom App's webhook to use the exposed endpoint:
+```
+https://<your-ngrok-subdomain>.ngrok.io/webhook
+```
 
-4. Start a Zoom meeting and enable RTMS. The server will receive and print the incoming audio data.
+4. Start a Zoom meeting and enable RTMS.
 
 ## How it Works
 
-1. The server listens for webhook events from Zoom
-2. When RTMS starts, it establishes WebSocket connections to Zoom's signaling and media servers
-3. Audio, Video and Transcript data is received through the media WebSocket connection
-4. The audio/video/transcript msg type is printed to the console
+1. The Go server listens for webhook events at the defined endpoint.
+2. On receiving `meeting.rtms_started`, it establishes WebSocket connections to Zoom's signaling and media servers.
+3. Media messages are received through the WebSocket connection:
+   - **msg_type 14**: Audio
+   - **msg_type 15**: Video
+   - **msg_type 17**: Transcript
+4. The message type is printed to the console for each incoming message.
 
 ## Notes
 
-- This is a basic example that checks the msg type and prints the data type received. In a production environment, you would typically process or save this data.
-- The server handles both signaling and media WebSocket connections
-- Keep-alive messages are automatically responded to maintain the connection 
+- No files are written to disk in this example. Modify the handlers to process and store data if needed.
+- Keep-alive messages are handled automatically to maintain WebSocket connections.
+- This example does not include a frontend or HTML page like the Node.js version.
+- Clean disconnection is handled on `meeting.rtms_stopped`.
+
+## Security
+
+- Keep your `.env` file private and secure.
+- In production, consider validating the origin of incoming webhook requests and using HTTPS.
+
+
+
+
