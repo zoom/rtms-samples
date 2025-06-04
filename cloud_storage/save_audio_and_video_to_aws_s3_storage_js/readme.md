@@ -11,7 +11,6 @@ Before running the application, ensure you have the following environment variab
 
 ### Additional Environment Variables:
 - `PORT`: The port on which the Express server runs (default: 3000)
-
 - `AWS_REGION`: region for your s3 storage
 - `AWS_ACCESS_KEY_ID`: access key id
 - `AWS_SECRET_ACCESS_KEY`: secret access key

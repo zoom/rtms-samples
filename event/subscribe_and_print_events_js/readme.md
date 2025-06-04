@@ -1,81 +1,82 @@
-# Zoom RTMS events project
+# Zoom RTMS Events Handler
 
-This project demonstrates the events captured by Zoom RTMS .This prints out the different user and meeting events on the console log.
+This project listens to Zoom RTMS (Real-Time Media Streaming) webhook events and establishes signaling and media WebSocket connections to process various meeting-related events.
 
 ## Prerequisites
 
-Before running the application, ensure you have the following environment variables set in a `.env` file:
-- `ZOOM_SECRET_TOKEN`: Secret token for URL validation
-- `ZM_CLIENT_ID`: Zoom client ID
-- `ZM_CLIENT_SECRET`: Zoom client secret
+Ensure a `.env` file exists with the following variables:
 
-### Additional Environment Variables:
-- `PORT`: The port on which the Express server runs (default: 3000)
-
-## Implementation Details
-
-The application follows this sequence:
-
-1. Starts an Express server on port 3000
-2. Listens for webhook events at `/webhook` endpoint
-3. Handles URL validation challenges from Zoom
-4. When a meeting starts:
-   - Receives `meeting.rtms_started` event
-   - Establishes WebSocket connection to signaling server
-   - Sends handshake with authentication signature
-   - Receives media server URL from signaling server
-   - Establishes WebSocket connection to media server
-   - Request events from signaling server
-   - Sends media handshake with authentication
-   - Begins receiving all media data type (Audio, Video, Deskshare, Transcript, Chat etc...)
-5. During the meeting:  
-   - Maintains WebSocket connections with keep-alive messages
-   - Receives events from signaling server
-   - Handles any connection errors
-6. When a meeting ends:  
-   - Receives `meeting.rtms_stopped` event
-   - Closes all active WebSocket connections
+```env
+ZOOM_SECRET_TOKEN=your_zoom_secret_token
+ZM_CLIENT_ID=your_zoom_client_id
+ZM_CLIENT_SECRET=your_zoom_client_secret
+PORT=3000 # optional, defaults to 3000
+WEBHOOK_PATH=/webhook # optional
+```
 
 ## Running the Application
 
-1. Start the server:
-   ```bash
-   node index.js  
-   ```
+```bash
+node index.js
+```
 
-2. Start a Zoom meeting. The application will: 
-   - Receive the `meeting.rtms_started` event
-   - Establish WebSocket connections
-   - Request and thereafter receive events from signaling server
-   - Append the video chunks into .raw file every video stream data is received
+Make sure your Zoom App is configured with the appropriate RTMS scopes and your server is accessible via public URL (e.g., via ngrok).
 
-## Project-Specific Features  
+## Workflow
 
-- Subscribes to events by sending a request payload to signaling server
-- Prints out events received from the signaling server
-- Keep-alive message handling
-- Error handling for WebSocket connections
-- URL validation handling
+1. Express Server Initialization
+   - Starts on `PORT` or defaults to `3000`
+   - Webhook endpoint available at `/webhook`
 
-## Project-Specific Notes  
+2. Webhook Event Handling
+   - Handles `endpoint.url_validation` with encrypted response
+   - Handles `meeting.rtms_started`
+     - Connects to Zoom’s signaling WebSocket server
+     - Sends handshake with HMAC SHA256 signature
+     - Subscribes to events: speaker changes, participant join/leave
+     - Receives media server URL and connects to it
+     - Sends media handshake for audio, video, and transcript
+   - Handles `meeting.rtms_stopped`
+     - Cleans up all WebSocket connections for the meeting
 
-- Server runs on port 3000 by default, if PORT is not specificed in .env
-- Webhook endpoint is available at `http://localhost:3000/webhook`
+3. WebSocket Management
+   - Maintains signaling and media WebSocket connections
+   - Responds to `KEEP_ALIVE_REQ` from both connections
+   - Handles and logs the following:
+     - Stream state updates
+     - Session state updates
+     - RTMS events: participant joined/left, active speaker changes
+     - Media handshake acknowledgments
 
-## Additional Setup Requirements  
+4. Event Logging
+   - Prints all key events and stream/session states to console
+   - Includes error handling and graceful socket closure
 
-1. **Node.js** (v14 or higher recommended)
-32. **ngrok** for exposing your local server to the Internet
-4. **Zoom App** configuration with RTMS scopes enabled
+## Features
 
-## Troubleshooting  
+- URL validation for Zoom webhook setup
+- Authenticated WebSocket handshakes using HMAC SHA256
+- Dual WebSocket connections (signaling & media)
+- Full event subscription and interpretation
+- Detailed console logs for all events, stream, and session updates
+- Auto-reply to keep-alive messages
+- Cleanup on meeting end (`rtms_stopped`)
 
-1. **General error encountered**:
-   - Check that the Zoom app has the correct RTMS scopes
-   - Ensure the webhook URL is correctly configured in the Zoom app
+## Additional Requirements
 
-2. **Connection Issues**:
-   - Verify ngrok is running and the tunnel is active
-   - Check that the Zoom app credentials in `.env` are correct
-   - Ensure the webhook endpoint is accessible from the internet
+- Node.js v14+
+- `ngrok` (to expose local server for Zoom Webhook)
+- A Zoom App with RTMS capabilities enabled and webhook URL configured
 
+## Troubleshooting
+
+- No webhook events received?
+  - Check if ngrok is running and webhook URL is correct
+  - Confirm Zoom app scopes and webhook configurations
+
+- Signature mismatch or unauthorized?
+  - Ensure `ZOOM_SECRET_TOKEN`, `ZM_CLIENT_ID`, and `ZM_CLIENT_SECRET` are correct in `.env`
+
+- WebSocket issues?
+  - Verify internet connection and WebSocket server availability
+  - Check logs for handshake status and error events
