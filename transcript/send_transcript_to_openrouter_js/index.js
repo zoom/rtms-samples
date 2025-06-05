@@ -189,7 +189,7 @@ function connectToMediaWebSocket(mediaUrl, meetingUuid, streamId, signalingSocke
         mediaWs.send(JSON.stringify(handshake));
     });
 
-    mediaWs.on('message', (data) => {
+    mediaWs.on('message',async (data) => {
         try {
             // Try to parse as JSON first
             const msg = JSON.parse(data.toString());
@@ -232,7 +232,7 @@ function connectToMediaWebSocket(mediaUrl, meetingUuid, streamId, signalingSocke
                 console.log('Media JSON Message:', JSON.stringify(msg, null, 2));
                 let { user_id, user_name, data, timestamp } = msg.content;
 
-                contextualSynthesisFromMultipleModels(data);
+               await contextualSynthesisFromMultipleModels(data);
 
 
 
