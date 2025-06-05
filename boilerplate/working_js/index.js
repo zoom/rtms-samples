@@ -217,7 +217,10 @@ function connectToMediaWebSocket(mediaUrl, meetingUuid, streamId, signalingSocke
                 },
                 chat: {
                     content_type: 5,
-                }
+                },
+                 transcript: {
+                    content_type: 5 //TEXT
+        }
             }
         };
         mediaWs.send(JSON.stringify(handshake));
@@ -228,7 +231,7 @@ function connectToMediaWebSocket(mediaUrl, meetingUuid, streamId, signalingSocke
             // Try to parse as JSON first
             const msg = JSON.parse(data.toString());
             // debugging
-            console.log('Media JSON Message:', JSON.stringify(msg, null, 2));
+            //console.log('Media JSON Message:', JSON.stringify(msg, null, 2));
 
             // Handle successful media handshake
             if (msg.msg_type === 4 && msg.status_code === 0) { // DATA_HAND_SHAKE_RESP
@@ -268,7 +271,7 @@ function connectToMediaWebSocket(mediaUrl, meetingUuid, streamId, signalingSocke
                 let { user_id, user_name, data: audioData } = msg.content;
                 let buffer = Buffer.from(audioData, 'base64');
                 let timestamp = Date.now();
-                console.log('Audio data received');
+               // console.log('Audio data received');
             }
 
             // Handle video data
@@ -276,7 +279,7 @@ function connectToMediaWebSocket(mediaUrl, meetingUuid, streamId, signalingSocke
                 let { user_id, user_name, data: videoData, timestamp } = msg.content;
                 let buffer = Buffer.from(videoData, 'base64');
                 //let timestamp = Date.now();
-                console.log('Video data received');
+                //console.log('Video data received');
 
             }
 
@@ -360,6 +363,7 @@ function connectToMediaWebSocket(mediaUrl, meetingUuid, streamId, signalingSocke
             // Handle transcript data
             if (msg.msg_type === 17 && msg.content && msg.content.data) {
                 console.log('Transcript data received');
+                console.log('Media JSON Message:', JSON.stringify(msg, null, 2));
             }
             if (msg.msg_type === 18 && msg.content && msg.content.data) {
                 console.log('Chat data received');
