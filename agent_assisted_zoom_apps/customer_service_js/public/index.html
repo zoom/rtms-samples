@@ -1,0 +1,162 @@
+<!DOCTYPE html>
+<html>
+  <head>
+    <title>Zoom App Context Information</title>
+    <script src="https://appssdk.zoom.us/sdk.js"></script>
+
+    <style>
+      body {
+        font-family: Arial, sans-serif;
+        padding: 20px;
+      }
+
+      canvas {
+        display: block;
+        width: 100%;
+        border: 1px solid #ccc;
+        background-color: #fafafa;
+        margin-bottom: 20px;
+      }
+
+      h1 {
+        margin-bottom: 10px;
+      }
+
+      pre {
+        background-color: #f4f4f4;
+        padding: 10px;
+        border-radius: 5px;
+        overflow-x: auto;
+      }
+
+      .error {
+        color: red;
+      }
+    </style>
+  </head>
+  <body>
+    <canvas id="dataCanvas"></canvas>
+
+    <h1>Zoom App Context Information</h1>
+    <div id="output">Initializing...</div>
+
+    <script>
+      const canvas = document.getElementById('dataCanvas');
+      const ctx = canvas.getContext('2d');
+      const transcriptLines = [];
+      const maxLines = 20;
+      const lineHeight = 42;
+
+      canvas.width = 1000;
+      canvas.height = maxLines * lineHeight;
+
+      ctx.font = '30px Arial';
+      ctx.textBaseline = 'top';
+      ctx.fillStyle = 'black';
+
+      function wrapText(ctx, text, x, y, maxWidth, lineHeight) {
+        const words = text.split(' ');
+        let line = '';
+        for (let n = 0; n < words.length; n++) {
+          const testLine = line + words[n] + ' ';
+          const metrics = ctx.measureText(testLine);
+          const testWidth = metrics.width;
+          if (testWidth > maxWidth && n > 0) {
+            ctx.fillText(line, x, y);
+            line = words[n] + ' ';
+            y += lineHeight;
+          } else {
+            line = testLine;
+          }
+        }
+        ctx.fillText(line, x, y);
+        return y + lineHeight;
+      }
+
+      const socket = new WebSocket('wss://rtms.asdc.cc/ws');
+
+      socket.onopen = () => {
+        console.log('✅ WebSocket connected');
+      };
+
+      socket.onmessage = (event) => {
+        try {
+          const msg = JSON.parse(event.data);
+
+          if (msg.type === 'transcript') {
+            const line = `[${new Date(msg.timestamp).toLocaleTimeString()}] ${msg.user}: ${msg.content}`;
+            transcriptLines.push(line);
+            if (transcriptLines.length > maxLines) transcriptLines.shift();
+
+            ctx.clearRect(0, 0, canvas.width, canvas.height);
+
+            let y = 0;
+            for (const line of transcriptLines) {
+              y = wrapText(ctx, line, 10, y, canvas.width - 20, lineHeight);
+              if (y > canvas.height - lineHeight) break;
+            }
+          }
+        } catch (err) {
+          console.warn('Non-JSON or invalid message:', event.data);
+        }
+      };
+
+      socket.onerror = (err) => {
+        console.error('WebSocket error:', err);
+      };
+
+      socket.onclose = () => {
+        console.warn('WebSocket connection closed');
+      };
+
+      (async () => {
+        try {
+          const configResponse = await zoomSdk.config({
+            version: '1.10.0',
+            capabilities: [
+              'getSupportedJsApis',
+              'getRunningContext',
+              'getMeetingContext',
+              'getUserContext',
+              'getMeetingUUID',
+              'getAppContext'
+            ]
+          });
+
+          const supportedApis = await zoomSdk.getSupportedJsApis();
+          const runningContext = await zoomSdk.getRunningContext();
+          const meetingContext = await zoomSdk.getMeetingContext();
+          const userContext = await zoomSdk.getUserContext();
+          const meetingUUID = await zoomSdk.getMeetingUUID();
+          const appContext = await zoomSdk.getAppContext();
+
+          document.getElementById('output').innerHTML = `
+            <h2>Supported JS APIs:</h2>
+            <pre>${JSON.stringify(supportedApis, null, 2)}</pre>
+
+            <h2>Running Context:</h2>
+            <pre>${JSON.stringify(runningContext, null, 2)}</pre>
+
+            <h2>Meeting Context:</h2>
+            <pre>${JSON.stringify(meetingContext, null, 2)}</pre>
+
+            <h2>User Context:</h2>
+            <pre>${JSON.stringify(userContext, null, 2)}</pre>
+
+            <h2>Meeting UUID:</h2>
+            <pre>${JSON.stringify(meetingUUID, null, 2)}</pre>
+
+            <h2>App Context:</h2>
+            <pre>${JSON.stringify(appContext, null, 2)}</pre>
+          `;
+        } catch (error) {
+          console.error('Error retrieving Zoom context:', error);
+          document.getElementById('output').innerHTML = `
+            <p class="error">An error occurred while retrieving Zoom context information.</p>
+            <pre class="error">${error}</pre>
+          `;
+        }
+      })();
+    </script>
+  </body>
+</html>

@@ -1,0 +1,190 @@
+
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <title>Zoom App with Trait Visualization</title>
+
+  <!-- Local SDK (or use CDN if needed) -->
+  <script src="https://appssdk.zoom.us/sdk.js"></script>
+
+  <!-- Local D3.js -->
+  <script src="./lib/d3.v7.min.js"></script>
+
+  <style>
+    body {
+      font-family: Arial, sans-serif;
+      padding: 20px;
+      background-color: #f8f9fa;
+    }
+
+    #chart {
+      margin-top: 20px;
+      margin-bottom: 40px;
+    }
+
+    #latest {
+      background: #fff;
+      padding: 10px;
+      margin-top: 10px;
+      border: 1px solid #ddd;
+      border-radius: 4px;
+    }
+
+    h1 {
+      margin-bottom: 10px;
+    }
+
+    pre {
+      background: #f4f4f4;
+      padding: 10px;
+      border-radius: 4px;
+      overflow-x: auto;
+    }
+
+    .error {
+      color: red;
+    }
+  </style>
+</head>
+<body>
+  <h1>Live Transcript Trait Tracker</h1>
+  <div id="chart"></div>
+  <div id="latest">Waiting for transcript...</div>
+  <div id="output">Initializing...</div>
+
+  <script>
+    const socket = new WebSocket('wss://rtms.asdc.cc/ws');
+
+    socket.onopen = () => {
+      console.log('✅ WebSocket connected');
+    };
+
+    socket.onmessage = (event) => {
+      try {
+        const msg = JSON.parse(event.data);
+
+        if (msg.type === 'transcript') {
+          document.getElementById('latest').innerText =
+            `[${new Date(msg.timestamp).toLocaleTimeString()}] ${msg.user}: ${msg.content}`;
+          updateChart(msg.traits);
+        }
+      } catch (err) {
+        console.warn('Non-JSON or invalid message:', event.data);
+      }
+    };
+
+    socket.onerror = (err) => {
+      console.error('WebSocket error:', err);
+    };
+
+    socket.onclose = () => {
+      console.warn('WebSocket connection closed');
+    };
+
+    // D3 chart setup
+    const chartWidth = 600;
+    const chartHeight = 300;
+    const margin = { top: 20, right: 20, bottom: 40, left: 60 };
+
+    const svg = d3.select("#chart")
+      .append("svg")
+      .attr("width", chartWidth)
+      .attr("height", chartHeight);
+
+    const x = d3.scaleBand()
+      .range([margin.left, chartWidth - margin.right])
+      .padding(0.1);
+
+    const y = d3.scaleLinear()
+      .range([chartHeight - margin.bottom, margin.top]);
+
+    const xAxisGroup = svg.append("g")
+      .attr("transform", `translate(0, ${chartHeight - margin.bottom})`);
+
+    const yAxisGroup = svg.append("g")
+      .attr("transform", `translate(${margin.left}, 0)`);
+
+    function updateChart(traits) {
+      const data = Object.entries(traits).map(([trait, count]) => ({ trait, count }));
+
+      x.domain(data.map(d => d.trait));
+      y.domain([0, d3.max(data, d => d.count) || 1]);
+
+      xAxisGroup.call(d3.axisBottom(x));
+      yAxisGroup.call(d3.axisLeft(y));
+
+      const bars = svg.selectAll(".bar")
+        .data(data, d => d.trait);
+
+      bars.enter()
+        .append("rect")
+        .attr("class", "bar")
+        .attr("x", d => x(d.trait))
+        .attr("width", x.bandwidth())
+        .attr("y", y(0))
+        .attr("height", 0)
+        .merge(bars)
+        .transition()
+        .duration(500)
+        .attr("x", d => x(d.trait))
+        .attr("width", x.bandwidth())
+        .attr("y", d => y(d.count))
+        .attr("height", d => chartHeight - margin.bottom - y(d.count))
+        .attr("fill", "steelblue");
+
+      bars.exit().remove();
+    }
+
+    // Zoom SDK integration
+    (async () => {
+      try {
+        const configResponse = await zoomSdk.config({
+          version: '1.10.0',
+          capabilities: [
+            'getSupportedJsApis',
+            'getRunningContext',
+            'getMeetingContext',
+            'getUserContext',
+            'getMeetingUUID',
+            'getAppContext'
+          ]
+        });
+
+        const supportedApis = await zoomSdk.getSupportedJsApis();
+        const runningContext = await zoomSdk.getRunningContext();
+        const meetingContext = await zoomSdk.getMeetingContext();
+        const userContext = await zoomSdk.getUserContext();
+        const meetingUUID = await zoomSdk.getMeetingUUID();
+        const appContext = await zoomSdk.getAppContext();
+
+        document.getElementById('output').innerHTML = `
+          <h2>Supported JS APIs:</h2>
+          <pre>${JSON.stringify(supportedApis, null, 2)}</pre>
+
+          <h2>Running Context:</h2>
+          <pre>${JSON.stringify(runningContext, null, 2)}</pre>
+
+          <h2>Meeting Context:</h2>
+          <pre>${JSON.stringify(meetingContext, null, 2)}</pre>
+
+          <h2>User Context:</h2>
+          <pre>${JSON.stringify(userContext, null, 2)}</pre>
+
+          <h2>Meeting UUID:</h2>
+          <pre>${JSON.stringify(meetingUUID, null, 2)}</pre>
+
+          <h2>App Context:</h2>
+          <pre>${JSON.stringify(appContext, null, 2)}</pre>
+        `;
+      } catch (error) {
+        console.error('Error retrieving Zoom context:', error);
+        document.getElementById('output').innerHTML = `
+          <p class="error">An error occurred while retrieving Zoom context information.</p>
+          <pre class="error">${error}</pre>
+        `;
+      }
+    })();
+  </script>
+</body>
+</html>
