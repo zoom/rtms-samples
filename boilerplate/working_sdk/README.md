@@ -1,3 +1,42 @@
+# Manual Workaround (Temporary)
+
+> ⚠️ **Note:** This workaround is temporary. The documentation is being updated, and this process will be simplified in the near future.
+
+Follow these steps to get the app running manually for now:
+
+1. Ensure CMake version **3.25.1** is installed on your development machine.  
+   - This guide assumes Ubuntu, but macOS should be similar.
+
+2. Clone the developer preview app:
+   ```bash
+   git clone https://github.com/zoom/rtms-developer-preview-js
+   ```
+
+3. Inside that directory, manually create the following folder:
+   ```bash
+   mkdir -p node_modules/@zoom
+   ```
+
+4. Navigate into the new folder and clone the SDK:
+   ```bash
+   cd node_modules/@zoom
+   git clone https://github.com/zoom/rtms
+   ```
+
+5. Compile the SDK:
+   ```bash
+   cd rtms
+   npm install
+   ```
+
+6. Go back to the root of the developer preview app and start it:
+   ```bash
+   cd ../../../
+   node index.js
+   ```
+
+---
+
 # RTMS Developer Preview Tester App
 
 This simple app demonstrates integration with the Zoom Realtime Media Streams SDK for Node.js.
@@ -68,7 +107,6 @@ client.setAudioParameters({
 ```
 
 ### Video Parameters
-
 
 ```javascript
 client.setVideoParameters({
