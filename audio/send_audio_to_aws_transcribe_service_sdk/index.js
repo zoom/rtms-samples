@@ -23,7 +23,7 @@ rtms.onWebhookEvent(({ event, payload }) => {
 
 
   // Configure HD video (720p H.264 at 25fps)
-  client.setVideoParameters({
+  client.setVideoParams({
     contentType: rtms.VideoContentType.RAW_VIDEO,
     codec: rtms.VideoCodec.H264,
     resolution: rtms.VideoResolution.HD,

@@ -45,7 +45,7 @@
 
 
         // Configure HD video (720p H.264 at 30fps)
-        client.setVideoParameters({
+        client.setVideoParams({
             contentType: rtms.VideoContentType.RAW_VIDEO,
             codec: rtms.VideoCodec.H264,
             resolution: rtms.VideoResolution.HD,

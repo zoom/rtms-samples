@@ -12,7 +12,7 @@
     "license": "MIT",
     "dependencies": {
       "microsoft-cognitiveservices-speech-sdk":"^1.43.1",
-      "@zoom/rtms": "github:zoom/rtms",
+      "@zoom/rtms": "^0.0.2",
       "dotenv": "^16.5.0"
     }
   }
