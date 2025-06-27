@@ -54,11 +54,15 @@ Only return the JSON. Do not include explanations or comments.
     const response = await openai.chat.completions.create({
       model,
       messages: [{ role: 'user', content: prompt }],
+       max_tokens: 40000 
     });
-
+     console.log(response);
     const content = response.choices[0].message.content;
+    console.log(content);
     const match = content.match(/{[\s\S]*}/);
+      console.log(match);
     const parsed = match ? JSON.parse(match[0]) : {};
+     console.log(parsed);
 
     const traitsCount = {
       Curiosity: (parsed.Curiosity || []).length,
