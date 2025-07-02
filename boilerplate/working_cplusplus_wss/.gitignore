@@ -1,0 +1,47 @@
+# Ignore build artifacts and binaries
+/build/
+/bin/
+
+# CMake files
+CMakeFiles/
+CMakeCache.txt
+cmake_install.cmake
+Makefile
+
+# Object files
+*.o
+*.obj
+
+# Executables
+*.exe
+*.out
+*.app
+*.log
+
+# Libraries
+*.a
+*.lib
+*.so
+*.dll
+*.dylib
+
+# Backup and temp
+*~
+*.swp
+*.tmp
+
+# IDEs and editors
+.vscode/
+.idea/
+*.user
+*.suo
+
+# Python virtualenvs
+.venv/
+venv/
+
+# System files
+.DS_Store
+
+# Uncomment below to ignore .env if you don’t want it in Git
+# .env
