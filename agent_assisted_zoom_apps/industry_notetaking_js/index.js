@@ -382,7 +382,7 @@ function connectToMediaWebSocket(mediaUrl, meetingUuid, streamId, signalingSocke
                 const actions = detectActionItems(text);
                 const topic = await classifyTopic(text);
                 // paid
-               // const embedding = await generateEmbedding(text);
+                // const embedding = await generateEmbedding(text);
 
                 if (actions.length) actionItems.push(...actions);
                 if (topic) topics.add(topic);
@@ -395,7 +395,7 @@ function connectToMediaWebSocket(mediaUrl, meetingUuid, streamId, signalingSocke
                     } catch (e) {
                         console.error('Summary error:', e.message);
                     }
-               console.log("[Summary] "+ summary)
+                    console.log("[Summary] " + summary)
                 }
                 const payload = {
                     type: 'update',
@@ -406,9 +406,24 @@ function connectToMediaWebSocket(mediaUrl, meetingUuid, streamId, signalingSocke
                     entities: ner,
                 };
 
+                const raw = JSON.stringify(payload, null, 2);
+
+                // Clean and transform
+                const formatted = raw
+                    .replace(/[\{\}\[\]]/g, '')          // Remove {}, []
+                    .replace(/\\n/g, '<br>')             // Convert \n to HTML <br>
+                    .replace(/"\s*:\s*"/g, ': ')         // "key": "value" → key: value
+                    .replace(/",?/g, '<br>')             // End of lines → line break
+                    .replace(/^\s*"/gm, '')              // Remove leading " from lines
+                    .replace(/"$/gm, '')                 // Remove trailing " from lines
+                    .replace(/\\+"/g, '"');              // Unescape inner quotes
+                
+                formatted.trim();
+
+
                 broadcastToFrontendClients({
                     type: 'transcript',
-                    content:  JSON.stringify(payload),
+                    content: formatted.trim(),
                     user: msg.content.user_name,
                     timestamp: Date.now()
                 });

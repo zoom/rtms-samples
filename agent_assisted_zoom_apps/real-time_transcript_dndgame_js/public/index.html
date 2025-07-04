@@ -1,15 +1,11 @@
-
 <!DOCTYPE html>
 <html lang="en">
 <head>
   <meta charset="UTF-8" />
-  <title>Zoom App with Trait Visualization</title>
+  <title>Zoom D&D App</title>
 
-  <!-- Local SDK (or use CDN if needed) -->
+  <!-- Zoom SDK -->
   <script src="https://appssdk.zoom.us/sdk.js"></script>
-
-  <!-- Local D3.js -->
-  <script src="./lib/d3.v7.min.js"></script>
 
   <style>
     body {
@@ -18,12 +14,8 @@
       background-color: #f8f9fa;
     }
 
-    #chart {
-      margin-top: 20px;
-      margin-bottom: 40px;
-    }
-
-    #latest {
+    #latest,
+    #dm-log {
       background: #fff;
       padding: 10px;
       margin-top: 10px;
@@ -31,7 +23,7 @@
       border-radius: 4px;
     }
 
-    h1 {
+    h1, h2 {
       margin-bottom: 10px;
     }
 
@@ -45,16 +37,27 @@
     .error {
       color: red;
     }
+
+    #dm-content {
+      max-height: 300px;
+      overflow-y: auto;
+    }
   </style>
 </head>
 <body>
-  <h1>Live Transcript Trait Tracker</h1>
-  <div id="chart"></div>
+  <h1>🧙 Live D&D via Zoom</h1>
+
   <div id="latest">Waiting for transcript...</div>
+
+  <div id="dm-log">
+    <h2>🧙 Dungeon Master Log</h2>
+    <div id="dm-content">Waiting for DM response...</div>
+  </div>
+
   <div id="output">Initializing...</div>
 
   <script>
-    const socket = new WebSocket('wss://rtms.asdc.cc/ws');
+    const socket = new WebSocket('wss://your.ngrok-free.app/ws');
 
     socket.onopen = () => {
       console.log('✅ WebSocket connected');
@@ -67,7 +70,25 @@
         if (msg.type === 'transcript') {
           document.getElementById('latest').innerText =
             `[${new Date(msg.timestamp).toLocaleTimeString()}] ${msg.user}: ${msg.content}`;
-          updateChart(msg.traits);
+        }
+
+        if (msg.type === 'dm_response') {
+          const log = document.getElementById('dm-content');
+          const time = new Date(msg.timestamp).toLocaleTimeString();
+          const user = msg.user || msg.speaker;
+          const playerText = msg.content || msg.playerText;
+          let narration = msg.gameresponse?.narration || msg.narration;
+
+          // ✅ Fix: Convert line breaks to <br> for proper formatting
+          narration = narration.replace(/\n/g, '<br>');
+
+          log.innerHTML += `
+            <div style="margin-top: 10px;">
+              <strong>[${time}] ${user}:</strong> ${playerText}<br />
+              <em>🧙 DM:</em><br />${narration}
+            </div>
+          `;
+          log.scrollTop = log.scrollHeight;
         }
       } catch (err) {
         console.warn('Non-JSON or invalid message:', event.data);
@@ -81,60 +102,6 @@
     socket.onclose = () => {
       console.warn('WebSocket connection closed');
     };
-
-    // D3 chart setup
-    const chartWidth = 600;
-    const chartHeight = 300;
-    const margin = { top: 20, right: 20, bottom: 40, left: 60 };
-
-    const svg = d3.select("#chart")
-      .append("svg")
-      .attr("width", chartWidth)
-      .attr("height", chartHeight);
-
-    const x = d3.scaleBand()
-      .range([margin.left, chartWidth - margin.right])
-      .padding(0.1);
-
-    const y = d3.scaleLinear()
-      .range([chartHeight - margin.bottom, margin.top]);
-
-    const xAxisGroup = svg.append("g")
-      .attr("transform", `translate(0, ${chartHeight - margin.bottom})`);
-
-    const yAxisGroup = svg.append("g")
-      .attr("transform", `translate(${margin.left}, 0)`);
-
-    function updateChart(traits) {
-      const data = Object.entries(traits).map(([trait, count]) => ({ trait, count }));
-
-      x.domain(data.map(d => d.trait));
-      y.domain([0, d3.max(data, d => d.count) || 1]);
-
-      xAxisGroup.call(d3.axisBottom(x));
-      yAxisGroup.call(d3.axisLeft(y));
-
-      const bars = svg.selectAll(".bar")
-        .data(data, d => d.trait);
-
-      bars.enter()
-        .append("rect")
-        .attr("class", "bar")
-        .attr("x", d => x(d.trait))
-        .attr("width", x.bandwidth())
-        .attr("y", y(0))
-        .attr("height", 0)
-        .merge(bars)
-        .transition()
-        .duration(500)
-        .attr("x", d => x(d.trait))
-        .attr("width", x.bandwidth())
-        .attr("y", d => y(d.count))
-        .attr("height", d => chartHeight - margin.bottom - y(d.count))
-        .attr("fill", "steelblue");
-
-      bars.exit().remove();
-    }
 
     // Zoom SDK integration
     (async () => {

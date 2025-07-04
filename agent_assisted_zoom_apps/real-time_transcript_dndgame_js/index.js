@@ -8,11 +8,8 @@ import { promisify } from 'util';
 import path from 'path';
 import { fileURLToPath } from 'url';
 
+import { handleTranscript } from './dndGame.js';
 
-import { preloadRetrieverOnce, askLLMWithTranscript } from './ragPipeline.js';
-
- await preloadRetrieverOnce();
- 
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = path.dirname(__filename);
 let frameCounter = 0;
@@ -33,6 +30,7 @@ const WEBHOOK_PATH = process.env.WEBHOOK_PATH || '/webhook';
 
 // Middleware to parse JSON bodies in incoming requests
 app.use(express.json());
+app.use(express.static(path.join(__dirname, 'public'))); // ✅ Serve static files
 
 // Map to keep track of active WebSocket connections and audio chunks
 const activeConnections = new Map();
@@ -368,15 +366,26 @@ function connectToMediaWebSocket(mediaUrl, meetingUuid, streamId, signalingSocke
             if (msg.msg_type === 17 && msg.content && msg.content.data) {
                 console.log('Transcript data received');
 
-              
-               const result = await askLLMWithTranscript( msg.content.data);
 
-                broadcastToFrontendClients({
-                    type: 'transcript',
-                    content: result,
-                    user: msg.content.user_name,
-                    timestamp: Date.now()
-                });
+                // 🔮 Call D&D logic to get narration
+                const dmResult = await handleTranscript(msg.content.user_name, msg.content.data);
+
+                if (dmResult) {
+
+                     console.log(`🧙 DM response for ${msg.content.user_name}:`, dmResult.narration);
+                     
+                    // Broadcast Dungeon Master narration
+                    broadcastToFrontendClients({
+                        type: 'dm_response',
+                        content: msg.content.data,
+                        user: msg.content.user_name,
+                        timestamp: Date.now(),
+                        gameresponse: dmResult,
+                    });
+
+
+                }
+
             }
             if (msg.msg_type === 18 && msg.content && msg.content.data) {
                 console.log('Chat data received');

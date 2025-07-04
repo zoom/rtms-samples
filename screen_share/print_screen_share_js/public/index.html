@@ -2,23 +2,25 @@
 <html>
   <head>
     <title>Zoom App Context Information</title>
+    
+    <!-- Zoom App SDK: Ensure appssdk.zoom.us is in the Domain Allow List
+         (i.e., under Feature-> Surface -> Domain Allow List).
+         This script will fail to load otherwise. -->
     <script src="https://appssdk.zoom.us/sdk.js"></script>
-
+    
     <style>
       body {
         font-family: Arial, sans-serif;
         padding: 20px;
       }
 
-      #transcriptBox {
+      canvas {
+        display: block;
         width: 100%;
-        max-height: 500px;
+        height: 150px;
         border: 1px solid #ccc;
+        overflow-x: auto;
         background-color: #fafafa;
-        padding: 10px;
-        overflow-y: auto;
-        white-space: pre-wrap;
-        font-family: monospace;
         margin-bottom: 20px;
       }
 
@@ -39,53 +41,25 @@
     </style>
   </head>
   <body>
-    <!-- Transcription display -->
-    <div id="transcriptBox"></div>
+    <canvas id="dataCanvas"></canvas>
 
     <h1>Zoom App Context Information</h1>
     <div id="output">Initializing...</div>
 
     <script>
-      const transcriptBox = document.getElementById('transcriptBox');
-      const transcriptLines = [];
-      const maxLines = 20;
-
-      const socket = new WebSocket('wss://rtms.asdc.cc/ws');
-
-      socket.onopen = () => {
-        console.log('✅ WebSocket connected');
-        // Do not write to transcriptBox here to avoid leftovers
-      };
-
-      socket.onmessage = (event) => {
-        try {
-          const msg = JSON.parse(event.data);
-
-          if (msg.type === 'transcript') {
-            const line = `[${new Date(msg.timestamp).toLocaleTimeString()}] ${msg.user}: ${msg.content}`;
-            transcriptLines.push(line);
-            if (transcriptLines.length > maxLines) transcriptLines.shift();
-
-            // Completely clear and replace transcript display
-            transcriptBox.textContent = ''; // 👈 clears the div
-            transcriptBox.textContent = transcriptLines.join('\n');
-            transcriptBox.scrollTop = transcriptBox.scrollHeight;
-          }
-        } catch (err) {
-          console.warn('Non-JSON or invalid message:', event.data);
-        }
-      };
-
-      socket.onerror = (err) => {
-        console.error('WebSocket error:', err);
-      };
-
-      socket.onclose = () => {
-        console.warn('WebSocket connection closed');
-      };
+      const canvas = document.getElementById('dataCanvas');
+      const ctx = canvas.getContext('2d');
+      canvas.width = 1000; // Scrollable width
+      canvas.height = 150;
 
       (async () => {
         try {
+          // Zoom SDK Configuration
+          // IMPORTANT:
+          // 1. Make sure your app includes this domain in the Zoom App Marketplace "Domain Allow List".
+          // 2. Under "Features" -> "Surface" -> "Zoom App SDK", select the APIs you're using.
+          // 3. Ensure APIs like getRunningContext, getMeetingContext, etc. are ENABLED for your app.
+
           const configResponse = await zoomSdk.config({
             version: '1.10.0',
             capabilities: [
