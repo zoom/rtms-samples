@@ -1,6 +1,9 @@
 import fs from 'fs';
 import path from 'path';
 
+
+ const blackFrame = fs.readFileSync('black_frame.h264');
+
 // Keep a simple map to reuse write streams
 const videoWriteStreams = new Map();
 
@@ -47,9 +50,14 @@ export function saveRawVideo(buffer, userName, timestamp, meetingUuid) {
         const numberOfFrames = Math.floor(timeDifference / 40); // ~25 fps approximation
         console.log(`Detected gap of ${timeDifference}ms. Filling with ${numberOfFrames} black frames.`);
 
+        // for (let i = 0; i < numberOfFrames; i++) {
+        //     // Dynamically generate a black frame (width and height as per your stream settings)
+        //     const blackFrame = generateDynamicBlackFrame(640, 480); // Adjust to your video resolution
+        //     writeStream.write(blackFrame);
+        // }
+
+    
         for (let i = 0; i < numberOfFrames; i++) {
-            // Dynamically generate a black frame (width and height as per your stream settings)
-            const blackFrame = generateDynamicBlackFrame(640, 480); // Adjust to your video resolution
             writeStream.write(blackFrame);
         }
     }
