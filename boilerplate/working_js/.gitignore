@@ -29,8 +29,10 @@ processed/
 
 # Logs
 *.log
-logs/
 debug.log
+logs/*
+!logs/.gitkeep
+
 
 # Optional npm cache directory
 .npm
@@ -46,6 +48,7 @@ debug.log
 
 recordings/*
 !recordings/.gitkeep
+
 
 scratchpad.md
 output.mp4

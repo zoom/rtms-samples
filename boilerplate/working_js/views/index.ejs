@@ -1,0 +1,154 @@
+<!DOCTYPE html>
+<html>
+
+<head>
+  <title>Zoom App Context Information</title>
+  <script src="https://appssdk.zoom.us/sdk.js"></script>
+
+  <style>
+    body {
+      font-family: Arial, sans-serif;
+      padding: 20px;
+    }
+
+    #transcriptBox {
+      width: 100%;
+      max-height: 500px;
+      border: 1px solid #ccc;
+      background-color: #fafafa;
+      padding: 10px;
+      overflow-y: auto;
+      white-space: pre-wrap;
+      font-family: monospace;
+      margin-bottom: 20px;
+    }
+
+    h1 {
+      margin-bottom: 10px;
+    }
+
+    pre {
+      background-color: #f4f4f4;
+      padding: 10px;
+      border-radius: 5px;
+      overflow-x: auto;
+    }
+
+    .error {
+      color: red;
+    }
+  </style>
+</head>
+
+<body>
+  <!-- Transcription display -->
+  <div id="transcriptBox"></div>
+
+  <h1>Zoom App Context Information</h1>
+  <div id="output">Initializing...</div>
+
+  <script>
+    const transcriptBox = document.getElementById('transcriptBox');
+    const transcriptLines = [];
+    const maxLines = 20;
+
+    const socket = new WebSocket("<%= websocketUrl %>");
+
+    const keepAliveInterval = 30000;
+    const keepAlive = setInterval(() => {
+      if (socket.readyState === WebSocket.OPEN) {
+        socket.send(JSON.stringify({ type: 'ping' }));
+        console.log('🔄 Sent keepalive ping');
+      }
+    }, keepAliveInterval);
+
+    socket.onopen = () => {
+      console.log('✅ WebSocket connected');
+      // Do not write to transcriptBox here to avoid leftovers
+    };
+
+    socket.onmessage = (event) => {
+      try {
+        const msg = JSON.parse(event.data);
+
+        if (msg.type === 'transcript') {
+          const line = `[${new Date(msg.timestamp).toLocaleTimeString()}] ${msg.user}: ${msg.content}`;
+          transcriptLines.push(line);
+          if (transcriptLines.length > maxLines) transcriptLines.shift();
+
+          // Completely clear and replace transcript display
+          transcriptBox.textContent = ''; // 👈 clears the div
+          transcriptBox.textContent = transcriptLines.join('\n');
+          transcriptBox.scrollTop = transcriptBox.scrollHeight;
+        }
+      } catch (err) {
+        console.warn('Non-JSON or invalid message:', event.data);
+      }
+    };
+
+    socket.onerror = (err) => {
+      console.error('WebSocket error:', err);
+    };
+
+    socket.onclose = () => {
+      console.warn('WebSocket connection closed');
+    };
+
+    (async () => {
+      try {
+
+        // Zoom SDK Configuration
+        // IMPORTANT:
+        // 1. Make sure your app includes this domain in the Zoom App Marketplace "Domain Allow List".
+        // 2. Under "Features" -> "Surface" -> "Zoom App SDK", select the APIs you're using.
+        // 3. Ensure APIs like getRunningContext, getMeetingContext, etc. are ENABLED for your app.
+        const configResponse = await zoomSdk.config({
+          version: '1.10.0',
+          capabilities: [
+            'getSupportedJsApis',
+            'getRunningContext',
+            'getMeetingContext',
+            'getUserContext',
+            'getMeetingUUID',
+            'getAppContext'
+          ]
+        });
+
+        const supportedApis = await zoomSdk.getSupportedJsApis();
+        const runningContext = await zoomSdk.getRunningContext();
+        const meetingContext = await zoomSdk.getMeetingContext();
+        const userContext = await zoomSdk.getUserContext();
+        const meetingUUID = await zoomSdk.getMeetingUUID();
+        const appContext = await zoomSdk.getAppContext();
+
+        document.getElementById('output').innerHTML = `
+            <h2>Supported JS APIs:</h2>
+            <pre>${JSON.stringify(supportedApis, null, 2)}</pre>
+
+            <h2>Running Context:</h2>
+            <pre>${JSON.stringify(runningContext, null, 2)}</pre>
+
+            <h2>Meeting Context:</h2>
+            <pre>${JSON.stringify(meetingContext, null, 2)}</pre>
+
+            <h2>User Context:</h2>
+            <pre>${JSON.stringify(userContext, null, 2)}</pre>
+
+            <h2>Meeting UUID:</h2>
+            <pre>${JSON.stringify(meetingUUID, null, 2)}</pre>
+
+            <h2>App Context:</h2>
+            <pre>${JSON.stringify(appContext, null, 2)}</pre>
+          `;
+      } catch (error) {
+        console.error('Error retrieving Zoom context:', error);
+        document.getElementById('output').innerHTML = `
+            <p class="error">An error occurred while retrieving Zoom context information.</p>
+            <pre class="error">${error}</pre>
+          `;
+      }
+    })();
+  </script>
+</body>
+
+</html>
