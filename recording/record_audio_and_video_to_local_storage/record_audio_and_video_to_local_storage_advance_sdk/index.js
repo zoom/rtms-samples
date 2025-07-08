@@ -33,20 +33,14 @@ rtms.onWebhookEvent(async ({ event, payload }) => {
     const client = new rtms.Client();
 
 
-    // client.setAudioParameters({
-
-    //     codec: rtms.AudioCodec.L16,
-    //     /** The sample rate in Hz (e.g., 8000, 16000, 44100) */
-    //     sampleRate:  rtms.AudioSampleRate.SR_16K,
-    //     /** The number of audio channels (1=mono, 2=stereo) */
-    //     channel:  rtms.AudioChannel.MONO,
-    //     /** Additional data options for audio processing */
-    //     dataOpt:  rtms.AudioDataOption.AUDIO_MULTI_STREAMS,
-    //     /** The duration of each audio frame in milliseconds */
-    //     duration: 100,
-    //     /** The size of each audio frame in samples */
-    //     frameSize:640
-    // });
+    client.setAudioParams({
+        contentType: rtms.AudioContentType.RAW_AUDIO,
+        codec: rtms.AudioCodec.L16,
+        sampleRate:  rtms.AudioSampleRate.SR_16K,
+        channel:  rtms.AudioChannel.MONO,
+        dataOpt:  rtms.AudioDataOption.AUDIO_MIXED_STREAM,
+        duration: 100
+    });
 
     // Configure HD video (720p H.264 at 30fps)
     client.setVideoParams({
