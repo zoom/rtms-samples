@@ -1,0 +1,82 @@
+{
+  "type": "server.tool",
+  "name": "zoom-openapi-tools",
+  "version": "1.0.1",
+  "description": "Tools for interacting with a Zoom account. Includes actions to create meetings and users, list meetings, and get meeting details.",
+  "tools": [
+    {
+      "name": "zoom-create-meeting",
+      "description": "Create or schedule a Zoom meeting for a specific user. Required fields: user_id, topic, start_time (ISO 8601), and duration (minutes). If any are missing, ask the user to provide them before calling this tool.",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "user_id": { "type": "string", "description": "User ID or email to associate with the meeting." },
+          "topic": { "type": "string", "description": "Topic or title of the meeting." },
+          "start_time": { "type": "string", "description": "Meeting start time in ISO 8601 format." },
+          "duration": { "type": "integer", "description": "Duration of the meeting in minutes." },
+          "timezone": { "type": "string", "description": "Timezone, e.g. 'America/Los_Angeles'." },
+          "type": {
+            "type": "integer",
+            "enum": [1, 2, 3, 8],
+            "description": "Meeting type: 1 = instant, 2 = scheduled, 3 = recurring (no fixed time), 8 = recurring (fixed time)."
+          }
+        },
+        "required": ["user_id", "topic", "start_time", "duration"]
+      }
+    },
+    {
+      "name": "zoom-create-user",
+      "description": "Create a new Zoom user account. Required fields: action (must be 'create') and user_info (must include email and type). If any required information is missing, ask the user to provide it before using the tool.",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "action": {
+            "type": "string",
+            "enum": ["create"],
+            "description": "Action type (only 'create' is supported)."
+          },
+          "user_info": {
+            "type": "object",
+            "properties": {
+              "email": { "type": "string", "description": "Email address of the new user." },
+              "type": { "type": "integer", "enum": [1, 2, 3], "description": "User type: 1 = Basic, 2 = Licensed, 3 = On-prem." },
+              "first_name": { "type": "string" },
+              "last_name": { "type": "string" }
+            },
+            "required": ["email", "type"]
+          }
+        },
+        "required": ["action", "user_info"]
+      }
+    },
+    {
+      "name": "zoom-list-meetings",
+      "description": "List scheduled, live, or upcoming meetings for a Zoom user. Required field: user_id (email or user ID). If user_id is missing, ask the user to provide it before using this tool.",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "user_id": { "type": "string", "description": "User ID or email address." },
+          "type": {
+            "type": "string",
+            "enum": ["scheduled", "live", "upcoming"],
+            "description": "Type of meeting to list: scheduled, live, or upcoming."
+          },
+          "page_size": { "type": "integer", "default": 30, "description": "Number of records per page (max 300)." },
+          "next_page_token": { "type": "string", "description": "Token for fetching the next page of results." }
+        },
+        "required": ["user_id"]
+      }
+    },
+    {
+      "name": "zoom-get-meeting-details",
+      "description": "Get detailed information about a specific Zoom meeting. Required field: meeting_id. If it is missing, ask the user to provide it before calling this tool.",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "meeting_id": { "type": "string", "description": "The Zoom meeting ID." }
+        },
+        "required": ["meeting_id"]
+      }
+    }
+  ]
+}

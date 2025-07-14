@@ -1,0 +1,22 @@
+{
+  "type": "server.tool",
+  "name": "llm-router",
+  "version": "1.0.0",
+  "description": "Routes LLM requests and automatically invokes tools.",
+  "tools": [
+    {
+      "name": "ask-llm",
+      "description": "Routes a question to the LLM. If tool use is appropriate, it will call the tool.",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "message": {
+            "type": "string",
+            "description": "The user message to route"
+          }
+        },
+        "required": ["message"]
+      }
+    }
+  ]
+}
