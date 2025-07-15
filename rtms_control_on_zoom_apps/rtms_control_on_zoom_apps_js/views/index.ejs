@@ -1,0 +1,290 @@
+<!DOCTYPE html>
+<html>
+
+<head>
+  <title>Zoom App Context Information</title>
+  <script src="https://appssdk.zoom.us/sdk.js"></script>
+
+  <style>
+    body {
+      font-family: Arial, sans-serif;
+      padding: 20px;
+    }
+
+    #transcriptBox {
+      width: 100%;
+      max-height: 500px;
+      border: 1px solid #ccc;
+      background-color: #fafafa;
+      padding: 10px;
+      overflow-y: auto;
+      white-space: pre-wrap;
+      font-family: monospace;
+      margin-bottom: 20px;
+    }
+
+    h1 {
+      margin-bottom: 10px;
+    }
+
+    pre {
+      background-color: #f4f4f4;
+      padding: 10px;
+      border-radius: 5px;
+      overflow-x: auto;
+    }
+
+    .error {
+      color: red;
+    }
+  </style>
+</head>
+
+<body>
+
+
+  <div>
+    <button id="startRtmsBtn">Start RTMS</button>
+    <button id="stopRtmsBtn">Stop RTMS</button>
+    <button id="pauseRtmsBtn">Pause RTMS</button>
+    <button id="resumeRtmsBtn">Resume RTMS</button>
+    <button id="getRtmsStatusBtn">Get RTMS Status</button>
+  </div>
+
+  <hr>
+
+  <!-- Label + RTMS status from API -->
+  <p style="font-weight: bold; margin-bottom: 5px;">[Manual] Get RTMS Status</p>
+  <div id="getRTMSstatusBox" style="margin-bottom: 20px;">
+    Get RTMS status will appear here...
+  </div>
+
+  <hr>
+
+  <!-- Label + RTMS status from callback -->
+  <p style="font-weight: bold; margin-bottom: 5px;">[Callback] RTMS Status Change</p>
+  <div id="rtmsStatusBox" style="margin-bottom: 20px;">
+    Callback RTMS status will appear here...
+  </div>
+
+  <hr>
+
+
+  <!-- Transcription display -->
+  <div id="transcriptLabel">Messages from websocket will appear below</div>
+  <div id="transcriptBox"></div>
+
+  <hr>
+
+
+  <h1>Zoom App Context Information</h1>
+  <div id="output">Initializing...</div>
+
+  <script>
+
+
+    const startRtmsBtn = document.getElementById('startRtmsBtn');
+    const stopRtmsBtn = document.getElementById('stopRtmsBtn');
+    const pauseRtmsBtn = document.getElementById('pauseRtmsBtn');
+    const resumeRtmsBtn = document.getElementById('resumeRtmsBtn');
+    const getRtmsStatusBtn = document.getElementById('getRtmsStatusBtn');
+
+
+    const transcriptBox = document.getElementById('transcriptBox');
+    const transcriptLines = [];
+    const maxLines = 20;
+
+    const socket = new WebSocket("<%= websocketUrl %>");
+
+    const keepAliveInterval = 30000;
+    const keepAlive = setInterval(() => {
+      if (socket.readyState === WebSocket.OPEN) {
+        socket.send(JSON.stringify({ type: 'ping' }));
+        console.log('🔄 Sent keepalive ping');
+      }
+    }, keepAliveInterval);
+
+    socket.onopen = () => {
+      console.log('✅ WebSocket connected');
+      // Do not write to transcriptBox here to avoid leftovers
+    };
+
+    socket.onmessage = (event) => {
+      try {
+        const msg = JSON.parse(event.data);
+
+        if (msg.type === 'transcript') {
+          const line = `[${new Date(msg.timestamp).toLocaleTimeString()}] ${msg.user}: ${msg.content}`;
+          transcriptLines.push(line);
+          if (transcriptLines.length > maxLines) transcriptLines.shift();
+
+          // Completely clear and replace transcript display
+          transcriptBox.textContent = ''; // 👈 clears the div
+          transcriptBox.textContent = transcriptLines.join('\n');
+          transcriptBox.scrollTop = transcriptBox.scrollHeight;
+        }
+      } catch (err) {
+        console.warn('Non-JSON or invalid message:', event.data);
+      }
+    };
+
+    socket.onerror = (err) => {
+      console.error('WebSocket error:', err);
+    };
+
+    socket.onclose = () => {
+      console.warn('WebSocket connection closed');
+    };
+    let runningContext;
+    (async () => {
+      try {
+
+        // Zoom SDK Configuration
+        // IMPORTANT:
+        // 1. Make sure your app includes this domain in the Zoom App Marketplace "Domain Allow List".
+        // 2. Under "Features" -> "Surface" -> "Zoom App SDK", select the APIs you're using.
+        // 3. Ensure APIs like getRunningContext, getMeetingContext, etc. are ENABLED for your app.
+        const configResponse = await zoomSdk.config({
+          version: '0.16.31',
+          capabilities: [
+            'getSupportedJsApis',
+            'getRunningContext',
+            'getMeetingContext',
+            'getUserContext',
+            'getMeetingUUID',
+            'getAppContext',
+            'startRTMS',
+            'stopRTMS',
+            'pauseRTMS',
+            'resumeRTMS',
+            'getRTMSStatus',
+            'onRTMSStatusChange'
+          ]
+        });
+
+        const supportedApis = await zoomSdk.getSupportedJsApis();
+        runningContext = await zoomSdk.getRunningContext();
+        const meetingContext = await zoomSdk.getMeetingContext();
+        const userContext = await zoomSdk.getUserContext();
+        const meetingUUID = await zoomSdk.getMeetingUUID();
+        const appContext = await zoomSdk.getAppContext();
+
+        // Attach button event listeners
+        startRtmsBtn.addEventListener('click', async () => {
+          if (runningContext.context === 'inMeeting') {
+            try {
+              //const rtmsResponse = await zoomSdk.callZoomApi('startRTMS');
+              const rtmsResponse = await zoomSdk.startRTMS();
+              console.debug('RTMS Start Response:', rtmsResponse);
+            } catch (err) {
+              console.error('Failed to start RTMS:', err);
+            }
+          } else {
+            console.warn('Cannot start RTMS: Not in a meeting context.');
+          }
+        });
+
+        stopRtmsBtn.addEventListener('click', async () => {
+          if (runningContext.context === 'inMeeting') {
+            try {
+              // const rtmsResponse = await zoomSdk.callZoomApi('stopRTMS');
+              const rtmsResponse = await zoomSdk.stopRTMS();
+              console.debug('RTMS Stop Response:', rtmsResponse);
+            } catch (err) {
+              console.error('Failed to stop RTMS:', err);
+            }
+          } else {
+            console.warn('Cannot stop RTMS: Not in a meeting context.');
+          }
+        });
+
+                pauseRtmsBtn.addEventListener('click', async () => {
+          if (runningContext.context === 'inMeeting') {
+            try {
+         
+              const rtmsResponse = await zoomSdk.pauseRTMS();
+              console.debug('RTMS Pause Response:', rtmsResponse);
+            } catch (err) {
+              console.error('Failed to pause RTMS:', err);
+            }
+          } else {
+            console.warn('Cannot stop RTMS: Not in a meeting context.');
+          }
+        });
+
+                resumeRtmsBtn.addEventListener('click', async () => {
+          if (runningContext.context === 'inMeeting') {
+            try {
+          
+              const rtmsResponse = await zoomSdk.resumeRTMS();
+              console.debug('RTMS Resume Response:', rtmsResponse);
+            } catch (err) {
+              console.error('Failed to resume RTMS:', err);
+            }
+          } else {
+            console.warn('Cannot stop RTMS: Not in a meeting context.');
+          }
+        });
+
+        getRtmsStatusBtn.addEventListener('click', async () => {
+          if (runningContext.context === 'inMeeting') {
+            try {
+              const rtmsStatus = await zoomSdk.callZoomApi('getRTMSStatus');
+              console.log("RTMS Status:", rtmsStatus);
+              const statusBox = document.getElementById('getRTMSstatusBox');
+
+              if (Array.isArray(rtmsStatus.rtmsStatus) && rtmsStatus.rtmsStatus.length === 0) {
+                statusBox.textContent = 'ℹ️ No RTMS sessions currently active.';
+              } else {
+                statusBox.textContent = JSON.stringify(rtmsStatus, null, 2);
+              }
+            } catch (err) {
+              console.error("Error getting RTMS status:", err);
+
+              document.getElementById('getRTMSstatusBox').textContent = '❌ Error fetching RTMS status: ' + err.message;
+            }
+          } else {
+            console.warn('Cannot get RTMS Status: Not in a meeting context.');
+          }
+        });
+
+
+
+        zoomSdk.on('onRTMSStatusChange', (event) => {
+          console.log('📡 RTMS Status Changed:', event);
+          const statusBox = document.getElementById('rtmsStatusBox');
+          statusBox.textContent = `RTMS Status: ${JSON.stringify(event)}`;
+        });
+
+
+        document.getElementById('output').innerHTML = `
+            <h2>Supported JS APIs:</h2>
+            <pre>${JSON.stringify(supportedApis, null, 2)}</pre>
+
+            <h2>Running Context:</h2>
+            <pre>${JSON.stringify(runningContext, null, 2)}</pre>
+
+            <h2>Meeting Context:</h2>
+            <pre>${JSON.stringify(meetingContext, null, 2)}</pre>
+
+            <h2>User Context:</h2>
+            <pre>${JSON.stringify(userContext, null, 2)}</pre>
+
+            <h2>Meeting UUID:</h2>
+            <pre>${JSON.stringify(meetingUUID, null, 2)}</pre>
+
+            <h2>App Context:</h2>
+            <pre>${JSON.stringify(appContext, null, 2)}</pre>
+          `;
+      } catch (error) {
+        console.error('Error retrieving Zoom context:', error);
+        document.getElementById('output').innerHTML = `
+            <p class="error">An error occurred while retrieving Zoom context information.</p>
+            <pre class="error">${error}</pre>
+          `;
+      }
+    })();
+  </script>
+</body>
+
+</html>
