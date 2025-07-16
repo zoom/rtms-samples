@@ -1,4 +1,4 @@
-import fs, { lstat } from 'fs';
+import fs from 'fs';
 import path from 'path';
 import { exec } from 'child_process';
 import { promisify } from 'util';
@@ -22,9 +22,7 @@ export async function muxFirstAudioVideo(meetingUuid) {
 
   const files = fs.readdirSync(folderPath);
 
-const wavFile = files
-  .filter(file => file.endsWith('.wav') && file !== '-1.wav')
-  .sort()[0]; // Optional: gets the first in sorted order
+  const wavFile = files.find(file => file.endsWith('.wav'));
   const mp4File = files.find(file => file.endsWith('.mp4'));
 
   if (!wavFile || !mp4File) {
@@ -48,4 +46,3 @@ const wavFile = files
     console.error('❌ Muxing failed:', error.message);
   }
 }
-lstat
