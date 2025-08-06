@@ -1,0 +1,50 @@
+version: '3.8'
+
+services:
+  rtms-app-slim:
+    build:
+      context: .
+      dockerfile: Dockerfile.slim
+    container_name: rtms-app-slim
+    ports:
+      - "0.0.0.0:5050:5050"
+    volumes:
+      # Mount your .env file from the host
+      - ./.env:/app/.env:ro
+      # Optional: Mount logs directory for persistence
+      - ./logs:/app/logs
+    environment:
+      # You can also set environment variables directly here instead of using .env file
+      # ZM_RTMS_CLIENT: your_client_id
+      # ZM_RTMS_SECRET: your_client_secret
+      # ZM_RTMS_PORT: 5050
+      NODE_ENV: production
+    restart: unless-stopped
+    profiles:
+      - slim
+
+  rtms-app-alpine:
+    build:
+      context: .
+      dockerfile: Dockerfile.alpine
+    container_name: rtms-app-alpine
+    ports:
+      - "0.0.0.0:5050:5050"
+    volumes:
+      # Mount your .env file from the host
+      - ./.env:/app/.env:ro
+      # Optional: Mount logs directory for persistence
+      - ./logs:/app/logs
+    environment:
+      # You can also set environment variables directly here instead of using .env file
+      # ZM_RTMS_CLIENT: your_client_id
+      # ZM_RTMS_SECRET: your_client_secret
+      # ZM_RTMS_PORT: 5050
+      NODE_ENV: production
+    restart: unless-stopped
+    profiles:
+      - alpine
+
+# To run the slim version: docker-compose --profile slim up
+# To run the alpine version: docker-compose --profile alpine up
+# To run both: docker-compose --profile slim --profile alpine up
