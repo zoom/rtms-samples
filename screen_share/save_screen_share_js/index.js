@@ -212,7 +212,8 @@ function connectToMediaWebSocket(mediaUrl, meetingUuid, streamId, signalingSocke
                     fps: 25
                 },
                 deskshare: {
-                    codec: 5 //JPG
+                    codec: 5, //JPG
+                    fps: 5
                 },
                 chat: {
                     content_type: 5,
@@ -278,9 +279,6 @@ function connectToMediaWebSocket(mediaUrl, meetingUuid, streamId, signalingSocke
                 console.log('Video data received');
 
             }
-
-
-
             if (msg.msg_type === 16 && msg.content && msg.content.data) {
                 let { user_id, user_name, data: shareData, timestamp } = msg.content;
 
