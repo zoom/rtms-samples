@@ -19,7 +19,35 @@ export function connectToSignalingWebSocket(
   clientSecret
 ) {
   console.log(`[Signaling] Connecting for meeting ${meetingUuid}`);
-  const signalingWs = new WebSocket(serverUrls);
+
+
+  if (!serverUrls || typeof serverUrls !== 'string' || !serverUrls.startsWith('ws')) {
+    console.error(`[Signaling] ❌ Invalid WebSocket URL:`, serverUrls);
+
+    // Set shouldReconnect to false to prevent retry loop
+    if (activeConnections.has(meetingUuid)) {
+      console.error(`[Signaling] MeetingUUID found in activeConnections map`);
+      const conn = activeConnections.get(meetingUuid);
+      conn.shouldReconnect = false;
+      console.error(`[Signaling] MeetingUUID found in activeConnections map. disabling reconnection`);
+    }
+    else{
+ console.error(`[Signaling] MeetingUUID not found in activeConnections map`);
+
+    }
+
+    return;
+  }
+
+
+
+  let signalingWs;
+  try {
+    signalingWs = new WebSocket(serverUrls);
+  } catch (err) {
+    console.error(`[Signaling] ❌ Failed to connect WebSocket: ${err.message}`);
+    return;
+  }
 
   // Set up or refresh connection state
   if (!activeConnections.has(meetingUuid)) {
