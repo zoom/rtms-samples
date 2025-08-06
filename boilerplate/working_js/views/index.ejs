@@ -46,6 +46,8 @@
   <div>
     <button id="startRtmsBtn">Start RTMS</button>
     <button id="stopRtmsBtn">Stop RTMS</button>
+    <button id="pauseRtmsBtn">Pause RTMS</button>
+    <button id="resumeRtmsBtn">Resume RTMS</button>
     <button id="getRtmsStatusBtn">Get RTMS Status</button>
   </div>
 
@@ -83,6 +85,8 @@
 
     const startRtmsBtn = document.getElementById('startRtmsBtn');
     const stopRtmsBtn = document.getElementById('stopRtmsBtn');
+    const pauseRtmsBtn = document.getElementById('pauseRtmsBtn');
+    const resumeRtmsBtn = document.getElementById('resumeRtmsBtn');
     const getRtmsStatusBtn = document.getElementById('getRtmsStatusBtn');
 
 
@@ -187,6 +191,34 @@
               console.debug('RTMS Stop Response:', rtmsResponse);
             } catch (err) {
               console.error('Failed to stop RTMS:', err);
+            }
+          } else {
+            console.warn('Cannot stop RTMS: Not in a meeting context.');
+          }
+        });
+
+                pauseRtmsBtn.addEventListener('click', async () => {
+          if (runningContext.context === 'inMeeting') {
+            try {
+         
+              const rtmsResponse = await zoomSdk.pauseRTMS();
+              console.debug('RTMS Pause Response:', rtmsResponse);
+            } catch (err) {
+              console.error('Failed to pause RTMS:', err);
+            }
+          } else {
+            console.warn('Cannot stop RTMS: Not in a meeting context.');
+          }
+        });
+
+                resumeRtmsBtn.addEventListener('click', async () => {
+          if (runningContext.context === 'inMeeting') {
+            try {
+          
+              const rtmsResponse = await zoomSdk.resumeRTMS();
+              console.debug('RTMS Resume Response:', rtmsResponse);
+            } catch (err) {
+              console.error('Failed to resume RTMS:', err);
             }
           } else {
             console.warn('Cannot stop RTMS: Not in a meeting context.');
