@@ -64,15 +64,15 @@ rtms.onWebhookEvent(({ event, payload }) => {
   });
 
 
-  // // Configure HD video (720p H.264 at 30fps)
-  // const deskshare_params = {
-  //   contentType: rtms.VideoContentType.RAW_VIDEO,
-  //   codec: rtms.VideoCodec.JPG,
-  //   resolution: rtms.VideoResolution.SD,
-  //   fps: 5
-  // }
+  // Configure HD video (720p H.264 at 30fps)
+  const deskshare_params = {
+    contentType: rtms.VideoContentType.RAW_VIDEO,
+    codec: rtms.VideoCodec.JPG,
+    resolution: rtms.VideoResolution.SD,
+    fps: 5
+  }
 
-  // client.setDeskshareParams(deskshare_params)
+  client.setDeskshareParams(deskshare_params)
 
   client.onDeskshareData((data, size, timestamp, metadata) => {
     console.log(`Received ${size} bytes of deskshare data at ${timestamp} from ${metadata.userName}`);
