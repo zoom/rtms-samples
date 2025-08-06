@@ -220,7 +220,6 @@ function connectToMediaWebSocket(mediaUrl, meetingUuid, streamId, signalingSocke
             // Handle audio data
             if (msg.msg_type === 14 && msg.content && msg.content.data) {
                 let { user_id, user_name, data: audioData, timestamp } = msg.content, buffer = Buffer.from(audioData, 'base64');
-
                 azureSpeechToTextStream(buffer);
             }
             // Handle video data
