@@ -41,7 +41,7 @@ export function connectToMediaWebSocket(
           sample_rate: 1, //16k
           channel: 1, //mono
           codec: 1, //L16
-          data_opt: 1, //AUDIO_MIXED_STREAM
+          data_opt: 2, //1 for AUDIO_MIXED_STREAM, 2 for AUDIO_MULTI_STREAMS 
           send_rate: 100 //in Milliseconds
         },
         video: {
