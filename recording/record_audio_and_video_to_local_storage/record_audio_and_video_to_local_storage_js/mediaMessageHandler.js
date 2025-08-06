@@ -74,7 +74,15 @@ export function handleMediaMessage(data, {
         }
         break;
 
-
+      case 12: // KEEP_ALIVE_REQ
+        console.log("case 12");
+        conn.media.lastKeepAlive = Date.now();
+        console.log('Responding to KEEP_ALIVE_REQ');
+        mediaWs.send(JSON.stringify({
+          msg_type: 13,
+          timestamp: msg.timestamp
+        }));
+        break;
 
       // {
       //   "msg_type": 14, 
@@ -113,6 +121,7 @@ export function handleMediaMessage(data, {
           let { user_id, user_name, data: videoData, timestamp } = msg.content;
           let buffer = Buffer.from(videoData, 'base64');
           saveRawVideo(buffer, user_name, timestamp, meetingUuid);
+          console.log(timestamp);
         }
         break;
 
