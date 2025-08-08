@@ -36,6 +36,8 @@ function getAnalyzerForUser(userId) {
 
 
 app.post(WEBHOOK_PATH, (req, res) => {
+    // Respond with HTTP 200 status
+    res.sendStatus(200);
     const { event, payload } = req.body;
     console.log('Webhook received:', event);
     console.log('Payload:', JSON.stringify(payload, null, 2));
@@ -75,8 +77,6 @@ app.post(WEBHOOK_PATH, (req, res) => {
             activeConnections.delete(meeting_uuid);
         }
     }
-
-    res.sendStatus(200);
 });
 
 function generateSignature(meetingUuid, streamId) {
