@@ -17,6 +17,13 @@ class H264StreamAnalyzer {
         this.isInitialized = false;
         this.lastLogTime = Date.now();
 
+        // Frame tracking for lost frame detection
+        this.currentFrameNum = null;           // Current H.264 frame number
+        this.lastFrameNum = null;              // Previous frame number
+        this.expectedFrameNum = 0;             // Expected next frame number
+        this.lostFrames = [];                  // Accumulated lost frame numbers
+        this.frameNumBits = 4;                 // Default log2_max_frame_num_minus4 + 4
+
         // Stream info
         this.streamInfo = {
             isAnalyzing: false,
@@ -189,6 +196,13 @@ class H264StreamAnalyzer {
 
             // Parse log2_max_frame_num_minus4
             const log2MaxFrameNumMinus4 = reader.readUE();
+            
+            // Update frame number bits for accurate frame number parsing
+            this.frameNumBits = log2MaxFrameNumMinus4 + 4;
+            
+            if (this.enableDetailedLogging) {
+                console.log(`   SPS: log2_max_frame_num_minus4=${log2MaxFrameNumMinus4}, frameNumBits=${this.frameNumBits}`);
+            }
 
             // Parse pic_order_cnt_type
             const picOrderCntType = reader.readUE();
@@ -412,6 +426,140 @@ class H264StreamAnalyzer {
         }
     }
 
+    // Remove emulation prevention bytes (0x03) from buffer
+    removeEmulationPrevention(buffer, offset, length) {
+        const result = [];
+        let i = offset;
+        const end = Math.min(offset + length, buffer.length);
+        
+        while (i < end) {
+            if (i + 2 < end && 
+                buffer[i] === 0x00 && 
+                buffer[i + 1] === 0x00 && 
+                buffer[i + 2] === 0x03) {
+                // Found emulation prevention sequence, skip the 0x03 byte
+                result.push(buffer[i]);     // 0x00
+                result.push(buffer[i + 1]); // 0x00
+                i += 3; // Skip the 0x03
+            } else {
+                result.push(buffer[i]);
+                i++;
+            }
+        }
+        
+        return Buffer.from(result);
+    }
+
+    // Parse frame number from slice header
+    parseFrameNumber(buffer, offset) {
+        try {
+            // Debug: Show raw bytes
+            if (this.enableDetailedLogging) {
+                const debugBytes = buffer.slice(offset, Math.min(offset + 20, buffer.length));
+                console.log(`   Raw slice header bytes: ${Array.from(debugBytes).map(b => b.toString(16).padStart(2, '0')).join(' ')}`);
+            }
+
+            // Remove emulation prevention bytes first
+            const cleanBuffer = this.removeEmulationPrevention(buffer, offset, Math.min(50, buffer.length - offset));
+            
+            if (this.enableDetailedLogging) {
+                const debugCleanBytes = cleanBuffer.slice(0, Math.min(20, cleanBuffer.length));
+                console.log(`   Clean slice header bytes: ${Array.from(debugCleanBytes).map(b => b.toString(16).padStart(2, '0')).join(' ')}`);
+            }
+            
+            const reader = this.createBitReader(cleanBuffer, 0);
+
+            // Parse first_mb_in_slice (UE)
+            const firstMb = reader.readUE();
+
+            // Parse slice_type (UE)
+            const sliceType = reader.readUE();
+
+            // Parse pic_parameter_set_id (UE)
+            const ppsId = reader.readUE();
+
+            if (this.enableDetailedLogging) {
+                console.log(`   Parsed: first_mb=${firstMb}, slice_type=${sliceType}, pps_id=${ppsId}, frame_num_bits=${this.frameNumBits}`);
+            }
+
+            // Parse frame_num (fixed length based on log2_max_frame_num_minus4 from SPS)
+            const frameNum = reader.readBits(this.frameNumBits);
+
+            if (this.enableDetailedLogging) {
+                console.log(`   Frame number parsed: ${frameNum} (bits: ${this.frameNumBits})`);
+            }
+
+            return frameNum;
+        } catch (error) {
+            if (this.enableDetailedLogging) {
+                console.log(`   Frame number parsing failed: ${error.message}`);
+            }
+            return null;
+        }
+    }
+
+    // Detect lost frames only
+    analyzeFrameSequence(frameNum) {
+        if (frameNum === null) return;
+
+        // Handle first frame
+        if (this.lastFrameNum === null) {
+            this.lastFrameNum = frameNum;
+            this.expectedFrameNum = (frameNum + 1) % (1 << this.frameNumBits);
+            return;
+        }
+
+        const maxFrameNum = 1 << this.frameNumBits;
+        
+        // Skip analysis if frame number is the same (multiple slices in same frame)
+        if (frameNum === this.lastFrameNum) {
+            return;
+        }
+
+        // Check if this is the expected next frame
+        if (frameNum === this.expectedFrameNum) {
+            // Perfect sequence
+            this.lastFrameNum = frameNum;
+            this.expectedFrameNum = (frameNum + 1) % maxFrameNum;
+            return;
+        }
+
+        // Simple forward jump detection for lost frames
+        if (frameNum > this.lastFrameNum) {
+            // Forward jump - check for lost frames
+            let distance = frameNum - this.lastFrameNum;
+            
+            if (distance > 1 && distance <= 50) { // Reasonable gap
+                // Add lost frames
+                for (let lostFrame = this.lastFrameNum + 1; lostFrame < frameNum; lostFrame++) {
+                    this.lostFrames.push(lostFrame % maxFrameNum);
+                }
+            }
+            
+            // Update tracking
+            this.lastFrameNum = frameNum;
+            this.expectedFrameNum = (frameNum + 1) % maxFrameNum;
+            
+        } else if (frameNum < this.lastFrameNum) {
+            // Backward jump - likely wraparound
+            let wrapDistance = (maxFrameNum - this.lastFrameNum) + frameNum;
+            
+            if (wrapDistance <= 50) {
+                // Likely wraparound with lost frames
+                for (let lostFrame = this.lastFrameNum + 1; lostFrame < maxFrameNum; lostFrame++) {
+                    this.lostFrames.push(lostFrame);
+                }
+                for (let lostFrame = 0; lostFrame < frameNum; lostFrame++) {
+                    this.lostFrames.push(lostFrame);
+                }
+            }
+            
+            // Update tracking
+            this.lastFrameNum = frameNum;
+            this.expectedFrameNum = (frameNum + 1) % maxFrameNum;
+        }
+    }
+
 
     // Calculate FPS
     calculateFPS() {
@@ -455,10 +603,17 @@ class H264StreamAnalyzer {
         const frameTypeStr = frameTypes.join('/') || 'Unknown';
         const resolutionStr = this.resolution ? `${this.resolution.width}x${this.resolution.height}` : 'Unknown';
         const fpsStr = currentFPS ? `${currentFPS.toFixed(2)} FPS` : 'Calculating...';
-
-
-        console.log(`🎬 Frame #${this.frameCount} | Type: ${frameTypeStr} | ${resolutionStr} | ${fpsStr}`);
-        //process.stdout.write(`\r🎬 Frame #${this.frameCount} | Type: ${frameTypeStr} | ${resolutionStr} | ${fpsStr}`);
+        
+        // Add H.264 frame number and lost/out-of-order frame tracking
+        const h264FrameStr = this.currentFrameNum !== null ? `H264 Frame: ${this.currentFrameNum}` : 'H264 Frame: N/A';
+        
+        // Format lost frames (show last 10 to avoid overwhelming output)
+        const lostFramesStr = this.lostFrames.length > 0 ? 
+            `Lost: [${this.lostFrames.slice(-10).join(',')}${this.lostFrames.length > 10 ? '...' : ''}]` : 
+            'Lost: []';
+            
+        console.log(`🎬 Frame #${this.frameCount} | ${h264FrameStr} | Type: ${frameTypeStr} | ${resolutionStr} | ${fpsStr} | ${lostFramesStr}`);
+        //process.stdout.write(`\r🎬 Frame #${this.frameCount} | ${h264FrameStr} | Type: ${frameTypeStr} | ${resolutionStr} | ${fpsStr} | ${lostFramesStr} | ${oooFramesStr}`);
 
 
     }
@@ -509,8 +664,10 @@ class H264StreamAnalyzer {
                 this.timestamps.shift();
             }
 
-            // Analyze NAL units
+            // Analyze NAL units and extract frame numbers
             const frameTypes = [];
+            this.currentFrameNum = null;
+            
             for (const nalStart of nalUnits) {
                 if (nalStart < buffer.length) {
                     const nalUnitType = buffer[nalStart] & 0x1F;
@@ -523,6 +680,21 @@ class H264StreamAnalyzer {
                     if (frameType === 'SPS' && !this.sps) {
                         this.parseSPS(buffer, nalStart);
                         this.isInitialized = true;
+                    }
+
+                    // Extract frame number from slice headers (NAL types 1 and 5)
+                    if ((nalUnitType === 1 || nalUnitType === 5) && this.sps) {
+                        const frameNum = this.parseFrameNumber(buffer, nalStart + 1);
+                        if (frameNum !== null && this.currentFrameNum !== frameNum) {
+                            // Only process if this is a new frame number
+                            this.currentFrameNum = frameNum;
+                            // Analyze frame sequence for lost/out-of-order detection
+                            this.analyzeFrameSequence(frameNum);
+                            
+                            if (this.enableDetailedLogging) {
+                                console.log(`   🎯 Processing frame number: ${frameNum} (Frame count: ${this.frameCount})`);
+                            }
+                        }
                     }
 
                     frameTypes.push(frameType);
@@ -588,6 +760,14 @@ class H264StreamAnalyzer {
         this.resolution = null;
         this.fps = null;
         this.isInitialized = false;
+        
+        // Reset frame tracking variables
+        this.currentFrameNum = null;
+        this.lastFrameNum = null;
+        this.expectedFrameNum = 0;
+        this.lostFrames = [];
+        this.frameNumBits = 4;
+        
         this.streamInfo = {
             isAnalyzing: false,
             totalFrames: 0,

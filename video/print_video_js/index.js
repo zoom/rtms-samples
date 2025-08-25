@@ -199,8 +199,8 @@ function connectToMediaWebSocket(mediaUrl, meetingUuid, streamId, signalingSocke
                 },
                 video: {
                     codec: 7, //H264
-                    resolution: 2,
-                    fps: 25
+                    resolution: 3,
+                    fps: 20
                 }
             }
         };

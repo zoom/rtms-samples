@@ -6,9 +6,13 @@ const fs = require('fs');
 const { exec } = require('child_process');
 const { promisify } = require('util');
 
-// Custom KVS GStreamer functions
-const { startStream,sendAudioBuffer, sendVideoBuffer } = require('./kvs_gstreamer_stream_audio_and_video_with_ffmpeg.js');
 
+// choose either GStreamer or PutMedia producer 
+
+// Custom KVS GStreamer functions
+// const { startStream,sendAudioBuffer, sendVideoBuffer } = require('./kvs_gstreamer_stream_audio_and_video_with_ffmpeg.js');
+// Custom KVS PutMedia producer
+const { startStream, sendAudioBuffer, sendVideoBuffer } = require('./kvs_putmedia_producer_stream_audio_and_video_with_ffmpeg.js');
 
 // Load environment variables from a .env file
 dotenv.config();
@@ -240,7 +244,7 @@ function connectToMediaWebSocket(mediaUrl, meetingUuid, streamId, signalingSocke
                 let timestamp = Date.now();  // Use server timestamp
                 const metadata = { user_id, user_name, timestamp };
                 //console.log(buffer);
-                sendAudioBuffer(buffer,timestamp);
+                sendAudioBuffer(buffer);
               
             }
             // Handle video data
@@ -250,7 +254,7 @@ function connectToMediaWebSocket(mediaUrl, meetingUuid, streamId, signalingSocke
                 let timestamp = Date.now();  // Use server timestamp
                 const metadata = { user_id, user_name, timestamp };
                  //console.log(buffer);
-                sendVideoBuffer(buffer,timestamp);
+                sendVideoBuffer(buffer);
                 
             }
             // Handle transcript data
@@ -279,4 +283,7 @@ function connectToMediaWebSocket(mediaUrl, meetingUuid, streamId, signalingSocke
 app.listen(port, () => {
     console.log(`Server running at http://localhost:${port}`);
     console.log(`Webhook endpoint available at http://localhost:${port}${WEBHOOK_PATH}`);
+
+    //this is for putmedia producer
+    startStream();
 });

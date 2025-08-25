@@ -19,63 +19,63 @@ const REGION = process.env.AWS_REGION;
 const STREAM_NAME = process.env.STREAM_NAME;
 const MAX_RETRIES = 5;
 
-let lastFragmentTimecodeMs = 0; // Track across sessions
+let lastFragmentTimecodeMs = 0; // track persisted timecodes
 
+// raw inputs
 const audioIn = new PassThrough();
 const videoIn = new PassThrough();
 
 let ffmpegProcess = null;
 
+/**
+ * Build ffmpeg args:
+ * - Input #0: PCM16 mono @ 16kHz (pipe:3)
+ * - Input #1: H.264 (pipe:4)
+ * - Output: Matroska (pipe:1), AAC+H264
+ */
 function buildFfmpegArgs(offsetSeconds) {
   return [
     '-y', '-nostdin', '-loglevel', 'info',
     '-fflags', '+genpts',
 
-    // AUDIO (pipe:3) - PCM16 mono @16kHz
+    // AUDIO (pipe:3)
     '-thread_queue_size', '4096',
     '-itsoffset', offsetSeconds.toString(),
     '-f', 's16le', '-ar', '16000', '-ac', '1', '-i', 'pipe:3',
 
-    // VIDEO (pipe:4) - raw H.264 from upstream
+    // VIDEO (pipe:4)
     '-thread_queue_size', '4096',
     '-itsoffset', offsetSeconds.toString(),
     '-f', 'h264', '-r', '25', '-i', 'pipe:4',
 
-    // Filters
+    // Keep timing
     '-filter:a', 'aresample=async=1',
 
-    // Map inputs: video = #1, audio = #0
+
+    // Map inputs: [1] video, [0] audio
     '-map', '1:v:0', '-map', '0:a:0',
-    '-vsync', 'cfr', '-r', '25',
 
-    // Re-encode video to enforce keyframes + headers
-    '-c:v', 'libx264',
-    '-preset', 'veryfast',
-    '-tune', 'zerolatency',
-    '-profile:v', 'baseline',
-    '-level', '4.0',
-    '-x264-params', 'bframes=0:keyint=25:min-keyint=25:scenecut=0:repeat-headers=1:aud=1',
-    '-g', '25', '-keyint_min', '25',
-    '-pix_fmt', 'yuv420p',
+    // Pass video through (don’t re-encode)
+    '-c:v', 'copy',
 
-    // Encode audio AAC 16kHz
+    // Encode audio AAC @ 16kHz mono
     '-c:a', 'aac', '-b:a', '64k', '-ar', '16000', '-ac', '1',
 
-    // Fragment muxing for KVS
-    '-max_interleave_delta', '0',
+    // Fragment settings
     '-f', 'matroska',
-    '-cluster_time_limit', '1000',       // ~1s fragments
-    '-cluster_size_limit', '2097152',    // ~2MB max cluster
+    '-cluster_time_limit', '2000',      // 2s max cluster
+    '-cluster_size_limit', '5242880',   // 5 MB max cluster
     'pipe:1'
   ];
 }
 
 function startFFmpeg() {
   if (ffmpegProcess && !ffmpegProcess.killed) {
+    console.warn('[FFmpeg] already running, killing old process');
     try { ffmpegProcess.kill('SIGTERM'); } catch {}
   }
 
-  const offsetSeconds = (lastFragmentTimecodeMs + 100) / 1000; // +100ms safety
+  const offsetSeconds = (lastFragmentTimecodeMs + 100) / 1000;
   console.log(`[FFmpeg] Starting with itsoffset=${offsetSeconds}s`);
 
   const ff = spawn('ffmpeg', buildFfmpegArgs(offsetSeconds), {
@@ -111,8 +111,11 @@ async function startPutMediaOnce(readableBody) {
   });
 
   const req = new HttpRequest({
-    protocol: endpoint.protocol, hostname: endpoint.hostname, port: endpoint.port,
-    method: 'POST', path: endpoint.pathname,
+    protocol: endpoint.protocol,
+    hostname: endpoint.hostname,
+    port: endpoint.port,
+    method: 'POST',
+    path: endpoint.pathname,
     headers: {
       host: endpoint.host,
       'x-amzn-stream-name': STREAM_NAME,
@@ -192,8 +195,11 @@ async function startStream() {
 }
 
 function stopStream() {
-  audioIn.end(); videoIn.end();
-  if (ffmpegProcess && !ffmpegProcess.killed) ffmpegProcess.kill('SIGTERM');
+  audioIn.end();
+  videoIn.end();
+  if (ffmpegProcess && !ffmpegProcess.killed) {
+    ffmpegProcess.kill('SIGTERM');
+  }
   console.log('[KVS] Stopped.');
 }
 
