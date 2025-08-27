@@ -229,7 +229,8 @@
         getRtmsStatusBtn.addEventListener('click', async () => {
           if (runningContext.context === 'inMeeting') {
             try {
-              const rtmsStatus = await zoomSdk.callZoomApi('getRTMSStatus');
+              //const rtmsStatus = await zoomSdk.callZoomApi('getRTMSStatus');
+              const rtmsStatus = await zoomSdk.getRTMSStatus();
               console.log("RTMS Status:", rtmsStatus);
               const statusBox = document.getElementById('getRTMSstatusBox');
 

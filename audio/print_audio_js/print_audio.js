@@ -2,6 +2,7 @@ import express from 'express';
 import crypto from 'crypto';
 import WebSocket from 'ws';
 import dotenv from 'dotenv';
+import PCMAnalyzer from './pcm-analyzer.js';
 
 // Load environment variables
 dotenv.config();
@@ -12,13 +13,31 @@ const port = process.env.PORT || 3000;
 const ZOOM_SECRET_TOKEN = process.env.ZOOM_SECRET_TOKEN;
 const CLIENT_ID = process.env.ZOOM_CLIENT_ID;
 const CLIENT_SECRET = process.env.ZOOM_CLIENT_SECRET;
-const WEBHOOK_PATH = os.getenv("WEBHOOK_PATH", "/webhook")
+const WEBHOOK_PATH = process.env.WEBHOOK_PATH || '/webhook';
 
 app.use(express.json());
 
 const activeConnections = new Map();
+// Map to store analyzers per userId
+const analyzers = new Map();
+// Create or retrieve analyzer for a specific user
+function getAnalyzerForUser(userId) {
+    if (!analyzers.has(userId)) {
+        const analyzer = new PCMAnalyzer({
+            sampleRate: 16000,
+            bitDepth: 16,
+            channels: 1
+        });
+        analyzers.set(userId, analyzer);
+        console.log(`👤 New analyzer created for user: ${userId}`);
+    }
+    return analyzers.get(userId);
+}
+
 
 app.post(WEBHOOK_PATH, (req, res) => {
+    // Respond with HTTP 200 status
+    res.sendStatus(200);
     const { event, payload } = req.body;
     console.log('Webhook received:', event);
     console.log('Payload:', JSON.stringify(payload, null, 2));
@@ -58,8 +77,6 @@ app.post(WEBHOOK_PATH, (req, res) => {
             activeConnections.delete(meeting_uuid);
         }
     }
-
-    res.sendStatus(200);
 });
 
 function generateSignature(meetingUuid, streamId) {
@@ -199,10 +216,15 @@ function connectToMediaWebSocket(mediaUrl, meetingUuid, streamId, signalingSocke
                     timestamp: msg.timestamp
                 }));
             } else if (msg.msg_type === 14 && msg.content?.data) {
-                const base64Data = msg.content.data.toString('base64');
-                console.log('Base64 audio data:', base64Data);
+
+                const buffer = Buffer.from(msg.content?.data, 'base64');
+
+                const analyzer = getAnalyzerForUser(msg.content?.user_id);
+                console.log(`🎤 Analyzing audio for user: ${(msg.content?.user_id)}`);
+                analyzer.analyze(buffer);
             }
         } catch (err) {
+            console.log(err);
             console.log('Raw audio data (hex):', data.toString('hex'));
         }
     });

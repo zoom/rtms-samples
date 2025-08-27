@@ -1,0 +1,38 @@
+FROM node:20-alpine
+
+WORKDIR /app
+
+# Install build dependencies including cmake-js and typescript for native module compilation
+RUN apk add --no-cache dumb-init python3 make g++ cmake
+RUN npm install -g cmake-js typescript
+
+# Copy package files
+COPY package*.json ./
+
+# Install dependencies
+RUN npm ci --only=production && npm cache clean --force
+
+# Copy application code
+COPY index.js ./
+
+# Create non-root user for security
+RUN addgroup -g 999 -S appuser && \
+    adduser -S -D -H -u 999 -s /sbin/nologin -G appuser appuser
+
+# Create logs directory with proper permissions
+RUN rm -rf logs && mkdir -p logs
+COPY logs/.gitkeep ./logs/
+RUN chown -R appuser:appuser /app && chmod -R 755 /app/logs
+
+USER appuser
+
+# Expose port
+EXPOSE 5050
+
+# Health check
+HEALTHCHECK --interval=30s --timeout=3s --start-period=5s --retries=3 \
+  CMD node -e "console.log('Health check passed')" || exit 1
+
+# Start the application with dumb-init for proper signal handling
+ENTRYPOINT ["dumb-init", "--"]
+CMD ["npm", "start"]

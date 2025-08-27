@@ -1,0 +1,723 @@
+<!DOCTYPE html>
+<html lang="en">
+
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Zoom App Frontend</title>
+  <link rel="icon" href="favicon.ico" type="image/x-icon">
+  <link rel="shortcut icon" href="favicon.ico" type="image/x-icon">
+  <meta http-equiv="Cross-Origin-Opener-Policy" content="same-origin">
+  <meta http-equiv="Cross-Origin-Embedder-Policy" content="require-corp">
+  <script src="https://appssdk.zoom.us/sdk.js">    </script>
+
+  <style>
+    /* Reset and base styles */
+    * {
+      margin: 0;
+      padding: 0;
+      box-sizing: border-box;
+    }
+
+    body {
+      font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, Oxygen, Ubuntu, Cantarell, sans-serif;
+      background-color: #f8fafc;
+      color: #1e293b;
+      line-height: 1.6;
+      height: 100vh;
+      display: flex;
+      flex-direction: column;
+    }
+
+    /* Custom color scheme */
+    :root {
+      --primary-bg: #ffffff;
+      --secondary-bg: #f1f5f9;
+      --accent-bg: #e2e8f0;
+      --text-primary: #0f172a;
+      --text-secondary: #475569;
+      --text-muted: #64748b;
+      --border-color: #cbd5e1;
+      --focus-color: #3b82f6;
+      --user-message-bg: #3b82f6;
+      --assistant-message-bg: #e2e8f0;
+      --shadow-light: rgba(0, 0, 0, 0.1);
+      --shadow-medium: rgba(0, 0, 0, 0.15);
+    }
+
+    /* Layout utilities */
+    .flex {
+      display: flex;
+    }
+
+    .flex-col {
+      flex-direction: column;
+    }
+
+    .flex-grow {
+      flex-grow: 1;
+    }
+
+    .items-center {
+      align-items: center;
+    }
+
+    .justify-between {
+      justify-content: space-between;
+    }
+
+    .justify-end {
+      justify-content: flex-end;
+    }
+
+    .justify-start {
+      justify-content: flex-start;
+    }
+
+    .justify-center {
+      justify-content: center;
+    }
+
+    /* Navigation */
+    nav {
+      background: var(--primary-bg);
+      border-bottom: 1px solid var(--border-color);
+      box-shadow: 0 1px 3px var(--shadow-light);
+      flex-shrink: 0;
+    }
+
+    .nav-container {
+      max-width: 1200px;
+      margin: 0 auto;
+      padding: 1rem 1.5rem;
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+    }
+
+    .nav-title {
+      font-size: 1.875rem;
+      font-weight: 700;
+      color: var(--text-primary);
+    }
+
+    /* Main content area */
+    .main-content {
+      display: flex;
+      flex-grow: 1;
+      overflow: hidden;
+      padding: 1.5rem;
+    }
+
+    .content-wrapper {
+      display: flex;
+      flex-direction: column;
+      flex-grow: 1;
+      min-width: 0;
+      width: 100%;
+    }
+
+    .conversation-container {
+      background: var(--primary-bg);
+      border-radius: 16px;
+      padding: 1.5rem;
+      box-shadow: 0 4px 6px var(--shadow-medium);
+      display: flex;
+      flex-direction: column;
+      flex-grow: 1;
+      overflow: hidden;
+      position: relative;
+    }
+
+    .conversation-header {
+      display: flex;
+      align-items: center;
+      gap: 0.75rem;
+      margin-bottom: 1rem;
+      flex-shrink: 0;
+    }
+
+    .conversation-title {
+      font-size: 1.25rem;
+      font-weight: 600;
+      color: var(--text-primary);
+    }
+
+    /* Transcript area */
+    .transcript-container {
+      background: var(--secondary-bg);
+      border-radius: 12px;
+      padding: 1rem;
+      overflow-y: auto;
+      flex-grow: 1;
+      height: 0;
+      padding-bottom: 5rem;
+    }
+
+    .transcript {
+      display: flex;
+      flex-direction: column;
+      gap: 0.75rem;
+    }
+
+    /* Message styles */
+    .message-wrapper {
+      display: flex;
+      margin-bottom: 0.75rem;
+    }
+
+    .message-bubble {
+      max-width: 75%;
+      padding: 0.75rem;
+      border-radius: 12px;
+      box-shadow: 0 1px 2px var(--shadow-light);
+      word-wrap: break-word;
+      user-select: text;
+    }
+
+    .user-message {
+      background: var(--user-message-bg);
+      color: white;
+      border-bottom-right-radius: 4px;
+    }
+
+    .assistant-message {
+      background: var(--assistant-message-bg);
+      color: var(--text-primary);
+      border-bottom-left-radius: 4px;
+    }
+
+    .message-placeholder {
+      color: var(--text-muted);
+      text-align: center;
+      padding: 2.5rem;
+    }
+
+    /* Note messages */
+    .note-wrapper {
+      display: flex;
+      justify-content: center;
+      margin-bottom: 0.75rem;
+    }
+
+    .note-message {
+      max-width: 100%;
+      width: 100%;
+      padding: 1rem;
+      border-radius: 12px;
+      box-shadow: 0 1px 2px var(--shadow-light);
+      background: #dbeafe;
+      border: 1px solid #93c5fd;
+      color: var(--text-secondary);
+    }
+
+    /* Input area */
+    .input-area {
+      position: absolute;
+      bottom: 0;
+      left: 0;
+      right: 0;
+      padding: 1rem;
+      background: var(--primary-bg);
+      border-top: 1px solid var(--accent-bg);
+    }
+
+    .input-wrapper {
+      display: flex;
+      align-items: end;
+      gap: 0.5rem;
+    }
+
+    .text-input {
+      flex-grow: 1;
+      padding: 0.75rem;
+      border-radius: 12px;
+      border: 1px solid var(--border-color);
+      resize: none;
+      min-height: 50px;
+      max-height: 150px;
+      font-family: inherit;
+      font-size: 0.875rem;
+      line-height: 1.5;
+      transition: border-color 0.2s, box-shadow 0.2s;
+    }
+
+    .text-input:focus {
+      outline: none;
+      border-color: var(--focus-color);
+      box-shadow: 0 0 0 3px rgba(59, 130, 246, 0.1);
+    }
+
+    .text-input::placeholder {
+      color: var(--text-muted);
+    }
+
+    /* Responsive design */
+    @media (max-width: 768px) {
+      .main-content {
+        padding: 1rem;
+      }
+      
+      .nav-container {
+        padding: 0.75rem 1rem;
+      }
+      
+      .nav-title {
+        font-size: 1.5rem;
+      }
+      
+      .conversation-container {
+        padding: 1rem;
+      }
+    }
+
+    @media (max-width: 640px) {
+      .main-content {
+        padding: 0.5rem;
+      }
+      
+      .message-bubble {
+        max-width: 85%;
+      }
+    }
+
+
+    /* Custom scrollbar for transcript */
+    #transcript-container::-webkit-scrollbar,
+    #text-input-container-scroll::-webkit-input-placeholder {
+      width: 8px;
+    }
+
+    #transcript-container::-webkit-scrollbar-track,
+    #text-input-container-scroll::-webkit-scrollbar-track {
+      background: var(--app-bg-light);
+      border-radius: 10px;
+    }
+
+    #transcript-container::-webkit-scrollbar-thumb,
+    #text-input-container-scroll::-webkit-scrollbar-thumb {
+      background: #AAAAAA;
+      /* Medium Gray */
+      border-radius: 10px;
+    }
+
+    #transcript-container::-webkit-scrollbar-thumb:hover,
+    #text-input-container-scroll::-webkit-scrollbar-thumb:hover {
+      background: #888888;
+      /* Darker Gray */
+    }
+
+
+    /* Styling for content within notes, especially tables */
+    /* These styles will now apply to notes rendered within the transcript */
+    .note-message table {
+      width: 100%;
+      border-collapse: collapse;
+      margin-top: 1rem;
+      margin-bottom: 1rem;
+    }
+
+    .note-message th,
+    .note-message td {
+      border: 1px solid var(--app-border-color);
+      padding: 0.75rem;
+      text-align: left;
+    }
+
+    .note-message th {
+      background-color: var(--app-bg-light);
+      font-weight: 600;
+      color: var(--app-text-primary);
+    }
+
+    .note-message tr:nth-child(even) {
+      background-color: #F8F8F8;
+      /* Slightly different background for even rows */
+    }
+
+    .note-message a {
+      color: #2563EB;
+      /* Blue color for links */
+      text-decoration: underline;
+    }
+
+    /* Tooltip styles */
+    .tooltip-container {
+      position: relative;
+      display: inline-flex;
+      align-items: center;
+    }
+
+    .tooltip {
+      position: absolute;
+      bottom: -30px;
+      left: 50%;
+      transform: translateX(-50%);
+      background-color: rgba(0, 0, 0, 0.7);
+      color: white;
+      padding: 4px 8px;
+      border-radius: 4px;
+      font-size: 0.75rem;
+      white-space: nowrap;
+      opacity: 0;
+      visibility: hidden;
+      transition: opacity 0.2s ease-in-out, visibility 0.2s ease-in-out;
+      z-index: 10;
+    }
+
+    .tooltip-container:hover .tooltip {
+      opacity: 1;
+      visibility: visible;
+    }
+
+    /* Specific style for message bubbles to ensure text is selectable */
+    .transcript-message {
+      user-select: text;
+      -webkit-user-select: text;
+      -moz-user-select: text;
+      -ms-user-select: text;
+      word-wrap: break-word;
+    }
+  </style>
+</head>
+
+<body>
+  <nav>
+    <div class="nav-container">
+      <div class="nav-title">Zoom App Frontend</div>
+    </div>
+  </nav>
+
+  <div class="main-content">
+    <div class="content-wrapper">
+      <div class="conversation-container">
+        <div class="conversation-header">
+          <h2 class="conversation-title">Conversation with LLM, with Neural TTS response</h2>
+        </div>
+        <div id="transcript-container" class="transcript-container">
+          <div id="transcript" class="transcript">
+            <div class="message-placeholder">You may speak to begin</div>
+          </div>
+        </div>
+        <div class="input-area">
+          <div class="input-wrapper">
+            <textarea id="text-input" class="text-input" placeholder="Alternatively, type your message here..."></textarea>
+          </div>
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <script>
+    (async () => {
+      try {
+
+        // Zoom SDK Configuration
+        // IMPORTANT:
+        // 1. Make sure your app includes this domain in the Zoom App Marketplace "Domain Allow List".
+        // 2. Under "Features" -> "Surface" -> "Zoom App SDK", select the APIs you're using.
+        // 3. Ensure APIs like getRunningContext, getMeetingContext, etc. are ENABLED for your app.
+
+        const configResponse = await zoomSdk.config({
+          version: '0.16.31',
+          capabilities: [
+            'getSupportedJsApis',
+            'getRunningContext',
+            'getMeetingContext',
+            'getUserContext',
+            'getMeetingUUID',
+            'getAppContext',
+            'startRTMS',
+            'stopRTMS',
+            'pauseRTMS',
+            'resumeRTMS',
+            'onRTMSStatusChange',
+
+          ]
+        });
+
+        window.supportedApis = await zoomSdk.getSupportedJsApis();
+        window.runningContext = await zoomSdk.getRunningContext();
+        window.meetingContext = await zoomSdk.getMeetingContext();
+        window.userContext = await zoomSdk.getUserContext();
+        window.meetingUUID = await zoomSdk.getMeetingUUID();
+        window.appContext = await zoomSdk.getAppContext();
+
+      } catch (error) {
+        console.error('Error retrieving Zoom context:', error);
+
+      }
+    })();
+
+  </script>
+  <script>
+  
+    // Use the WebSocket URL provided by the server
+    const SERVER_WEBSOCKET_URL = "wss://rtms.asdc.cc/ws";
+    //const SERVER_WEBSOCKET_URL = "{{ websocket_url }}";
+    console.log("SERVER_WEBSOCKET_URL:", SERVER_WEBSOCKET_URL);
+  </script>
+
+  <!-- The following scripts are external and will be loaded by the browser -->
+  <!-- They are also provided as separate immersive blocks below for completeness -->
+  <script src="audio-client.js"></script>
+
+  <script>
+    // Initialize variables
+    const client = new AudioClient(SERVER_WEBSOCKET_URL);
+  
+
+    let runningContext;
+
+
+    // DOM elements
+    const transcriptContainer = document.getElementById('transcript');
+    const transcriptOuterContainer = document.getElementById('transcript-container');
+    const textInput = document.getElementById('text-input');
+    // Removed notesContent and notesOuterContainer as they are no longer separate
+    // Removed sidebar and toggleNotesSidebarButton as they are no longer needed
+
+    // Function to add message to transcript (for user and assistant messages)
+    function addMessage(text, sender) {
+      const initialPlaceholder = transcriptContainer.querySelector('.message-placeholder');
+      if (initialPlaceholder && (transcriptContainer.children.length === 1 || text !== "...")) {
+        initialPlaceholder.remove();
+      }
+
+      // Create a wrapper div for alignment
+      const messageWrapper = document.createElement('div');
+      messageWrapper.className = 'message-wrapper';
+
+      const messageElement = document.createElement('div');
+      messageElement.className = 'message-bubble transcript-message';
+
+      if (sender === 'user') {
+        // User messages on the right
+        messageWrapper.classList.add('justify-end');
+        messageElement.classList.add('user-message');
+      } else {
+        // Agent messages on the left
+        messageWrapper.classList.add('justify-start');
+        messageElement.classList.add('assistant-message');
+      }
+
+      let processedText = text;
+      processedText = processedText
+        .replace(/&/g, "&amp;")
+        .replace(/</g, "&lt;")
+        .replace(/>/g, "&gt;")
+        .replace(/"/g, "&quot;")
+        .replace(/'/g, "&#039;");
+      messageElement.innerHTML = processedText;
+
+      if (text === "..." && sender === "user") {
+        messageElement.style.opacity = '0.6';
+        messageElement.style.fontStyle = 'italic';
+      }
+
+      // Append the message element to its wrapper, then the wrapper to the container
+      messageWrapper.appendChild(messageElement);
+      transcriptContainer.appendChild(messageWrapper);
+      transcriptOuterContainer.scrollTop = transcriptOuterContainer.scrollHeight;
+    }
+
+    // Function to add content (notes) directly to the transcript
+    function addNoteToTranscript(htmlContent) {
+      const initialPlaceholder = transcriptContainer.querySelector('.message-placeholder');
+      if (initialPlaceholder) {
+        initialPlaceholder.remove();
+      }
+
+      const noteWrapper = document.createElement('div');
+      noteWrapper.className = 'note-wrapper';
+
+      const noteElement = document.createElement('div');
+      noteElement.className = 'note-message';
+
+      const tempDiv = document.createElement('div');
+      tempDiv.innerHTML = htmlContent;
+      // Remove any scripts from the incoming HTML for security
+      Array.from(tempDiv.querySelectorAll('script')).forEach(el => el.remove());
+      noteElement.innerHTML = tempDiv.innerHTML;
+
+      noteWrapper.appendChild(noteElement);
+      transcriptContainer.appendChild(noteWrapper);
+      transcriptOuterContainer.scrollTop = transcriptOuterContainer.scrollHeight;
+    }
+
+
+
+    // Event listener for Enter key on text input
+    textInput.addEventListener('keydown', (event) => {
+      // Check if Enter key is pressed AND Shift key is NOT pressed
+      if (event.key === 'Enter' && !event.shiftKey) {
+        event.preventDefault(); // Prevent default new line behavior
+        const text = textInput.value.trim();
+        if (text) {
+          // This is where the message is added
+          addMessage(text, "user");
+
+          // After user sends a message, reset agent's streaming state
+          currentResponseText = '';
+          isFirstChunk = true;
+          lastAssistantMessageElement = null;
+
+          if (!client.isConnected) {
+            console.error('Client not connected. Cannot send text.');
+            return;
+          }
+
+          client.ws.send(JSON.stringify({
+            type: 'text',
+            data: text
+          }));
+          textInput.value = '';
+        }
+      }
+      // If Shift + Enter, allow default behavior (add new line)
+    });
+
+
+
+
+
+
+    // Initialize audio client and set up callbacks
+    async function initializeClient() {
+      try {
+
+        let currentResponseText = '';
+        let isFirstChunk = true;
+        let lastAssistantMessageElement = null; // Keep track of the last assistant message element
+
+        client.onConnected = () => {
+          zoomSdk.stopRTMS();
+          console.log('[Client] Client ready: WebSocket connection established.');
+
+          client.ws.send(JSON.stringify({
+            type: 'client_ready',
+            data: {
+              meeting_uuid: window.meetingUUID.meetingUUID,
+              meeting_id: window.meetingContext.meetingID,
+              topic: window.meetingContext.meetingTopic
+            }
+          }));
+        };
+
+        client.onReady = async () => {
+          console.log('[Client] Backend ready for RTMS.');
+          
+          zoomSdk.onReady = async () => {
+            const started = await zoomSdk.startRTMS();
+            console.log("RTMS started")
+          }
+        };
+
+
+        client.onAudioReceived = (audioData) => {
+          // Audio playback handled in audio-client.js
+        };
+
+        client.onTextReceived = (text) => {
+          if (text && text.trim()) {
+            // Remove "..." placeholder if it exists and is the last user message
+            const userMessages = transcriptContainer.querySelectorAll('.justify-end .message-bubble[style*="opacity: 0.6"]');
+            if (userMessages.length > 0 && userMessages[userMessages.length - 1].textContent === '...') {
+              userMessages[userMessages.length - 1].parentElement.parentElement.remove(); // Remove the wrapper div
+            }
+
+            if (isFirstChunk) {
+              // For the first chunk, add a new message element
+              addMessage(text, "assistant");
+              // Get the newly added message element (it will be the last child of transcriptContainer's last child)
+              const lastMessageWrapper = transcriptContainer.lastChild;
+              if (lastMessageWrapper) {
+                lastAssistantMessageElement = lastMessageWrapper.querySelector('div');
+              }
+              currentResponseText = text;
+              isFirstChunk = false;
+            } else {
+              // For subsequent chunks, append to the last assistant message
+              if (lastAssistantMessageElement) {
+                currentResponseText += text; // Append directly
+                let updatedText = currentResponseText;
+                updatedText = updatedText
+                  .replace(/&/g, "&amp;")
+                  .replace(/</g, "&lt;")
+                  .replace(/>/g, "&gt;")
+                  .replace(/"/g, "&quot;")
+                  .replace(/'/g, "&#039;");
+                lastAssistantMessageElement.innerHTML = updatedText;
+              } else {
+                // Fallback if lastAssistantMessageElement somehow got lost
+                addMessage(text, "assistant");
+                const lastMessageWrapper = transcriptContainer.lastChild;
+                if (lastMessageWrapper) {
+                  lastAssistantMessageElement = lastMessageWrapper.querySelector('div');
+                }
+                currentResponseText = text;
+              }
+            }
+            transcriptOuterContainer.scrollTop = transcriptOuterContainer.scrollHeight;
+          }
+        };
+
+        // Changed from onHtmlReceived to call addNoteToTranscript
+        client.onHtmlReceived = (html) => {
+          if (html && html.trim()) {
+            addNoteToTranscript(html); // Call the new function
+          }
+        };
+
+
+
+
+        client.onError = (error) => {
+          console.error('Client error:', error);
+          addMessage("Sorry, I encountered an error. Please try again.", "assistant");
+          currentResponseText = ''; isFirstChunk = true;
+          lastAssistantMessageElement = null; // Reset on error
+          if (client.ws && client.ws.readyState !== WebSocket.OPEN) {
+            console.log('Connection lost due to error, attempting to reconnect...');
+            setTimeout(() => { if (!client.isConnected) initializeClient(); }, 2000);
+          }
+        };
+
+
+        await client.connect();
+        console.log('[Client] client.connect() resolved.');
+
+      } catch (error) {
+        console.error('[Client] Failed to initialize client:', error);
+        addMessage("Sorry, I'm having trouble connecting. Please try again later.", "assistant");
+      }
+    };
+
+    // Initialize on page load
+    let hasInitialized = false;
+    window.addEventListener('load', async () => {
+      if (!hasInitialized) {
+        hasInitialized = true;
+        console.log('[Load] Initializing client for the first time');
+        await initializeClient(); // Await client initialization
+
+        if (transcriptContainer.children.length === 0) {
+          const placeholder = document.createElement('div');
+          placeholder.className = 'message-placeholder';
+          placeholder.textContent = 'You may speak to begin.';
+          transcriptContainer.appendChild(placeholder);
+        }
+
+        console.log('[Load] Auto-start recording no longer handled by frontend for initial standby. Backend will send status.');
+      }
+    });
+
+    // Add unload handler to gracefully close WebSocket connection
+    window.addEventListener('beforeunload', () => {
+      console.log('Page unloading, closing connection');
+      client.close();
+    });
+  </script>
+</body>
+
+</html>

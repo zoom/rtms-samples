@@ -5,59 +5,83 @@ dotenv.config();
 // Import the RTMS SDK
 import rtms from "@zoom/rtms";
 
+let clients = new Map();
+
 // Set up webhook event handler to receive RTMS events from Zoom
 rtms.onWebhookEvent(({ event, payload }) => {
-  console.log(`Received webhook event: ${event}`);
+  const streamId = payload?.rtms_stream_id;
 
-  // Only process webhook events for RTMS start notifications
-  if (event !== "meeting.rtms_started") {
-    console.log(`Received event ${event}, ignoring...`);
+  if (event == "meeting.rtms_stopped") {
+    if (!streamId) {
+      console.log(`Received meeting.rtms_stopped event without stream ID`);
+      return;
+    }
+
+    const client = clients.get(streamId);
+    if (!client) {
+      console.log(`Received meeting.rtms_stopped event for unknown stream ID: ${streamId}`)
+      return
+    }
+
+    client.leave();
+    clients.delete(streamId);
+
+    return;
+  } else if (event !== "meeting.rtms_started") {
+    console.log(`Ignoring unknown event`);
     return;
   }
-  
-  // Create a client instance for this specific meeting
+
+  // Create a new RTMS client for the stream if it doesn't exist
   const client = new rtms.Client();
-  
-  
-  // client.setAudioParameters({
+  clients.set(streamId, client);
 
-  //     codec: rtms.AudioCodec.L16,
-  //     /** The sample rate in Hz (e.g., 8000, 16000, 44100) */
-  //     sampleRate:  rtms.AudioSampleRate.SR_16K,
-  //     /** The number of audio channels (1=mono, 2=stereo) */
-  //     channel:  rtms.AudioChannel.MONO,
-  //     /** Additional data options for audio processing */
-  //     dataOpt:  rtms.AudioDataOption.AUDIO_MULTI_STREAMS,
-  //     /** The duration of each audio frame in milliseconds */
-  //     duration: 100,
-  //     /** The size of each audio frame in samples */
-  //     frameSize:640
-    
 
-  // });
+  const audio_params = {
+    contentType: rtms.AudioContentType.RAW_AUDIO,
+    codec: rtms.AudioCodec.L16,
+    channel: rtms.AudioChannel.MONO,
+    dataOpt: rtms.AudioDataOption.AUDIO_MIXED_STREAM,
+    duration: 100
 
+  }
+  client.setAudioParams(audio_params);
 
 
   // Configure HD video (720p H.264 at 30fps)
-  client.setVideoParams({
+  const video_params = {
     contentType: rtms.VideoContentType.RAW_VIDEO,
     codec: rtms.VideoCodec.H264,
-    resolution: rtms.VideoResolution.HD,
+    resolution: rtms.VideoResolution.SD,
     dataOpt: rtms.VideoDataOption.VIDEO_SINGLE_ACTIVE_STREAM,
-    fps:25
-  });
+    fps: 30
+  }
 
-  // Set up video data handler
+  client.setVideoParams(video_params);
+
   client.onVideoData((data, size, timestamp, metadata) => {
     console.log(`Video data: ${size} bytes from ${metadata.userName}`);
   });
-    
+
+
+  // Configure HD video (720p H.264 at 30fps)
+  const deskshare_params = {
+    contentType: rtms.VideoContentType.RAW_VIDEO,
+    codec: rtms.VideoCodec.JPG,
+    resolution: rtms.VideoResolution.SD,
+    fps: 5
+  }
+
+  client.setDeskshareParams(deskshare_params)
+
+  client.onDeskshareData((data, size, timestamp, metadata) => {
+    console.log(`Received ${size} bytes of deskshare data at ${timestamp} from ${metadata.userName}`);
+  });
 
   // Set up audio data handler
   client.onAudioData((data, size, timestamp, metadata) => {
     console.log(`Audio data: ${size} bytes from ${metadata.userName}`);
-  }); 
-
+  });
 
   // Set up transcript data handler
   client.onTranscriptData((data, size, timestamp, metadata) => {

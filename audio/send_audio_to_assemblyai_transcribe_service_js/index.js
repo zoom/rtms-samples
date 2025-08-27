@@ -1,268 +1,323 @@
 import express from 'express';
-import crypto from 'crypto';
 import WebSocket from 'ws';
-import dotenv from 'dotenv';
-import fs from 'fs';
-import { exec } from 'child_process';
-import { promisify } from 'util';
+import path from 'path';
+import { fileURLToPath } from 'url';
+import http from 'http';
+import https from 'https';
 
-// Import the transcription function
-import { startAssemblyTranscription, sendAudioChunk, closeAssemblyTranscription } from './assemblyai.js';
 
-// Load environment variables from a .env file
-dotenv.config();
-
-await startAssemblyTranscription();
+import { config } from './config.js';
+import { connectToSignalingWebSocket } from './signalingSocket.js';
+import { s2sZoomApiRequest } from './s2sZoomApiClient.js';
+import { setupFrontendWss, broadcastToFrontendClients } from './frontendWss.js';
+import { initializeAudioCollection, cleanupMeeting } from './assemblyai.js';
 
 const app = express();
-const port = process.env.PORT || 3000;
-const execAsync = promisify(exec);
-
-const ZOOM_SECRET_TOKEN = process.env.ZOOM_SECRET_TOKEN;
-const CLIENT_ID = process.env.ZOOM_CLIENT_ID;
-const CLIENT_SECRET = process.env.ZOOM_CLIENT_SECRET;
-const WEBHOOK_PATH = process.env.WEBHOOK_PATH || '/webhook';
+const port = config.port;
 
 
-// Middleware to parse JSON bodies in incoming requests
 app.use(express.json());
 
-// Map to keep track of active WebSocket connections and audio chunks
+const __filename = fileURLToPath(import.meta.url);
+const __dirname = path.dirname(__filename);
+
+// Serve static files
+app.use(express.static(path.join(__dirname, 'public')));
+
 const activeConnections = new Map();
 
-// Handle POST requests to the webhook endpoint
-app.post(WEBHOOK_PATH, (req, res) => {
-    console.log('RTMS Webhook received:', JSON.stringify(req.body, null, 2));
-    const { event, payload } = req.body;
+app.set('view engine', 'ejs');
 
-    // Handle URL validation event
-    if (event === 'endpoint.url_validation' && payload?.plainToken) {
-        // Generate a hash for URL validation using the plainToken and a secret token
-        const hash = crypto
-            .createHmac('sha256', ZOOM_SECRET_TOKEN)
-            .update(payload.plainToken)
-            .digest('hex');
-        console.log('Responding to URL validation challenge');
-        return res.json({
-            plainToken: payload.plainToken,
-            encryptedToken: hash,
-        });
-    }
-
-    // Handle RTMS started event
-    if (event === 'meeting.rtms_started') {
-        console.log('RTMS Started event received');
-        const { meeting_uuid, rtms_stream_id, server_urls } = payload;
-        // Initiate connection to the signaling WebSocket server
-        connectToSignalingWebSocket(meeting_uuid, rtms_stream_id, server_urls);
-    }
-
-    // Handle RTMS stopped event
-    if (event === 'meeting.rtms_stopped') {
-        console.log('RTMS Stopped event received');
-        const { meeting_uuid } = payload;
-
-        // Close all active WebSocket connections for the given meeting UUID
-        if (activeConnections.has(meeting_uuid)) {
-            const connections = activeConnections.get(meeting_uuid);
-            for (const conn of Object.values(connections)) {
-                if (conn && typeof conn.close === 'function') {
-                    conn.close();
-                }
-            }
-            activeConnections.delete(meeting_uuid);
-        }
-    }
-
-    // Respond with HTTP 200 status
-    res.sendStatus(200);
+app.get('/', (req, res) => {
+  res.render('index', {
+    websocketUrl: config.ws_url || 'wss://yoururl.ngrok.com/ws'
+  });
 });
 
-// Function to generate a signature for authentication
-function generateSignature(CLIENT_ID, meetingUuid, streamId, CLIENT_SECRET) {
-    console.log('Generating signature with parameters:');
-    console.log('meetingUuid:', meetingUuid);
-    console.log('streamId:', streamId);
 
-    // Create a message string and generate an HMAC SHA256 signature
-    const message = `${CLIENT_ID},${meetingUuid},${streamId}`;
-    return crypto.createHmac('sha256', CLIENT_SECRET).update(message).digest('hex');
-}
 
-// Function to connect to the signaling WebSocket server
-function connectToSignalingWebSocket(meetingUuid, streamId, serverUrl) {
-    console.log(`Connecting to signaling WebSocket for meeting ${meetingUuid}`);
+if (config.mode === "webhook") {
+  console.log("wehook mode");
+  // Webhook handler
+  app.post(config.webhookPath, async (req, res) => {
 
-    const ws = new WebSocket(serverUrl);
+    const { event, payload } = req.body;
+    console.log('Webhook received:', event);
 
-    // Store connection for cleanup later
-    if (!activeConnections.has(meetingUuid)) {
-        activeConnections.set(meetingUuid, {});
-    }
-    activeConnections.get(meetingUuid).signaling = ws;
-
-    ws.on('open', () => {
-        console.log(`Signaling WebSocket connection opened for meeting ${meetingUuid}`);
-        const signature = generateSignature(
-            CLIENT_ID,
-            meetingUuid,
-            streamId,
-            CLIENT_SECRET
-        );
-
-        // Send handshake message to the signaling server
-        const handshake = {
-            msg_type: 1, // SIGNALING_HAND_SHAKE_REQ
-            protocol_version: 1,
-            meeting_uuid: meetingUuid,
-            rtms_stream_id: streamId,
-            sequence: Math.floor(Math.random() * 1e9),
-            signature,
-        };
-        ws.send(JSON.stringify(handshake));
-        console.log('Sent handshake to signaling server');
-    });
-
-    ws.on('message', (data) => {
-        const msg = JSON.parse(data);
-        console.log('Signaling Message:', JSON.stringify(msg, null, 2));
-
-        // Handle successful handshake response
-        if (msg.msg_type === 2 && msg.status_code === 0) { // SIGNALING_HAND_SHAKE_RESP
-            const mediaUrl = msg.media_server?.server_urls?.all;
-            if (mediaUrl) {
-                // Connect to the media WebSocket server using the media URL
-                connectToMediaWebSocket(mediaUrl, meetingUuid, streamId, ws);
-            }
-        }
-
-        // Respond to keep-alive requests
-        if (msg.msg_type === 12) { // KEEP_ALIVE_REQ
-            const keepAliveResponse = {
-                msg_type: 13, // KEEP_ALIVE_RESP
-                timestamp: msg.timestamp,
-            };
-            console.log('Responding to Signaling KEEP_ALIVE_REQ:', keepAliveResponse);
-            ws.send(JSON.stringify(keepAliveResponse));
-        }
-    });
-
-    ws.on('error', (err) => {
-        console.error('Signaling socket error:', err);
-    });
-
-    ws.on('close', () => {
-        console.log('Signaling socket closed');
-        if (activeConnections.has(meetingUuid)) {
-            delete activeConnections.get(meetingUuid).signaling;
-        }
-    });
-}
-
-// Function to connect to the media WebSocket server
-function connectToMediaWebSocket(mediaUrl, meetingUuid, streamId, signalingSocket) {
-    console.log(`Connecting to media WebSocket at ${mediaUrl}`);
-
-    const mediaWs = new WebSocket(mediaUrl, { rejectUnauthorized: false });
-
-    // Store connection for cleanup later
-    if (activeConnections.has(meetingUuid)) {
-        activeConnections.get(meetingUuid).media = mediaWs;
+    if (event === 'endpoint.url_validation' && payload?.plainToken) {
+      const crypto = await import('crypto');
+      const hash = crypto.createHmac('sha256', config.zoomSecretToken)
+        .update(payload.plainToken)
+        .digest('hex');
+      return res.json({
+        plainToken: payload.plainToken,
+        encryptedToken: hash,
+      });
     }
 
 
+    //   {
+    //   "event": "meeting.rtms_started",
+    //   "event_ts": 1732313171881,
+    //   "payload": {
+    //     "meeting_uuid": "4444AAAiAAAAAiAiAiiAii==",
+    //     "operator_id": "xxxxxxxxxxx",
+    //     "rtms_stream_id": "609340fb2a7946909659956c8aa9250c",
+    //     "server_urls": "wss://127.0.0.1:443"
+    // }
 
-    mediaWs.on('open', () => {
-        const signature = generateSignature(
-            CLIENT_ID,
-            meetingUuid,
-            streamId,
-            CLIENT_SECRET
-        );
-        const handshake = {
-            msg_type: 3, // DATA_HAND_SHAKE_REQ
-            protocol_version: 1,
-            meeting_uuid: meetingUuid,
-            rtms_stream_id: streamId,
-            signature,
-            media_type: 1, // MEDIA_DATA_AUDIO
-            payload_encryption: false,
-            media_params: {
-                audio: {
-                    content_type: 1,
-                    sample_rate: 1,
-                    channel: 1,
-                    codec: 1,
-                    data_opt: 1,
-                    send_rate: 20
-                }
+    else if (event === 'meeting.rtms_started') {
+      const { meeting_uuid, rtms_stream_id, server_urls } = payload;
+      console.log(`Starting RTMS for meeting ${meeting_uuid}`);
+
+      // Initialize AssemblyAI transcription for this meeting
+      initializeAudioCollection(meeting_uuid);
+
+      activeConnections.set(meeting_uuid, {
+        meetingUuid: meeting_uuid,
+        streamId: rtms_stream_id,
+        serverUrls: server_urls,
+        shouldReconnect: true,
+        signaling: { socket: null, state: 'connecting', lastKeepAlive: null },
+        media: { socket: null, state: 'idle', lastKeepAlive: null },
+      });
+
+      connectToSignalingWebSocket(
+        meeting_uuid,
+        rtms_stream_id,
+        server_urls,
+        activeConnections,
+        config.clientId,
+        config.clientSecret,
+        broadcastToFrontendClients // pass broadcast if needed
+      );
+    }
+
+    // {
+    //    "event": "meeting.rtms_stopped",
+    //    "event_ts": 1732313171881,
+    //    "payload": {
+    //        "meeting_uuid": "4444AAAiAAAAAiAiAiiAii==",
+    //        "rtms_stream_id": "609340fb2a7946909659956c8aa9250c",
+    //        "stop_reason": 6
+    //    }
+    // }
+
+    else if (event === 'meeting.rtms_stopped') {
+      const { meeting_uuid } = payload;
+      console.log(`Stopping RTMS for meeting ${meeting_uuid}`);
+
+      // Cleanup AssemblyAI transcription for this meeting
+      await cleanupMeeting(meeting_uuid);
+
+      const conn = activeConnections.get(meeting_uuid);
+      if (conn) {
+        conn.shouldReconnect = false;
+
+        // Explicitly update states
+        if (conn.signaling) {
+          conn.signaling.state = 'closed';
+          const ws = conn.signaling.socket;
+          if (ws && typeof ws.close === 'function') {
+            if (ws.readyState === WebSocket.CONNECTING) {
+              ws.once('open', () => ws.close());
+            } else {
+              ws.close();
             }
-        };
-        mediaWs.send(JSON.stringify(handshake));
-    });
-
-    mediaWs.on('message', (data) => {
-        try {
-            // Try to parse as JSON first
-            const msg = JSON.parse(data.toString());
-            //debugging
-            //console.log('Media JSON Message:', JSON.stringify(msg, null, 2));
-
-            // Handle successful media handshake
-            if (msg.msg_type === 4 && msg.status_code === 0) { // DATA_HAND_SHAKE_RESP
-                signalingSocket.send(
-                    JSON.stringify({
-                        msg_type: 7, // CLIENT_READY_ACK
-                        rtms_stream_id: streamId,
-                    })
-                );
-                console.log('Media handshake successful, sent start streaming request');
-            }
-
-            // Respond to keep-alive requests
-            if (msg.msg_type === 12) { // KEEP_ALIVE_REQ
-                mediaWs.send(
-                    JSON.stringify({
-                        msg_type: 13, // KEEP_ALIVE_RESP
-                        timestamp: msg.timestamp,
-                    })
-                );
-                console.log('Responded to Media KEEP_ALIVE_REQ');
-            }
-
-            // Handle audio data
-            if (msg.msg_type === 14 && msg.content && msg.content.data) {
-                let { user_id, user_name, data: audioData, timestamp } = msg.content, buffer = Buffer.from(audioData, 'base64');
-                sendAudioChunk(buffer);
-            }
-            // Handle video data
-            if (msg.msg_type === 15 && msg.content && msg.content.data) {
-
-            }
-            // Handle transcript data
-            if (msg.msg_type === 17 && msg.content && msg.content.data) {
-
-            }
-        } catch (err) {
-            console.error('Error processing media message:', err);
+          }
         }
-    });
 
-    mediaWs.on('error', (err) => {
-        console.error('Media socket error:', err);
-    });
-
-    mediaWs.on('close', () => {
-        console.log('Media socket closed');
-        if (activeConnections.has(meetingUuid)) {
-            delete activeConnections.get(meetingUuid).media;
+        if (conn.media) {
+          conn.media.state = 'closed';
+          const ws = conn.media.socket;
+          if (ws && typeof ws.close === 'function') {
+            if (ws.readyState === WebSocket.CONNECTING) {
+              ws.once('open', () => ws.close());
+            } else {
+              ws.close();
+            }
+          }
         }
-    });
+
+        // Finally, delete from the map
+        activeConnections.delete(meeting_uuid);
+      }
+    }
+
+
+    res.sendStatus(200);
+  });
 }
 
+else if (config.mode === 'websocket') {
+  console.log("websocket mode");
+  const baseWsUrl = config.zoomWSURLForEvents;
+  const clientId = config.clientId;
+  const clientSecret = config.clientSecret;
 
-// Start the server and listen on the specified port
-app.listen(port, () => {
-    console.log(`Server running at http://localhost:${port}`);
-    console.log(`Webhook endpoint available at http://localhost:${port}${WEBHOOK_PATH}`);
+  if (!baseWsUrl || !clientId || !clientSecret) {
+    console.error('❌ Missing required env vars: ZOOM_EVENT_WS_BASE, ZOOM_CLIENT_ID, or ZOOM_CLIENT_SECRET');
+
+  }
+
+  // === Get Zoom Access Token (client_credentials grant) ===
+  const accessToken = await new Promise((resolve, reject) => {
+    const credentials = Buffer.from(`${clientId}:${clientSecret}`).toString('base64');
+    const options = {
+      method: 'POST',
+      hostname: 'zoom.us',
+      path: '/oauth/token?grant_type=client_credentials',
+      headers: {
+        'Authorization': `Basic ${credentials}`
+      }
+    };
+
+    const req = https.request(options, res => {
+      let body = '';
+      res.on('data', chunk => body += chunk);
+      res.on('end', () => {
+        if (res.statusCode === 200) {
+          const tokenData = JSON.parse(body);
+          console.log('✅ Zoom access token received.');
+          resolve(tokenData.access_token);
+        } else {
+          console.error(`❌ Zoom token request failed: ${res.statusCode} ${body}`);
+          resolve(null);
+        }
+      });
+    });
+
+    req.on('error', (err) => {
+      console.error('❌ HTTPS error requesting token:', err.message);
+      resolve(null);
+    });
+
+    req.end();
+  });
+
+  if (!accessToken) {
+    console.error('No access token returned');
+  }
+
+  // === Connect to WebSocket ===
+  const fullWsUrl = `${baseWsUrl}&access_token=${accessToken}`;
+  console.log(`🔗 Full WebSocket URL: ${fullWsUrl}`);
+
+  const ws = new WebSocket(fullWsUrl);
+
+  ws.on('open', () => {
+    
+    console.log('✅ WebSocket connection established.');
+    ws.send(JSON.stringify({ module: 'heartbeat' }));
+    console.log('💓 Sent initial heartbeat');
+
+    const interval = setInterval(() => {
+      if (ws.readyState === WebSocket.OPEN) {
+        ws.send(JSON.stringify({ module: 'heartbeat' }));
+        console.log('💓 Heartbeat sent');
+      } else {
+        clearInterval(interval);
+      }
+    }, 30000);
+  });
+
+  ws.on('message', async (message) => {
+    console.log('📥 Received message from Zoom Event WebSocket');
+    console.debug(`🔍 Raw Message:\n${message}`);
+
+    try {
+      const msg = JSON.parse(message);
+      if (msg.module === 'message' && msg.content) {
+        const eventData = JSON.parse(msg.content);
+        const event = eventData.event;
+        const payload = eventData.payload || {};
+
+        console.log(`🧠 Parsed Event: ${event}`);
+        console.debug(`📦 Payload:`, payload);
+
+        if (event === 'meeting.rtms_started') {
+          const { meeting_uuid, rtms_stream_id, server_urls } = payload;
+          console.log(`🚀 Triggering signaling WebSocket for ${meeting_uuid}`);
+
+          // Initialize AssemblyAI transcription for this meeting
+          initializeAudioCollection(meeting_uuid);
+
+          activeConnections.set(meeting_uuid, {
+            meetingUuid: meeting_uuid,
+            streamId: rtms_stream_id,
+            serverUrls: server_urls,
+            shouldReconnect: true,
+            signaling: { socket: null, state: 'connecting', lastKeepAlive: null },
+            media: { socket: null, state: 'idle', lastKeepAlive: null },
+          });
+
+          connectToSignalingWebSocket(
+            meeting_uuid,
+            rtms_stream_id,
+            server_urls,
+            activeConnections,
+            clientId,
+            clientSecret,
+            () => { } // optional broadcastToFrontendClients
+          );
+        }
+
+        if (event === 'meeting.rtms_stopped') {
+          const { meeting_uuid } = payload;
+          console.log(`🛑 Closing signaling for ${meeting_uuid}`);
+
+          // Cleanup AssemblyAI transcription for this meeting
+          await cleanupMeeting(meeting_uuid);
+
+          const conn = activeConnections.get(meeting_uuid);
+          if (conn) {
+            for (const key in conn) {
+              try {
+                conn[key]?.close?.();
+              } catch (err) {
+                console.warn(`⚠️ Error closing ${key}:`, err.message);
+              }
+            }
+            activeConnections.delete(meeting_uuid);
+          }
+        }
+      }
+    } catch (err) {
+      console.error('❌ Error processing message:', err.message);
+    }
+  });
+
+  ws.on('error', (err) => {
+    console.error(`⚠️ WebSocket Error: ${err.message}`);
+  });
+
+  ws.on('close', (code, reason) => {
+    console.warn(`🔌 WebSocket closed | Code: ${code}, Reason: ${reason}`);
+  });
+
+}
+
+// Start HTTP server and attach frontend WebSocket
+const server = http.createServer(app);
+setupFrontendWss(server); // initialize frontend WebSocket on /ws
+
+server.listen(port, () => {
+  console.log(`🚀 Server running at http://localhost:${port}`);
+  console.log(`📩 Webhook available at http://localhost:${port}${config.webhookPath}`);
+  console.log(`🌐 Frontend WebSocket available at ws://localhost:${port}/ws`);
+
+  // Optional Zoom S2S test call
+  // (async () => {
+  //   try {
+  //     const users = await s2sZoomApiRequest({
+  //       url: 'https://api.zoom.us/v2/users',
+  //       method: 'GET'
+  //     });
+  //     console.log('✅ Zoom S2S API connected. Users:', users?.users?.length || 'N/A');
+  //   } catch (err) {
+  //     console.error('❌ Zoom S2S error:', err.message);
+  //   }
+  // })();
+
+  
 });

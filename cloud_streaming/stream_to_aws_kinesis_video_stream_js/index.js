@@ -6,9 +6,13 @@ const fs = require('fs');
 const { exec } = require('child_process');
 const { promisify } = require('util');
 
-// Custom KVS GStreamer functions
-const { startStream,sendAudioBuffer, sendVideoBuffer } = require('./kvs_gstreamer_stream_audio_and_video_with_ffmpeg.js');
 
+// choose either GStreamer or PutMedia producer 
+
+// Custom KVS GStreamer functions
+// const { startStream,sendAudioBuffer, sendVideoBuffer } = require('./kvs_gstreamer_stream_audio_and_video_with_ffmpeg.js');
+// Custom KVS PutMedia producer
+const { startStream, sendAudioBuffer, sendVideoBuffer } = require('./kvs_putmedia_producer_stream_audio_and_video_with_ffmpeg.js');
 
 // Load environment variables from a .env file
 dotenv.config();
@@ -31,6 +35,8 @@ const activeConnections = new Map();
 
 // Handle POST requests to the webhook endpoint
 app.post(WEBHOOK_PATH, (req, res) => {
+    // Respond with HTTP 200 status
+    res.sendStatus(200);
     console.log('RTMS Webhook received:', JSON.stringify(req.body, null, 2));
     const { event, payload } = req.body;
 
@@ -72,9 +78,6 @@ app.post(WEBHOOK_PATH, (req, res) => {
             activeConnections.delete(meeting_uuid);
         }
     }
-
-    // Respond with HTTP 200 status
-    res.sendStatus(200);
 });
 
 // Function to generate a signature for authentication
@@ -241,7 +244,7 @@ function connectToMediaWebSocket(mediaUrl, meetingUuid, streamId, signalingSocke
                 let timestamp = Date.now();  // Use server timestamp
                 const metadata = { user_id, user_name, timestamp };
                 //console.log(buffer);
-                sendAudioBuffer(buffer,timestamp);
+                sendAudioBuffer(buffer);
               
             }
             // Handle video data
@@ -251,7 +254,7 @@ function connectToMediaWebSocket(mediaUrl, meetingUuid, streamId, signalingSocke
                 let timestamp = Date.now();  // Use server timestamp
                 const metadata = { user_id, user_name, timestamp };
                  //console.log(buffer);
-                sendVideoBuffer(buffer,timestamp);
+                sendVideoBuffer(buffer);
                 
             }
             // Handle transcript data
@@ -280,4 +283,7 @@ function connectToMediaWebSocket(mediaUrl, meetingUuid, streamId, signalingSocke
 app.listen(port, () => {
     console.log(`Server running at http://localhost:${port}`);
     console.log(`Webhook endpoint available at http://localhost:${port}${WEBHOOK_PATH}`);
+
+    //this is for putmedia producer
+    startStream();
 });

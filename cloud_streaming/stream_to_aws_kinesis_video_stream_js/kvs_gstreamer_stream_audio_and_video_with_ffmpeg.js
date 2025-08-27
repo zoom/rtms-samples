@@ -33,31 +33,48 @@ function deleteFileIfExists(filePath) {
 function startFFmpeg() {
 
     deleteFileIfExists("output.mp4");
+
     ffmpegProcess = spawn('ffmpeg', [
+        '-nostdin',
         '-loglevel', 'error',
-        '-f', 's16le', '-ar', '16000', '-ac', '1', '-i', 'pipe:3',  // Audio input
-        '-f', 'h264', '-framerate', '25', '-i', 'pipe:4',             // Video input
-        '-c:v', 'libx264', '-preset', 'veryfast', '-tune', 'zerolatency', '-g', '25', '-keyint_min', '25', '-force_key_frames', 'expr:gte(t,n_forced*1)', // Video encoding
-        '-c:a', 'aac', '-b:a', '64k', '-ar', '16000', '-ac', '1',     // Audio encoding
-        '-f', 'mpegts',                                               // Muxing format (MPEG-TS)
-        'pipe:1',                                                     // Muxed output for GStreamer
-        '-f', 'mp4', '-movflags', 'frag_keyframe+empty_moov',          // Save locally as MP4
-        './output.mp4'                                                // Local file output
+
+        // Generate PTS when inputs are raw/live
+        '-fflags', '+genpts',
+
+        // ---- AUDIO INPUT (pipe:3) ----
+        '-thread_queue_size', '4096',
+        '-f', 's16le', '-ar', '16000', '-ac', '1', '-i', 'pipe:3',
+
+        // ---- VIDEO INPUT (pipe:4) ----
+        // IMPORTANT: use -r as an *input* option for raw H.264
+        '-thread_queue_size', '4096',
+        '-r', '25', '-f', 'h264', '-i', 'pipe:4',
+
+        // ---- Encoding (shared) ----
+        '-c:v', 'libx264', '-preset', 'veryfast', '-tune', 'zerolatency',
+        '-g', '25', '-keyint_min', '25',
+        '-force_key_frames', 'expr:gte(t,n_forced*1)',
+        '-c:a', 'aac', '-b:a', '96k', '-ar', '48000', '-ac', '1',
+
+        // ---- OUTPUT #1: MPEG-TS to stdout (for GStreamer) ----
+        // Map video from input #1 and audio from input #0
+        '-map', '1:v:0', '-map', '0:a:0',
+        '-f', 'mpegts', 'pipe:1',
+
+        // ---- OUTPUT #2: MP4 to file ----
+        // Map again for the second output (mapping is per-output)
+        '-map', '1:v:0', '-map', '0:a:0',
+        '-f', 'mp4', '-movflags', 'frag_keyframe+empty_moov+faststart',
+        './output.mp4'
     ], { stdio: ['pipe', 'pipe', 'pipe', 'pipe', 'pipe'] });
 
-
-
-    
-    // Handle FFmpeg output
     ffmpegProcess.stdout.on('data', (data) => {
-        //console.log('[FFmpeg] Muxed data received:', data.length);
-        try {
-            // Push merged data to GStreamer pipeline
-            muxedStream.write(data);
-        } catch (err) {
-            console.error('[FFmpeg] Error writing to GStreamer pipeline:', err);
-        }
+        const ok = muxedStream.write(data);
+        if (!ok) ffmpegProcess.stdout.pause();
     });
+    muxedStream.on('drain', () => ffmpegProcess.stdout.resume());
+
+
 
     ffmpegProcess.stderr.on('data', (data) => {
         console.error('[FFmpeg Error]:', data.toString());
@@ -74,26 +91,34 @@ function startFFmpeg() {
 // Start the FFmpeg process
 startFFmpeg();
 
-const pipelineDesc = `
-    appsrc name=src is-live=true do-timestamp=true format=time ! 
-    tsdemux name=demux 
-    demux. ! queue ! h264parse ! video/x-h264,stream-format=avc,alignment=au ! kvssink stream-name=${process.env.STREAM_NAME} aws-region=${process.env.AWS_REGION} 
-    access-key=${process.env.AWS_ACCESS_KEY_ID} secret-key=${process.env.AWS_SECRET_ACCESS_KEY} 
-    demux. ! queue ! aacparse ! audio/mpeg,mpegversion=4,stream-format=raw ! kvssink
-`;
 
+
+const pipelineDesc = `
+appsrc name=src is-live=true do-timestamp=true format=time \
+  caps=video/mpegts,systemstream=true,packetsize=188 !
+tsdemux name=demux
+
+  demux. ! queue ! h264parse config-interval=-1 !
+    video/x-h264,stream-format=avc,alignment=au !
+    kvssink name=ks stream-name=${process.env.STREAM_NAME} aws-region=${process.env.AWS_REGION} \
+      access-key=${process.env.AWS_ACCESS_KEY_ID} secret-key=${process.env.AWS_SECRET_ACCESS_KEY}
+
+  demux. ! queue ! aacparse !
+    audio/mpeg, mpegversion=4, stream-format=raw !
+    ks.
+`;
 
 
 let gstreamerPipeline;
 let appsrc;
 
 try {
-  gstreamerPipeline = new gstreamer.Pipeline(pipelineDesc);
-  appsrc = gstreamerPipeline.findChild('src');
-  console.log("[GStreamer] Pipeline and appsrc initialized.");
-  gstreamerPipeline.play();
+    gstreamerPipeline = new gstreamer.Pipeline(pipelineDesc);
+    appsrc = gstreamerPipeline.findChild('src');
+    console.log("[GStreamer] Pipeline and appsrc initialized.");
+    gstreamerPipeline.play();
 } catch (error) {
-  console.error("[GStreamer] Pipeline initialization failed:", error);
+    console.error("[GStreamer] Pipeline initialization failed:", error);
 }
 
 
@@ -136,9 +161,9 @@ try {
 // Capture merged data from FFmpeg and send to GStreamer
 function sendVideoBuffer(buffer, timestamp) {
     try {
-  
+
         //videoStream.write(buffer);
-        ffmpegProcess.stdio[4].write(buffer);  
+        ffmpegProcess.stdio[4].write(buffer);
     } catch (err) {
         console.error('[Video] Error writing to FFmpeg:', err);
     }
@@ -147,7 +172,7 @@ function sendVideoBuffer(buffer, timestamp) {
 function sendAudioBuffer(buffer, timestamp) {
     try {
         //audioStream.write(buffer);
-        ffmpegProcess.stdio[3].write(buffer);  
+        ffmpegProcess.stdio[3].write(buffer);
     } catch (err) {
         console.error('[Audio] Error writing to FFmpeg:', err);
     }
@@ -168,6 +193,6 @@ muxedStream.on('data', (chunk) => {
     }
 });
 
-function startStream(){}
+function startStream() { }
 
 module.exports = { startStream, sendAudioBuffer, sendVideoBuffer };

@@ -88,3 +88,4 @@ venv.bak/
 .coverage
 htmlcov/ 
 
+demos/

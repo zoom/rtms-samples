@@ -40,6 +40,8 @@ const activeConnections = new Map();
 
 // Handle POST requests to the webhook endpoint
 app.post(WEBHOOK_PATH, (req, res) => {
+    // Respond with HTTP 200 status
+    res.sendStatus(200);
     console.log('RTMS Webhook received:', JSON.stringify(req.body, null, 2));
     const { event, payload } = req.body;
 
@@ -81,10 +83,6 @@ app.post(WEBHOOK_PATH, (req, res) => {
         }
         activeConnections.delete(meeting_uuid);
     }
-
-
-    // Respond with HTTP 200 status
-    res.sendStatus(200);
 });
 
 // 🆕 Route to serve the player page

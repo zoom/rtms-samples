@@ -97,4 +97,3 @@ The application follows this sequence:
 
 3. **Known Issues**:
    - The muxing is still work in progress during this beta period. Additional work is needed in this sample to handle empty / silence frames.
-

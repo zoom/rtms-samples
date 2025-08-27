@@ -81,17 +81,11 @@ gst-inspect-1.0 kvssink
 
 ## Streaming Options
 
-You can choose one of the two methods to stream to KVS:
-
-### ✅ Option 1: Combined Audio+Video to Single KVS Stream
+### ✅ Combined Audio+Video to Single KVS Stream
 Uses FFmpeg to mux audio and video into MPEG-TS format, then sends it to KVS.
 - Module: `kvs_gstreamer_stream_audio_and_video_with_ffmpeg.js`
 - Buffers are muxed and sent together using FFmpeg.
 
-### ✅ Option 2: Separate Streams for Audio and Video
-Audio and video are handled independently and sent to separate KVS streams.
-- Module: `kvs_gstreamer_split_audio_and_video_to_kvs.js`
-- Useful for scenarios where you need individual processing or archiving.
 
 ## How it Works
 
@@ -158,7 +152,6 @@ gst-launch-1.0 -v \
 ## Notes
 
 - This sample streams directly to KVS instead of saving locally or uploading to S3.
-- Audio and video can be muxed (Option 1) or streamed separately (Option 2).
 - Select the mode that fits your application architecture.
-- FFmpeg is required for muxed streaming, but not for separate audio/video mode.
+- FFmpeg is required for muxed streaming
 - Audio and video are handled and sent as independent real-time buffers.

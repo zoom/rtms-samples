@@ -42,6 +42,8 @@ app.get('/home', (req, res) => {
 // Handle POST requests to the webhook endpoint
 
 app.post(WEBHOOK_PATH, (req, res) => {
+    // Respond with HTTP 200 status
+    res.sendStatus(200);
     console.log('RTMS Webhook received:', JSON.stringify(req.body, null, 2));
     const { event, payload } = req.body;
 
@@ -83,9 +85,6 @@ app.post(WEBHOOK_PATH, (req, res) => {
             activeConnections.delete(meeting_uuid);
         }
     }
-
-    // Respond with HTTP 200 status
-    res.sendStatus(200);
 });
 
 // Function to generate a signature for authentication
@@ -212,7 +211,8 @@ function connectToMediaWebSocket(mediaUrl, meetingUuid, streamId, signalingSocke
                     fps: 25
                 },
                 deskshare: {
-                    codec: 5 //JPG
+                    codec: 5, //JPG
+                    fps: 5
                 },
                 chat: {
                     content_type: 5,
@@ -278,9 +278,6 @@ function connectToMediaWebSocket(mediaUrl, meetingUuid, streamId, signalingSocke
                 console.log('Video data received');
 
             }
-
-
-
             if (msg.msg_type === 16 && msg.content && msg.content.data) {
                 let { user_id, user_name, data: shareData, timestamp } = msg.content;
 

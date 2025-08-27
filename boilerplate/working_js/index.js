@@ -38,6 +38,7 @@ if (config.mode === "webhook") {
   console.log("wehook mode");
   // Webhook handler
   app.post(config.webhookPath, async (req, res) => {
+
     const { event, payload } = req.body;
     console.log('Webhook received:', event);
 
@@ -63,7 +64,7 @@ if (config.mode === "webhook") {
     //     "server_urls": "wss://127.0.0.1:443"
     // }
 
-    if (event === 'meeting.rtms_started') {
+    else if (event === 'meeting.rtms_started') {
       const { meeting_uuid, rtms_stream_id, server_urls } = payload;
       console.log(`Starting RTMS for meeting ${meeting_uuid}`);
 
@@ -97,7 +98,7 @@ if (config.mode === "webhook") {
     //    }
     // }
 
-    if (event === 'meeting.rtms_stopped') {
+    else if (event === 'meeting.rtms_stopped') {
       const { meeting_uuid } = payload;
       console.log(`Stopping RTMS for meeting ${meeting_uuid}`);
 
@@ -197,6 +198,7 @@ else if (config.mode === 'websocket') {
   const ws = new WebSocket(fullWsUrl);
 
   ws.on('open', () => {
+    
     console.log('✅ WebSocket connection established.');
     ws.send(JSON.stringify({ module: 'heartbeat' }));
     console.log('💓 Sent initial heartbeat');

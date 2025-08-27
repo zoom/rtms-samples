@@ -71,7 +71,15 @@ export function handleMediaMessage(data, {
         }
         break;
 
-
+      case 12: // KEEP_ALIVE_REQ
+        console.log("case 12");
+        conn.media.lastKeepAlive = Date.now();
+        console.log('Responding to KEEP_ALIVE_REQ');
+        mediaWs.send(JSON.stringify({
+          msg_type: 13,
+          timestamp: msg.timestamp
+        }));
+        break;
 
       // {
       //   "msg_type": 14, 
@@ -86,9 +94,9 @@ export function handleMediaMessage(data, {
         if (msg.content?.data) {
           const { user_id, user_name, data: audioData } = msg.content;
           const buffer = Buffer.from(audioData, 'base64');
-            console.log('Audio data received');
+          console.log('Audio data received');
           // You can add processing logic here
-           
+
         }
         break;
 
