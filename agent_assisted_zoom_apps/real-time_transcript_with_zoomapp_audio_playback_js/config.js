@@ -1,7 +1,7 @@
 import dotenv from 'dotenv';
 dotenv.config();
 
-const requiredVars = ['ZM_CLIENT_ID', 'ZM_CLIENT_SECRET'];
+const requiredVars = ['ZOOM_CLIENT_ID', 'ZOOM_CLIENT_SECRET'];
 
 for (const key of requiredVars) {
   if (!process.env[key]) {
@@ -17,12 +17,12 @@ export const config = {
   
   webhookPath: process.env.WEBHOOK_PATH || '/webhook',
 
-  clientId: process.env.ZM_CLIENT_ID,
-  clientSecret: process.env.ZM_CLIENT_SECRET,
+  clientId: process.env.ZOOM_CLIENT_ID,
+  clientSecret: process.env.ZOOM_CLIENT_SECRET,
 
-  s2sClientId: process.env.ZM_S2S_CLIENT_ID || null,
-  s2sClientSecret: process.env.ZM_S2S_CLIENT_SECRET || null,
-  accountId: process.env.ZM_ACCOUNT_ID || null,
+  s2sClientId: process.env.ZOOM_S2S_CLIENT_ID || null,
+  s2sClientSecret: process.env.ZOOM_S2S_CLIENT_SECRET || null,
+  accountId: process.env.ZOOM_ACCOUNT_ID || null,
 
   zoomSecretToken: process.env.ZOOM_SECRET_TOKEN,
   ws_url: process.env.WS_URL,

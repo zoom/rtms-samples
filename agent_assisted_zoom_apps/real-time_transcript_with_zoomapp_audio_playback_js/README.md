@@ -55,8 +55,8 @@ npm install
 ### Required Environment Variables
 ```env
 # Zoom App Credentials (Required)
-ZM_CLIENT_ID=your_client_id
-ZM_CLIENT_SECRET=your_client_secret
+ZOOM_CLIENT_ID=your_client_id
+ZOOM_CLIENT_SECRET=your_client_secret
 ZOOM_SECRET_TOKEN=your_secret_token
 
 # Server Configuration
@@ -76,9 +76,9 @@ WS_URL=wss://yoururl.ngrok.com/ws
 zoomWSURLForEvents=wss://ws.zoom.us/ws?subscriptionId=your_subscription_id
 
 # Zoom Server-to-Server OAuth (optional)
-ZM_S2S_CLIENT_ID=your_s2s_client_id
-ZM_S2S_CLIENT_SECRET=your_s2s_client_secret
-ZM_ACCOUNT_ID=your_account_id
+ZOOM_S2S_CLIENT_ID=your_s2s_client_id
+ZOOM_S2S_CLIENT_SECRET=your_s2s_client_secret
+ZOOM_ACCOUNT_ID=your_account_id
 
 # AI Services (mandatory)
 OPENROUTER_API_KEY=sk-or-v1-your_openrouter_key
