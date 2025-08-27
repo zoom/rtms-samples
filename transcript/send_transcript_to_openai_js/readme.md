@@ -36,8 +36,8 @@ Create a `.env` file with the following keys:
 OPENAI_API_KEY=your_openai_api_key
 PORT=3000
 ZOOM_SECRET_TOKEN=your_zoom_secret_token
-ZM_CLIENT_ID=your_zoom_client_id
-ZM_CLIENT_SECRET=your_zoom_client_secret
+ZOOM_CLIENT_ID=your_zoom_client_id
+ZOOM_CLIENT_SECRET=your_zoom_client_secret
 WEBHOOK_PATH=/webhook
 ```
 

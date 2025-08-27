@@ -16,8 +16,8 @@ A Node.js implementation demonstrating Zoom's Real-Time Media Streams (RTMS) for
 - A Zoom account with RTMS enabled
 - Environment variables:
   - `ZOOM_SECRET_TOKEN`: For webhook validation
-  - `ZM_CLIENT_ID`: Your Zoom client ID
-  - `ZM_CLIENT_SECRET`: Your Zoom client secret
+  - `ZOOM_CLIENT_ID`: Your Zoom client ID
+  - `ZOOM_CLIENT_SECRET`: Your Zoom client secret
   - `PORT`: default is 3000
   - `WEBHOOK_PATH`: default is /webhook
   
@@ -31,8 +31,8 @@ npm install express ws crypto dotenv
 2. Create a `.env` file with your credentials:
 ```env
 ZOOM_SECRET_TOKEN=your_token
-ZM_CLIENT_ID=your_client_id
-ZM_CLIENT_SECRET=your_client_secret
+ZOOM_CLIENT_ID=your_client_id
+ZOOM_CLIENT_SECRET=your_client_secret
 ```
 
 ## How It Works
@@ -249,9 +249,9 @@ The media connection:
 ### Helper Functions
 ```javascript
 function generateSignature(meetingUuid, streamId) {
-    const message = `${process.env.ZM_CLIENT_ID},${meetingUuid},${streamId}`;
+    const message = `${process.env.ZOOM_CLIENT_ID},${meetingUuid},${streamId}`;
     return crypto
-        .createHmac('sha256', process.env.ZM_CLIENT_SECRET)
+        .createHmac('sha256', process.env.ZOOM_CLIENT_SECRET)
         .update(message)
         .digest('hex');
 }

@@ -10,8 +10,11 @@ dotenv.config();
 const app = express();
 app.use(express.json()); // Parse incoming JSON payloads
 
+// Webhook endpoint configuration
+const WEBHOOK_PATH = process.env.WEBHOOK_PATH || '/webhook';
+
 // Step 1: Webhook Receiver - Listen for meeting events
-app.post("/webhook", async (req, res) => {
+app.post(WEBHOOK_PATH, async (req, res) => {
   const { event, payload } = req.body;
   console.log('Webhook received:', event);
   console.log('Payload:', JSON.stringify(payload, null, 2));

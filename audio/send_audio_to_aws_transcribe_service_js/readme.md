@@ -6,8 +6,8 @@ This project demonstrates the use of a 3rd party speech-to-text service that acc
 
 Before running the application, ensure you have the following environment variables set in a `.env` file:
 - `ZOOM_SECRET_TOKEN`: Secret token for URL validation
-- `ZM_CLIENT_ID`: Zoom client ID
-- `ZM_CLIENT_SECRET`: Zoom client secret
+- `ZOOM_CLIENT_ID`: Zoom client ID
+- `ZOOM_CLIENT_SECRET`: Zoom client secret
 - `PORT`: 3000
 - `WEBHOOK_PATH`: "/webhook"
 - `AWS_ACCESS_KEY_ID`: AWS Access Key ID

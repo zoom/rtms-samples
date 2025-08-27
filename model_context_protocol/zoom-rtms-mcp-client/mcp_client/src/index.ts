@@ -12,8 +12,8 @@ dotenv.config();
 const app = express();
 const port = process.env.PORT || 3000;
 const ZOOM_SECRET_TOKEN = process.env.ZOOM_SECRET_TOKEN;
-const CLIENT_ID = process.env.ZM_CLIENT_ID;
-const CLIENT_SECRET = process.env.ZM_CLIENT_SECRET;
+const CLIENT_ID = process.env.ZOOM_CLIENT_ID;
+const CLIENT_SECRET = process.env.ZOOM_CLIENT_SECRET;
 const WEBHOOK_PATH = process.env.WEBHOOK_PATH || '/webhook';
 const LLM_MCP_SERVER_URL=process.env.LLM_MCP_SERVER_URL || 'http://localhost:3000/mcp';
 

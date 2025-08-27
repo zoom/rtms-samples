@@ -18,8 +18,8 @@ Create a `.env` file with the following variables configured:
 
 ```env
 ZOOM_SECRET_TOKEN=your_zoom_secret
-ZM_CLIENT_ID=your_client_id
-ZM_CLIENT_SECRET=your_client_secret
+ZOOM_CLIENT_ID=your_client_id
+ZOOM_CLIENT_SECRET=your_client_secret
 OPENROUTER_API_KEY=your_openrouter_key
 PORT=3000
 WEBHOOK_PATH=/webhook

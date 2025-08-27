@@ -21,8 +21,8 @@ dotnet restore
 2. Create a `.env` file in the root directory with the following content:
 ```
 ZOOM_SECRET_TOKEN=your_secret_token
-ZM_CLIENT_ID=your_client_id
-ZM_CLIENT_SECRET=your_client_secret
+ZOOM_CLIENT_ID=your_client_id
+ZOOM_CLIENT_SECRET=your_client_secret
 PORT=3000
 WEBHOOK_PATH=/webhook
 ```

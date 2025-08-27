@@ -20,8 +20,8 @@ var app = builder.Build();
 var port = Environment.GetEnvironmentVariable("PORT") ?? "3000";
 var webhookPath = Environment.GetEnvironmentVariable("WEBHOOK_PATH") ?? "/webhook";
 var zoomSecretToken = Environment.GetEnvironmentVariable("ZOOM_SECRET_TOKEN");
-var clientId = Environment.GetEnvironmentVariable("ZM_CLIENT_ID");
-var clientSecret = Environment.GetEnvironmentVariable("ZM_CLIENT_SECRET");
+var clientId = Environment.GetEnvironmentVariable("ZOOM_CLIENT_ID");
+var clientSecret = Environment.GetEnvironmentVariable("ZOOM_CLIENT_SECRET");
 
 Console.WriteLine($"DEBUG - PORT: {port}");
 Console.WriteLine($"DEBUG - WEBHOOK_PATH: {webhookPath}");

@@ -6,8 +6,8 @@ This project demonstrates real-time audio capture and conversion using the Zoom 
 
 Before running the application, ensure you have the following environment variables set in a `.env` file:
 - `ZOOM_SECRET_TOKEN`: Secret token for URL validation
-- `ZM_CLIENT_ID`: Zoom client ID
-- `ZM_CLIENT_SECRET`: Zoom client secret
+- `ZOOM_CLIENT_ID`: Zoom client ID
+- `ZOOM_CLIENT_SECRET`: Zoom client secret
 - `PORT`: default is 3000
  - `WEBHOOK_PATH`: default is /webhook
 ## Implementation Details

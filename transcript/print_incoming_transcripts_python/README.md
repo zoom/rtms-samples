@@ -19,8 +19,8 @@ pip install -r requirements.txt
 2. Create a `.env` file in the same directory with your Zoom credentials:
 ```
 ZOOM_SECRET_TOKEN=your_secret_token
-ZM_CLIENT_ID=your_client_id
-ZM_CLIENT_SECRET=your_client_secret
+ZOOM_CLIENT_ID=your_client_id
+ZOOM_CLIENT_SECRET=your_client_secret
 ```
 
 ## Running the Example

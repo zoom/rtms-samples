@@ -16,8 +16,8 @@ This Node.js example demonstrates how to receive real-time audio and video from 
 
 - `PORT`: Port for the Express server (default: 3000)
 - `ZOOM_SECRET_TOKEN`: Zoom webhook secret token
-- `ZM_CLIENT_ID`: Zoom client ID
-- `ZM_CLIENT_SECRET`: Zoom client secret
+- `ZOOM_CLIENT_ID`: Zoom client ID
+- `ZOOM_CLIENT_SECRET`: Zoom client secret
 - `WEBHOOK_PATH`: Webhook route path (default: /webhook)
 - `AWS_REGION`: AWS region for KVS
 - `AWS_ACCESS_KEY_ID`: AWS access key
@@ -35,8 +35,8 @@ npm install
 ### 2. Configure `.env`
 ```
 ZOOM_SECRET_TOKEN=your_zoom_secret
-ZM_CLIENT_ID=your_client_id
-ZM_CLIENT_SECRET=your_client_secret
+ZOOM_CLIENT_ID=your_client_id
+ZOOM_CLIENT_SECRET=your_client_secret
 PORT=3000
 WEBHOOK_PATH=/webhook
 AWS_REGION=us-west-2

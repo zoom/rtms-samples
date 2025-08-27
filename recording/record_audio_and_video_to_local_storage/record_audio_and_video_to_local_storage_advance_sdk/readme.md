@@ -7,8 +7,8 @@ This project demonstrates real-time audio and video capture using the Zoom RTMS.
 
 Before running the application, ensure you have the following environment variables set in a `.env` file:
 - `ZOOM_SECRET_TOKEN`: Secret token for URL validation
-- `ZM_CLIENT_ID`: Zoom client ID
-- `ZM_CLIENT_SECRET`: Zoom client secret
+- `ZOOM_CLIENT_ID`: Zoom client ID
+- `ZOOM_CLIENT_SECRET`: Zoom client secret
 
 ### Additional Environment Variables:
 - `PORT`: The port on which the Express server runs (default: 3000)

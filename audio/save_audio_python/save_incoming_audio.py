@@ -19,8 +19,8 @@ app = FastAPI()
 port = int(os.getenv("PORT", 3000))
 
 ZOOM_SECRET_TOKEN = os.getenv("ZOOM_SECRET_TOKEN")
-CLIENT_ID = os.getenv("ZM_CLIENT_ID")
-CLIENT_SECRET = os.getenv("ZM_CLIENT_SECRET")
+CLIENT_ID = os.getenv("ZOOM_CLIENT_ID")
+CLIENT_SECRET = os.getenv("ZOOM_CLIENT_SECRET")
 WEBHOOK_PATH = os.getenv("WEBHOOK_PATH", "/webhook")
 
 # Dictionary to keep track of active WebSocket connections and audio chunks

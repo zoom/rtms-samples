@@ -230,8 +230,8 @@ func main() {
 		port = "3000"
 	}
 	zoomToken := os.Getenv("ZOOM_SECRET_TOKEN")
-	clientID := os.Getenv("ZM_CLIENT_ID")
-	clientSecret := os.Getenv("ZM_CLIENT_SECRET")
+	clientID := os.Getenv("ZOOM_CLIENT_ID")
+	clientSecret := os.Getenv("ZOOM_CLIENT_SECRET")
 	webhookPath := os.Getenv("WEBHOOK_PATH")
 	if webhookPath == "" {
 		webhookPath = "/"

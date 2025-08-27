@@ -5,7 +5,6 @@ dotenv.config();
 
 export function startLocalTranscoding() {
 
-
       
     const ffmpeg = spawn('ffmpeg', [
         // 🔹 Input: 25 FPS raw H.264 video
@@ -28,26 +27,27 @@ export function startLocalTranscoding() {
         '-map', '[vout]',
         '-map', '[aout]',
       
-        // 🔹 Encode video
+        // 🔹 Encode video with improved quality settings
         '-c:v', 'libx264',
-        '-preset', 'veryfast',
+        '-preset', 'fast',           // Better quality than 'veryfast'
         '-tune', 'zerolatency',
-        '-g', '50',               // 25 fps * 2 sec
+        '-crf', '20',                // Constant Rate Factor for quality
+        '-g', '50',                  // 25 fps * 2 sec
         '-keyint_min', '50',
         '-sc_threshold', '0',
-        '-b:v', '3000k',         
-        '-maxrate', '3000k',
-        '-bufsize', '6000k',
+        '-b:v', '4500k',             // Increased from 3000k for better quality
+        '-maxrate', '5000k',         // Slightly higher max rate
+        '-bufsize', '10000k',        // Larger buffer for quality
       
-        // 🔹 Encode audio
+        // 🔹 Encode audio with higher quality
         '-c:a', 'aac',
-        '-b:a', '128k',
+        '-b:a', '192k',              // Increased from 128k
         '-ar', '44100',
       
-        // 🔹 Output to YouTube RTMP + HLS
+        // 🔹 Output to HLS with optimized settings
         '-f', 'tee',
       
-        `[f=hls:hls_time=2:hls_list_size=5:hls_flags=delete_segments]public/hls/stream.m3u8`
+        `[f=hls:hls_time=2:hls_list_size=5:hls_flags=delete_segments+independent_segments]public/hls/stream.m3u8`
       ], {
         stdio: ['ignore', 'inherit', 'inherit', 'pipe', 'pipe']
       });

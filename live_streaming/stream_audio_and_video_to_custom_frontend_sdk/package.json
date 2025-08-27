@@ -7,9 +7,8 @@
   "main": "index.js",
   "type": "module",
   "scripts": {
-    "fetch": "npm --prefix node_modules/@zoom/rtms run fetch",
-    "start": "node --env-file=.env index.js"
-  },
+  "start": "node --env-file=.env index.js"
+},
   "license": "MIT",
   "dependencies": {
     "@zoom/rtms": "^0.0.2",

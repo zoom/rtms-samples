@@ -47,8 +47,8 @@ PORT=3000
 OPENROUTER_API_KEY=your_openrouter_api_key
 DEFAULT_OPENROUTER_MODEL=meta-llama/llama-4-scout:free
 
-ZM_CLIENT_ID=your_zoom_client_id
-ZM_CLIENT_SECRET=your_zoom_client_secret
+ZOOM_CLIENT_ID=your_zoom_client_id
+ZOOM_CLIENT_SECRET=your_zoom_client_secret
 ZOOM_SECRET_TOKEN=your_zoom_verification_token
 WEBHOOK_PATH=/webhook
 ```

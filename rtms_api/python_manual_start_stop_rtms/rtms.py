@@ -13,8 +13,11 @@ load_dotenv()
 
 app = Flask(__name__)
 
+# Webhook endpoint configuration
+WEBHOOK_PATH = os.getenv("WEBHOOK_PATH", "/webhook")
+
 # Step 1: Webhook Receiver - Listen for meeting events
-@app.route("/webhook", methods=['POST'])
+@app.route(WEBHOOK_PATH, methods=['POST'])
 def webhook():
     data = request.get_json()
     event = data.get('event')

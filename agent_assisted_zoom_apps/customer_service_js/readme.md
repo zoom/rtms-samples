@@ -47,8 +47,8 @@ Create a `.env` file:
 ```env
 PORT=3000
 ZOOM_SECRET_TOKEN=your_zoom_token
-ZM_CLIENT_ID=your_zoom_client_id
-ZM_CLIENT_SECRET=your_zoom_client_secret
+ZOOM_CLIENT_ID=your_zoom_client_id
+ZOOM_CLIENT_SECRET=your_zoom_client_secret
 WEBHOOK_PATH=/webhook
 OPENROUTER_API_KEY=your_openrouter_key
 ```

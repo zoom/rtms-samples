@@ -16,8 +16,8 @@ Create a `.env` file with the following keys:
 
 ```env
 ZOOM_SECRET_TOKEN=your_zoom_secret_token
-ZM_CLIENT_ID=your_zoom_client_id
-ZM_CLIENT_SECRET=your_zoom_client_secret
+ZOOM_CLIENT_ID=your_zoom_client_id
+ZOOM_CLIENT_SECRET=your_zoom_client_secret
 PORT=3000
 WEBHOOK_PATH=/webhook
 ```

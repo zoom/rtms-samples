@@ -31,11 +31,11 @@ PORT=3000
 LOG_LEVEL=DEBUG
 
 ZOOM_SECRET_TOKEN=your_token
-ZM_CLIENT_ID=your_oauth_client_id
-ZM_CLIENT_SECRET=your_oauth_client_secret
+ZOOM_CLIENT_ID=your_oauth_client_id
+ZOOM_CLIENT_SECRET=your_oauth_client_secret
 
-S2S_ZM_CLIENT_ID=your_s2s_client_id
-S2S_ZM_CLIENT_SECRET=your_s2s_client_secret
+S2S_ZOOM_CLIENT_ID=your_s2s_client_id
+S2S_ZOOM_CLIENT_SECRET=your_s2s_client_secret
 ZOOM_ACCOUNT_ID=your_account_id
 
 ZOOM_MEETING_NUMBER=your_meeting_number

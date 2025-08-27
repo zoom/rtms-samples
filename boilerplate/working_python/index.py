@@ -16,8 +16,8 @@ PORT = int(os.getenv("PORT", 3000))
 WEBHOOK_PATH = os.getenv("WEBHOOK_PATH", "/webhook")
 LOG_LEVEL = os.getenv("LOG_LEVEL", "DEBUG")
 ZOOM_SECRET_TOKEN = os.getenv("ZOOM_SECRET_TOKEN")
-CLIENT_ID = os.getenv("ZM_CLIENT_ID")
-CLIENT_SECRET = os.getenv("ZM_CLIENT_SECRET")
+CLIENT_ID = os.getenv("ZOOM_CLIENT_ID")
+CLIENT_SECRET = os.getenv("ZOOM_CLIENT_SECRET")
 
 # Setup logging
 logging.basicConfig(level=getattr(logging, LOG_LEVEL.upper(), logging.DEBUG))

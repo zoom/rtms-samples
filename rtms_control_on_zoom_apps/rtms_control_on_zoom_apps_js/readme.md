@@ -24,14 +24,14 @@ npm install
 Refer to .env.example for reference
 ```
 ZOOM_SECRET_TOKEN=your_secret_token
-ZM_CLIENT_ID=your_client_id
-ZM_CLIENT_SECRET=your_client_secret
+ZOOM_CLIENT_ID=your_client_id
+ZOOM_CLIENT_SECRET=your_client_secret
 PORT=3000
 WEBHOOK_PATH=/webhook
 
 S2S_CLIENT_ID=your_s2s_client_id            # optional for S2S auth
 S2S_CLIENT_SECRET=your_s2s_client_secret    # optional for S2S auth
-ZM_ACCOUNT_ID=your_accountid                # optional for S2S auth
+ZOOM_ACCOUNT_ID=your_accountid                # optional for S2S auth
 ```
 
 ## Running the Example

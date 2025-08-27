@@ -18,8 +18,8 @@ const port = process.env.PORT || 3000;
 const execAsync = promisify(exec);
 
 const ZOOM_SECRET_TOKEN = process.env.ZOOM_SECRET_TOKEN;
-const CLIENT_ID = process.env.ZM_CLIENT_ID;
-const CLIENT_SECRET = process.env.ZM_CLIENT_SECRET;
+const CLIENT_ID = process.env.ZOOM_CLIENT_ID;
+const CLIENT_SECRET = process.env.ZOOM_CLIENT_SECRET;
 const WEBHOOK_PATH = process.env.WEBHOOK_PATH || '/webhook';
 
 

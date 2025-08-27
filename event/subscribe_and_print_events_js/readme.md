@@ -8,8 +8,8 @@ Ensure a `.env` file exists with the following variables:
 
 ```env
 ZOOM_SECRET_TOKEN=your_zoom_secret_token
-ZM_CLIENT_ID=your_zoom_client_id
-ZM_CLIENT_SECRET=your_zoom_client_secret
+ZOOM_CLIENT_ID=your_zoom_client_id
+ZOOM_CLIENT_SECRET=your_zoom_client_secret
 PORT=3000 # optional, defaults to 3000
 WEBHOOK_PATH=/webhook # optional
 ```
@@ -75,7 +75,7 @@ Make sure your Zoom App is configured with the appropriate RTMS scopes and your 
   - Confirm Zoom app scopes and webhook configurations
 
 - Signature mismatch or unauthorized?
-  - Ensure `ZOOM_SECRET_TOKEN`, `ZM_CLIENT_ID`, and `ZM_CLIENT_SECRET` are correct in `.env`
+  - Ensure `ZOOM_SECRET_TOKEN`, `ZOOM_CLIENT_ID`, and `ZOOM_CLIENT_SECRET` are correct in `.env`
 
 - WebSocket issues?
   - Verify internet connection and WebSocket server availability
