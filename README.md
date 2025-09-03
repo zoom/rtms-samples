@@ -8,42 +8,82 @@ This repository contains sample projects demonstrating how to work with Zoom's R
 
 ```
 .
+├── agent_assisted_zoom_apps/
+│   ├── customer_service_js/                                  # Customer service AI with RAG
+│   ├── industry_notetaking_js/                               # Industry note-taking with NLP: topic classification, entity detection, summarization, action items
+│   ├── real-time_transcript_analysis_js/                     # Real-time transcript analysis
+│   ├── real-time_transcript_dndgame_js/                      # D&D game with transcripts
+│   └── real-time_transcript_with_zoomapp_audio_playback_js/  # LLM Transcript Chatbot with Neural audio playback via Zoom App
 ├── audio/
-│   ├── print_audio/
-│   ├── print_audio_js/                                        # Print audio using JavaScript
-│   ├── print_audio_python/                                    # Print audio using Python
-│   ├── print_audio_sdk/                                       # Print audio using SDK
-│   ├── save_audio/
+│   ├── print_audio_js/                                       # Print audio statistics using JavaScript
+│   ├── print_audio_python/                                   # Print audio using Python
+│   ├── print_audio_sdk/                                      # Print audio using SDK
 │   ├── save_audio_js/                                        # Save audio using JavaScript
 │   ├── save_audio_python/                                    # Save audio using Python
 │   ├── save_audio_sdk/                                       # Save audio using SDK
-│   ├── send_audio_to_assemblyai_transcribe_service_js/      # Transcribe using AssemblyAI
-│   ├── send_audio_to_aws_transcribe_service_js/             # Transcribe using AWS (JS)
-│   ├── send_audio_to_aws_transcribe_service_sdk/            # Transcribe using AWS (SDK)
-│   ├── send_audio_to_azure_speech_to_text_service_js/       # Transcribe using Azure (JS)
-│   ├── send_audio_to_azure_speech_to_text_service_sdk/      # Transcribe using Azure (SDK)
-│   └── send_audio_to_deepgram_transcribe_service_js/        # Transcribe using Deepgram
-├── cloud_streaming/
-│   └── stream_to_aws_kinesis_video_stream_js/               # Stream to AWS Kinesis
+│   ├── send_audio_to_assemblyai_transcribe_service_js/       # Transcribe using AssemblyAI (JS)
+│   ├── send_audio_to_assemblyai_transcribe_service_sdk/      # Transcribe using AssemblyAI (SDK)
+│   ├── send_audio_to_aws_transcribe_service_js/              # Transcribe using AWS (JS)
+│   ├── send_audio_to_aws_transcribe_service_sdk/             # Transcribe using AWS (SDK)
+│   ├── send_audio_to_azure_speech_to_text_service_js/        # Transcribe using Azure (JS)
+│   ├── send_audio_to_azure_speech_to_text_service_sdk/       # Transcribe using Azure (SDK)
+│   ├── send_audio_to_deepgram_transcribe_service_js/         # Transcribe using Deepgram (JS)
+|   └── send_audio_to_deepgram_transcribe_service_sdk/        # Transcribe using Deepgram (SDK)
+├── boilerplate/
+│   ├── working_cplusplus_wss/                                # C++ WebSocket boilerplate
+│   ├── working_dotnetcore/                                   # .NET Core boilerplate
+│   ├── working_go/                                           # Go boilerplate
+│   ├── working_js/                                           # JavaScript boilerplate
+│   ├── working_python/                                       # Python boilerplate
+│   ├── working_python_wss/                                   # Python WebSocket boilerplate
+│   └── working_sdk/                                          # SDK boilerplate
 ├── cloud_storage/
-│   ├── save_audio_and_video_to_aws_s3_storage_js/          # Save to AWS S3
-│   └── save_audio_and_video_to_azure_blob_storage_js/       # Save to Azure Blob Storage
+│   ├── save_audio_and_video_to_aws_s3_storage_js/            # Save to AWS S3 (JS)
+│   ├── save_audio_and_video_to_aws_s3_storage_sdk/           # Save to AWS S3 (SDK)
+│   ├── save_audio_and_video_to_azure_blob_storage_js/        # Save to Azure Blob (JS)
+│   └── save_audio_and_video_to_azure_blob_storage_sdk/       # Save to Azure Blob (SDK)
+├── cloud_streaming/
+│   └── stream_to_aws_kinesis_video_stream_js/                # Stream to AWS Kinesis
+├── event/
+│   └── subscribe_and_print_events_js/                        # Event subscription example
 ├── live_streaming/
-│   ├── stream_audio_and_video_to_custom_frontend_js/        # Stream to custom frontend
-│   └── stream_audio_and_video_to_youtube_js/                # Stream to YouTube
-├── local_recording/
-│   ├── record_audio_and_video_to_local_storage_js/          # Basic local recording
-│   └── record_audio_and_video_to_local_storage_advance_js/  # Advanced local recording
+│   ├── stream_audio_and_video_to_custom_frontend_js/         # Stream to custom frontend (JS)
+│   ├── stream_audio_and_video_to_custom_frontend_sdk/        # Stream to custom frontend (SDK)
+│   ├── stream_audio_and_video_to_youtube_js/                 # Stream to YouTube (JS)
+│   └── stream_audio_and_video_to_youtube_sdk/                # Stream to YouTube (SDK)
+├── model_context_protocol/
+│   └── zoom-rtms-mcp-client/                                 # MCP client for RTMS
+├── recording/
+│   └── record_audio_and_video_to_local_storage/              # Local recording samples
+|      ├── record_audio_and_video_to_local_storage_advance_js     # Record audio and Video local storage, with padding added during muted audio and video duration (JS)
+│      ├── record_audio_and_video_to_local_storage_advance_sdk    # Record audio and Video local storage, with padding added during muted audio and video duration (SDK)
+│      ├── record_audio_and_video_to_local_storage_js             # Record audio and Video local storage (JS)
+│      └── record_audio_and_video_to_local_storage_sdk            # Record audio and Video local storage (SDK)
+├── rtms_api/
+│   ├── manual_start_stop_using_js/                           # Manual RTMS control via JS
+│   └── manual_start_stop_using_python/                       # Manual RTMS control via Python
+├── rtms_control_on_zoom_apps/
+│   └── rtms_control_on_zoom_apps_js/                         # RTMS control in Zoom Apps
+├── screen_share/
+│   ├── print_screen_share_js/                                # Print screen share data
+│   └── save_screen_share_js/                                 # Save screen share data
 ├── transcript/
-│   ├── print_incoming_transcripts_js/                       # Print transcripts using JavaScript
-│   ├── print_incoming_transcripts_python/                   # Print transcripts using Python
-│   ├── print_transcripts_sdk/                               # Print transcripts using SDK
-│   └── save_transcript_js/                                  # Save transcripts using JavaScript
+│   ├── print_incoming_transcripts_js/                        # Print transcripts (JS)
+│   ├── print_incoming_transcripts_python/                    # Print transcripts (Python)
+│   ├── print_transcripts_sdk/                                # Print transcripts (SDK)
+│   ├── save_transcript_js/                                   # Save transcripts (JS)
+│   ├── save_transcript_sdk/                                  # Save transcripts (SDK)
+│   ├── send_transcript_to_claude_js/                         # Send to Claude (JS)
+│   ├── send_transcript_to_openai_js/                         # Send to OpenAI (JS)
+│   └── send_transcript_to_openrouter_js/                     # Send to OpenRouter (JS)
 └── video/
-    ├── detect_object_using_tensorflow_js/                   # Object detection using TensorFlow (JS)
-    ├── detect_object_using_tensorflow_sdk/                  # Object detection using TensorFlow (SDK)
-    ├── save_video_js/                                       # Save video using JavaScript
-    └── save_video_sdk/                                      # Save video using SDK
+    ├── detect_emotion_using_amazon_rekognition_js/           # Emotion detection with Rekognition
+    ├── detect_object_using_tensorflow_js/                    # Object detection with TensorFlow (JS)
+    ├── detect_object_using_tensorflow_sdk/                   # Object detection with TensorFlow (SDK)
+    ├── print_video_js/                                       # Print video data (JS)
+    ├── print_video_sdk/                                      # Print video data (SDK)
+    ├── save_video_js/                                        # Save video data (JS)
+    └── save_video_sdk/                                       # Save video data (SDK)
 ```
 
 ## What is RTMS?
@@ -163,4 +203,4 @@ FITNESS FOR A PARTICULAR PURPOSE AND NONINFRINGEMENT. IN NO EVENT SHALL THE
 AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER
 LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM,
 OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
-SOFTWARE. 
+SOFTWARE.
