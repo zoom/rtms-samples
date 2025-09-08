@@ -54,7 +54,7 @@
   <div id="output">Initializing...</div>
 
   <script>
-    const socket = new WebSocket('wss://rtms.asdc.cc/ws');
+    const socket = new WebSocket('<%= websocket_url %>');
 
     socket.onopen = () => {
       console.log('✅ WebSocket connected');

@@ -29,7 +29,7 @@ export function setupFrontendWss(server) {
     ws.on('message', async (raw) => {
       try {
         const message = JSON.parse(raw);
-        //dreamtcs
+
         switch (message.type) {
           case 'client_ready':
            
@@ -129,8 +129,7 @@ export function setupFrontendWss(server) {
         ws.send(JSON.stringify({ type: 'error', data: 'Invalid message format' }));
       }
     });
-    
-    //dreamtcs
+
     const interval = setInterval(() => {
       if (ws.readyState === ws.OPEN) {
         ws.ping(); // Sends a ping frame

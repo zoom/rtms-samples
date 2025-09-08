@@ -4,7 +4,7 @@ import path from 'path';
 import { fileURLToPath } from 'url';
 import http from 'http';
 import https from 'https';
-
+import ejs from 'ejs';
 
 import { config } from './config.js';
 import { connectToSignalingWebSocket } from './signalingSocket.js';
@@ -12,22 +12,27 @@ import { s2sZoomApiRequest } from './s2sZoomApiClient.js';
 import { setupFrontendWss, broadcastToFrontendClients, sharedServices } from './frontendWss.js';
 import { textToSpeechBase64 } from './deepgramService.js';
 
+// Define __dirname for ES modules
+const __filename = fileURLToPath(import.meta.url);
+const __dirname = path.dirname(__filename);
+
 const app = express();
 const port = config.port;
 
-app.use(express.json());
+// Set up EJS as the view engine
+app.set('view engine', 'ejs');
+app.set('views', path.join(__dirname, 'public'));
 
-const __filename = fileURLToPath(import.meta.url);
-const __dirname = path.dirname(__filename);
+app.use(express.json());
 
 // Serve static files
 app.use(express.static(path.join(__dirname, 'public')));
 
 const activeConnections = new Map();
 
-// Route to index.html
+// Route to render index.ejs with websocket_url
 app.get('/', (req, res) => {
-  res.sendFile(path.join(__dirname, 'public', 'index.html'));
+  res.render('index', { websocket_url: config.ws_url });
 });
 
 

@@ -7,12 +7,14 @@ import { exec } from 'child_process';
 import { promisify } from 'util';
 import path from 'path';
 import { fileURLToPath } from 'url';
+import ejs from 'ejs';
 
 import { extractAndAccumulateTraits } from './chatWithOpenrouterForTraits.js'; // adjust path as needed
 
-
+// Define __dirname for ES modules
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = path.dirname(__filename);
+
 let frameCounter = 0;
 
 // Load environment variables from a .env file
@@ -22,10 +24,15 @@ const app = express();
 const port = process.env.PORT || 3000;
 const execAsync = promisify(exec);
 
+// Set up EJS as the view engine
+app.set('view engine', 'ejs');
+app.set('views', path.join(__dirname, 'public'));
+
 const ZOOM_SECRET_TOKEN = process.env.ZOOM_SECRET_TOKEN;
 const CLIENT_ID = process.env.ZOOM_CLIENT_ID;
 const CLIENT_SECRET = process.env.ZOOM_CLIENT_SECRET;
 const WEBHOOK_PATH = process.env.WEBHOOK_PATH || '/webhook';
+const WS_URL = process.env.WS_URL ;
 
 
 
@@ -37,7 +44,7 @@ app.use(express.static(path.join(__dirname, 'public'))); // ✅ Serve static fil
 const activeConnections = new Map();
 
 app.get('/', (req, res) => {
-    res.sendFile(path.join(__dirname, 'public', 'index.html'));
+    res.render('index', { websocket_url: WS_URL });
 });
 
 

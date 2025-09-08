@@ -50,7 +50,7 @@
       const transcriptLines = [];
       const maxLines = 20;
 
-      const socket = new WebSocket('wss://rtms.asdc.cc/ws');
+      const socket = new WebSocket('<%= websocket_url %>');
 
       socket.onopen = () => {
         console.log('✅ WebSocket connected');

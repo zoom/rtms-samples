@@ -3,8 +3,8 @@
  */
 
 class AudioClient {
-    constructor(serverUrl = 'wss://rtms.asdc.cc/ws') {
-        //dreamtcs
+    constructor(serverUrl) {
+ 
         this.serverUrl = serverUrl;
         this.ws = null;
         this.audioContext = null;
