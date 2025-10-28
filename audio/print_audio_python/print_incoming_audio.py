@@ -123,7 +123,17 @@ async def connect_to_media_websocket(media_url, meeting_uuid, stream_id, signali
                 "rtms_stream_id": stream_id,
                 "signature": signature,
                 "media_type": 1,  # MEDIA_DATA_AUDIO
-                "payload_encryption": False
+                "payload_encryption": False,
+                    "media_params": {
+                        "audio": {
+                            "content_type": 1,
+                            "sample_rate": 1,
+                            "channel": 1,
+                            "codec": 1,
+                            "data_opt": 2,
+                            "send_rate": 100
+                        }
+                    }
             }
             await media_ws.send(json.dumps(handshake))
 
