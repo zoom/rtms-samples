@@ -18,11 +18,14 @@ export function connectToSignalingWebSocket(
   clientId,
   clientSecret
 ) {
+  console.log(`[Signaling] Starting connection function for meeting ${meetingUuid}`);
+  console.log(`[Signaling] Stream ID: ${streamId}, Server URL: ${serverUrls}`);
   console.log(`[Signaling] Connecting for meeting ${meetingUuid}`);
 
 
   if (!serverUrls || typeof serverUrls !== 'string' || !serverUrls.startsWith('ws')) {
     console.error(`[Signaling] ❌ Invalid WebSocket URL:`, serverUrls);
+    console.error(`[Signaling] URL validation failed - URL is null/undefined or doesn't start with ws/wss`);
 
     // Set shouldReconnect to false to prevent retry loop
     if (activeConnections.has(meetingUuid)) {
@@ -32,8 +35,7 @@ export function connectToSignalingWebSocket(
       console.error(`[Signaling] MeetingUUID found in activeConnections map. disabling reconnection`);
     }
     else{
- console.error(`[Signaling] MeetingUUID not found in activeConnections map`);
-
+      console.error(`[Signaling] MeetingUUID not found in activeConnections map`);
     }
 
     return;
@@ -43,14 +45,17 @@ export function connectToSignalingWebSocket(
 
   let signalingWs;
   try {
+    console.log(`[Signaling] Creating WebSocket instance for ${serverUrls}`);
     signalingWs = new WebSocket(serverUrls);
+    console.log(`[Signaling] WebSocket instance created successfully`);
   } catch (err) {
-    console.error(`[Signaling] ❌ Failed to connect WebSocket: ${err.message}`);
+    console.error(`[Signaling] ❌ Failed to create WebSocket instance: ${err.message}`);
     return;
   }
 
   // Set up or refresh connection state
   if (!activeConnections.has(meetingUuid)) {
+    console.log(`[Signaling] Creating new connection entry for meeting ${meetingUuid}`);
     activeConnections.set(meetingUuid, {
       meetingUuid,
       streamId,
@@ -59,45 +64,63 @@ export function connectToSignalingWebSocket(
       signaling: { socket: null, state: 'connecting', lastKeepAlive: null },
       media: { socket: null, state: 'idle', lastKeepAlive: null },
     });
+  } else {
+    console.log(`[Signaling] Refreshing existing connection entry for meeting ${meetingUuid}`);
   }
 
   const conn = activeConnections.get(meetingUuid);
   conn.signaling.socket = signalingWs;
   conn.signaling.state = 'connecting';
+  console.log(`[Signaling] Connection state set to 'connecting' for ${meetingUuid}`);
 
   signalingWs.on('open', () => {
-    if (!conn.shouldReconnect) {
-      console.warn(`[Signaling] Aborting open: RTMS stopped for ${meetingUuid}`);
+    
+    try {
+      console.log(`[Signaling] WebSocket opened successfully for ${meetingUuid}`);
+      if (!conn.shouldReconnect) {
+        console.warn(`[Signaling] Aborting open: RTMS stopped for ${meetingUuid}`);
+        signalingWs.close();
+        return;
+      }
+
+      console.log(`[Signaling] Generating signature for handshake`);
+      const signature = generateSignature(meetingUuid, streamId, clientId, clientSecret);
+      console.log(`[Signaling] Signature generated successfully`);
+
+      //     {
+      //   "msg_type": 1,
+      //   "protocol_version": 1,   //WebSockets, RTMP, UDP, or WebRTC. WebSockets only for developer preview.
+      //   "sequence": 0,
+      //   "meeting_uuid": "4nYtdqLVTVqGJ+QB62ED7Q==",
+      //   "rtms_stream_id": "03db704592624398931a588dd78200cb",
+      //   "signature": "xxxxxxxxxx"
+      // }
+
+      const handshakeMsg = {
+        msg_type: 1,
+        meeting_uuid: meetingUuid,
+        rtms_stream_id: streamId,
+        signature,
+      };
+
+      console.log(`[Signaling] Sending handshake for ${meetingUuid}`);
+      console.log(`[Signaling] Handshake payload:`, JSON.stringify(handshakeMsg, null, 2));
+      signalingWs.send(JSON.stringify(handshakeMsg));
+      conn.signaling.state = 'authenticated';
+      console.log(`[Signaling] Connection state updated to 'authenticated' for ${meetingUuid}`);
+    } catch (err) {
+      console.error(`[Signaling] Error in WebSocket open handler for ${meetingUuid}: ${err.message}`);
+      console.error(`[Signaling] Open handler error details:`, err);
+      conn.signaling.state = 'error';
       signalingWs.close();
-      return;
     }
-
-    const signature = generateSignature(meetingUuid, streamId, clientId, clientSecret);
-
-    //     {
-    //   "msg_type": 1,
-    //   "protocol_version": 1,   //WebSockets, RTMP, UDP, or WebRTC. WebSockets only for developer preview.
-    //   "sequence": 0,
-    //   "meeting_uuid": "4nYtdqLVTVqGJ+QB62ED7Q==",
-    //   "rtms_stream_id": "03db704592624398931a588dd78200cb",
-    //   "signature": "xxxxxxxxxx"
-    // }
-
-    const handshakeMsg = {
-      msg_type: 1,
-      meeting_uuid: meetingUuid,
-      rtms_stream_id: streamId,
-      signature,
-    };
-
-    console.log(`[Signaling] Sending handshake for ${meetingUuid}`);
-    signalingWs.send(JSON.stringify(handshakeMsg));
-    conn.signaling.state = 'authenticated';
   });
   signalingWs.on('message', (data) => {
+    console.log(`[Signaling] Received message for ${meetingUuid}`);
     let msg;
     try {
       msg = JSON.parse(data.toString());
+      console.log(`[Signaling] Parsed message type: ${msg.msg_type}`);
     } catch (err) {
       console.warn(`[Signaling] Invalid JSON message:`, data.toString());
       return;
@@ -122,12 +145,15 @@ export function connectToSignalingWebSocket(
       // }
 
       case 2: // SIGNALING_HAND_SHAKE_RESP
-        console.log("case 2");
+        console.log(`[Signaling] Processing handshake response (case 2) for ${meetingUuid}`);
+        console.log(`[Signaling] Handshake response:`, JSON.stringify(msg, null, 2));
         if (msg.status_code === 0) {
           const mediaUrl = msg.media_server?.server_urls?.all;
           console.log(`[Signaling] Handshake OK. Media URL: ${mediaUrl}`);
           conn.signaling.state = 'ready';
+          console.log(`[Signaling] Connection state updated to 'ready' for ${meetingUuid}`);
 
+          console.log(`[Signaling] Initiating media WebSocket connection`);
           connectToMediaWebSocket(
             mediaUrl,
             meetingUuid,
@@ -138,7 +164,6 @@ export function connectToSignalingWebSocket(
             clientSecret,
             activeConnections
           );
-
 
           // Send event subscription payload (msg_type 5)
           // There is no response for this, do take note
@@ -151,8 +176,9 @@ export function connectToSignalingWebSocket(
             ]
           };
 
+          console.log(`[Signaling] Sending event subscription payload`);
           signalingWs.send(JSON.stringify(subscribePayload));
-          console.log(`[Signaling] Sent event subscription payload`);
+          console.log(`[Signaling] Event subscription payload sent successfully`);
 
         } else {
           console.warn(`[Signaling] Handshake failed: status_code = ${msg.status_code}`);
@@ -162,12 +188,13 @@ export function connectToSignalingWebSocket(
         break;
 
       case 6: // first timestamp from signaling server
-        console.log("case 6");
-        console.log(msg);
+        console.log(`[Signaling] Processing event message (case 6) for ${meetingUuid}`);
+        console.log(`[Signaling] Event message:`, JSON.stringify(msg, null, 2));
         if (msg.event) {
+          console.log(`[Signaling] Event type: ${msg.event.event_type}`);
           switch (msg.event.event_type) {
             case 0: // UNDEFINED
-              console.log('[Event] UNDEFINED');
+              console.log(`[Event] UNDEFINED event received`);
               break;
 
             case 1: // FIRST_PACKET_TIMESTAMP
@@ -189,32 +216,39 @@ export function connectToSignalingWebSocket(
             default:
               console.log(`[Event] Unknown event_type: ${msg.event.event_type}`);
           }
+        } else {
+          console.log(`[Signaling] Event message received but no event data`);
         }
 
         break;
 
       case 8: // Stream State changed
-        console.log("case 8");
-        console.log(msg);
+        console.log(`[Signaling] Processing stream state change (case 8) for ${meetingUuid}`);
+        console.log(`[Signaling] Stream state message:`, JSON.stringify(msg, null, 2));
 
         if ('reason' in msg) {
+          console.log(`[Signaling] Stream state change reason: ${msg.reason}`);
           logRtmsStopReason(msg.reason);
         }
 
         if ('state' in msg) {
+          console.log(`[Signaling] Stream state: ${msg.state}`);
           logRtmsStreamState(msg.state);
         }
         //meeting ended
         if (msg.reason === 6 && msg.state === 4) {
+          console.log(`[Signaling] Meeting ended detected, cleaning up connections for ${meetingUuid}`);
 
           if (conn) {
             conn.shouldReconnect = false;
+            console.log(`[Signaling] Disabled reconnection for ${meetingUuid}`);
 
             // Explicitly update states
             if (conn.signaling) {
               conn.signaling.state = 'closed';
               const ws = conn.signaling.socket;
               if (ws && typeof ws.close === 'function') {
+                console.log(`[Signaling] Closing signaling WebSocket for ${meetingUuid}`);
                 if (ws.readyState === WebSocket.CONNECTING) {
                   ws.once('open', () => ws.close());
                 } else {
@@ -227,6 +261,7 @@ export function connectToSignalingWebSocket(
               conn.media.state = 'closed';
               const ws = conn.media.socket;
               if (ws && typeof ws.close === 'function') {
+                console.log(`[Signaling] Closing media WebSocket for ${meetingUuid}`);
                 if (ws.readyState === WebSocket.CONNECTING) {
                   ws.once('open', () => ws.close());
                 } else {
@@ -236,6 +271,7 @@ export function connectToSignalingWebSocket(
             }
 
             // Finally, delete from the map
+            console.log(`[Signaling] Removing connection entry for ${meetingUuid}`);
             activeConnections.delete(meetingUuid);
           }
 
@@ -243,25 +279,31 @@ export function connectToSignalingWebSocket(
 
         break;
       case 9: // Session State Changed
-        console.log("case 9");
-        console.log(msg);
+        console.log(`[Signaling] Processing session state change (case 9) for ${meetingUuid}`);
+        console.log(`[Signaling] Session state message:`, JSON.stringify(msg, null, 2));
         if ('stop_reason' in msg) {
+          console.log(`[Signaling] Session stop reason: ${msg.stop_reason}`);
           logRtmsStopReason(msg.reason);
         }
 
         if ('state' in msg) {
+          console.log(`[Signaling] Session state: ${msg.state}`);
           logRtmsSessionState(msg.state);
         }
 
         break;
       case 12: // KEEP_ALIVE_REQ
-        console.log("case 12");
+        console.log(`[Signaling] Processing keep-alive request (case 12) for ${meetingUuid}`);
+        console.log(`[Signaling] Keep-alive timestamp: ${msg.timestamp}`);
         conn.signaling.lastKeepAlive = Date.now();
-        console.log(msg.timestamp);
-        signalingWs.send(JSON.stringify({
+        console.log(`[Signaling] Updated last keep-alive time for ${meetingUuid}`);
+        const keepAliveResponse = {
           msg_type: 13,
           timestamp: msg.timestamp
-        }));
+        };
+        console.log(`[Signaling] Sending keep-alive response:`, JSON.stringify(keepAliveResponse, null, 2));
+        signalingWs.send(JSON.stringify(keepAliveResponse));
+        console.log(`[Signaling] Keep-alive response sent for ${meetingUuid}`);
         break;
 
       default:
@@ -271,36 +313,46 @@ export function connectToSignalingWebSocket(
   });
 
 
-  signalingWs.on('close', () => {
-    console.log(`[Signaling] Closed for ${meetingUuid}`);
+  signalingWs.on('close', (code, reason) => {
+    console.log(`[Signaling] WebSocket closed for ${meetingUuid}, code: ${code}, reason: ${reason}`);
 
     const conn = activeConnections.get(meetingUuid);
     if (conn) {
       conn.signaling.state = 'closed';
+      console.log(`[Signaling] Connection state updated to 'closed' for ${meetingUuid}`);
 
       if (conn.shouldReconnect) {
         console.log(`[Signaling] Will reconnect for ${meetingUuid} in 3s...`);
         setTimeout(() => {
           if (conn.shouldReconnect) {
+            console.log(`[Signaling] Starting reconnection for ${meetingUuid}`);
             connectToSignalingWebSocket(
               meetingUuid,
               streamId,
-              conn.signaling.url,
+              conn.serverUrls, // Use serverUrls from conn instead of signaling.url
               activeConnections,
               clientId,
               clientSecret
             );
+          } else {
+            console.log(`[Signaling] Reconnection cancelled for ${meetingUuid}`);
           }
         }, 3000);
       } else {
-        console.log(`[Signaling] Not reconnecting — RTMS was stopped.`);
+        console.log(`[Signaling] Not reconnecting — RTMS was stopped for ${meetingUuid}.`);
       }
+    } else {
+      console.log(`[Signaling] No connection entry found for ${meetingUuid} during close`);
     }
   });
 
 
   signalingWs.on('error', (err) => {
-    console.error(`[Signaling] Error: ${err.message}`);
-    conn.signaling.state = 'error';
+    console.error(`[Signaling] WebSocket error for ${meetingUuid}: ${err.message}`);
+    console.error(`[Signaling] Error details:`, err);
+    if (conn) {
+      conn.signaling.state = 'error';
+      console.log(`[Signaling] Connection state updated to 'error' for ${meetingUuid}`);
+    }
   });
 }
