@@ -14,17 +14,16 @@ dotenv.config();
 
 // Load complete denomination buffers (1,2,4,8,16,32,40,80,160,320ms keyframes for gap filling)
 const denominationBuffers = {
-  1: readFileSync('./black_video_1ms_keyframe.h264'),
-  2: readFileSync('./black_video_2ms_keyframe.h264'),
-  4: readFileSync('./black_video_4ms_keyframe.h264'),
-  8: readFileSync('./black_video_8ms_keyframe.h264'),
-  16: readFileSync('./black_video_16ms_keyframe.h264'),
-  32: readFileSync('./black_video_32ms_keyframe.h264'),
-  40: readFileSync('./black_video_40ms_keyframe.h264'),
-    42: readFileSync('./black_video_42ms_keyframe.h264'),
-  80: readFileSync('./black_video_80ms_keyframe.h264'),
-  160: readFileSync('./black_video_160ms_keyframe.h264'),
-  320: readFileSync('./black_video_320ms_keyframe.h264'),
+    1: readFileSync('./black_video_1ms_keyframe.h264'),
+    2: readFileSync('./black_video_2ms_keyframe.h264'),
+    4: readFileSync('./black_video_4ms_keyframe.h264'),
+    8: readFileSync('./black_video_8ms_keyframe.h264'),
+    16: readFileSync('./black_video_16ms_keyframe.h264'),
+    32: readFileSync('./black_video_32ms_keyframe.h264'),
+    40: readFileSync('./black_video_40ms_keyframe.h264'),
+    80: readFileSync('./black_video_80ms_keyframe.h264'),
+    160: readFileSync('./black_video_160ms_keyframe.h264'),
+    320: readFileSync('./black_video_320ms_keyframe.h264'),
 };
 
 // Use 40ms buffer as the continuous injection buffer (25fps)
@@ -32,7 +31,7 @@ const blackVideoBuffer40ms = readFileSync('./black_video_40ms_keyframe.h264');
 
 console.log(`🎥 Loaded denomination buffers for precise timing (${Object.keys(denominationBuffers).length} denominations)`);
 Object.entries(denominationBuffers).forEach(([ms, buffer]) =>
-  console.log(`  ${ms}ms: ${buffer.length} bytes`));
+    console.log(`  ${ms}ms: ${buffer.length} bytes`));
 console.log(`🎥 Loaded ${blackVideoBuffer40ms.length} bytes continuous 40ms buffer (25fps)`);
 
 const app = express();
@@ -195,29 +194,25 @@ function connectToMediaWebSocket(mediaUrl, meetingUuid, streamId, signalingSocke
         // Check every 40ms for mute detection and injection
 
         videoMuteDetectionTimer = setInterval(() => {
-          const now = Date.now();
-          if (now - lastVideoTime > 320 && videoMuteState === "active") {
-            // First time mute detected 
-            if (videoStream.writable) {
-              videoStream.write(denominationBuffers[40]);
-              videoStream.write(denominationBuffers[40]);
-            videoStream.write(denominationBuffers[40]);
-              videoStream.write(denominationBuffers[40]);
-            videoStream.write(denominationBuffers[40]);
-              videoStream.write(denominationBuffers[40]);
-               videoStream.write(denominationBuffers[40]);
-              videoStream.write(denominationBuffers[40]);
-                videoStream.write(denominationBuffers[40]);
-              console.log(`🎥 Video mute detected: injected 8 × 40ms frames`);
+            const now = Date.now();
+            const gap = now - lastVideoTime;
+            if (gap > 320 && videoMuteState === "active") {
+                // First time mute detected - inject frames to cover the gap
+                const framesToInject = Math.ceil(gap / 40);
+                if (videoStream.writable) {
+                    for (let i = 0; i < framesToInject; i++) {
+                        videoStream.write(denominationBuffers[40]);
+                    }
+                    console.log(`🎥 Video mute detected: injected ${framesToInject} × 40ms frames to cover ${gap}ms gap`);
+                }
+                videoMuteState = "continuous_mute";
+            } else if (videoMuteState === "continuous_mute") {
+                // Continuous injection - inject 1 frame of 40ms every 40ms
+                if (videoStream.writable) {
+                    videoStream.write(denominationBuffers[40]);
+                }
             }
-            videoMuteState = "continuous_mute";
-          } else if (videoMuteState === "continuous_mute") {
-            // Continuous injection - inject 1 frame of 40ms every 40ms
-            if (videoStream.writable) {
-              videoStream.write(denominationBuffers[40]);
-            }
-          }
-        }, 40); 
+        }, 40);
 
         // Store timers for cleanup (needs to be updated when timers start)
         activeConnections.get(meetingUuid).videoMuteDetectionTimer = videoMuteDetectionTimer;
@@ -242,19 +237,19 @@ function connectToMediaWebSocket(mediaUrl, meetingUuid, streamId, signalingSocke
             media_type: 32,
             payload_encryption: false,
             media_params: {
-              audio: {
-                content_type: 1,
-                sample_rate: 1,
-                channel: 1,
-                codec: 1,
-                data_opt: 1,
-                send_rate: 100
-              },
-              video: {
-                codec: 7, //H264
-                resolution: 2,
-                fps: 25
-              }
+                audio: {
+                    content_type: 1,
+                    sample_rate: 1,
+                    channel: 1,
+                    codec: 1,
+                    data_opt: 1,
+                    send_rate: 100
+                },
+                video: {
+                    codec: 7, //H264
+                    resolution: 2,
+                    fps: 25
+                }
             }
         };
         mediaWs.send(JSON.stringify(handshake));
@@ -272,14 +267,14 @@ function connectToMediaWebSocket(mediaUrl, meetingUuid, streamId, signalingSocke
                 }));
                 console.log('✅ Media handshake successful');
             }
-      if (msg.msg_type === 12) { // KEEP_ALIVE_REQ
-            const keepAliveResponse = {
-                msg_type: 13, // KEEP_ALIVE_RESP
-                timestamp: msg.timestamp,
-            };
-            console.log('Responding to Signaling KEEP_ALIVE_REQ:', keepAliveResponse);
-            mediaWs.send(JSON.stringify(keepAliveResponse));
-        }
+            if (msg.msg_type === 12) { // KEEP_ALIVE_REQ
+                const keepAliveResponse = {
+                    msg_type: 13, // KEEP_ALIVE_RESP
+                    timestamp: msg.timestamp,
+                };
+                console.log('Responding to Signaling KEEP_ALIVE_REQ:', keepAliveResponse);
+                mediaWs.send(JSON.stringify(keepAliveResponse));
+            }
             // Handle audio data - update timestamp and write immediately
             if (msg.msg_type === 14 && msg.content?.data) {
                 const { data: audioData } = msg.content;
@@ -302,7 +297,7 @@ function connectToMediaWebSocket(mediaUrl, meetingUuid, streamId, signalingSocke
                 const { data: videoData } = msg.content;
                 const buffer = Buffer.from(videoData, 'base64');
                 const receiveTime = Date.now();
-               
+
                 // Start keep-alive timers on first media (audio or video)
                 startKeepAliveTimers();
 
