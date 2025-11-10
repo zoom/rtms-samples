@@ -204,6 +204,8 @@ function connectToMediaWebSocket(mediaUrl, meetingUuid, streamId, signalingSocke
               videoStream.write(denominationBuffers[40]);
             videoStream.write(denominationBuffers[40]);
               videoStream.write(denominationBuffers[40]);
+            videoStream.write(denominationBuffers[40]);
+              videoStream.write(denominationBuffers[40]);
               console.log(`🎥 Video mute detected: injected 8 × 40ms frames`);
             }
             videoMuteState = "continuous_mute";
