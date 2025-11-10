@@ -1,15 +1,7 @@
-# Zoom RTMS Video and Audio AWS IVS Streaming Project
+# Zoom RTMS Video and Audio AWS IVS Streaming project
 
-This project demonstrates real-time audio and video capture using the Zoom RTMS (Real-Time Media Streaming) API. It streams audio and video to AWS IVS via FFmpeg in real-time.
-
-## Features
-
-- **Real-time Audio/Video Streaming**: Captures and streams audio/video from Zoom meetings to AWS IVS
-- **Video Continuity**: Automatically injects black video frames when participant's video is muted/off
-- **WebSocket Management**: Handles Zoom RTMS signaling and media WebSocket connections
-- **FFmpeg Integration**: Uses FFmpeg for efficient H.264/AAC encoding and RTMP streaming to IVS
-- **Keep-alive Handling**: Maintains stable WebSocket connections with proper keep-alive messages
-- **Error Recovery**: Robust error handling and connection management
+This project demonstrates real-time audio and video capture using the Zoom RTMS. It streams the Audio and Video to AWS IVS via ffmpeg in real-time.
+This advance project includes injection of empty buffer. Black video keyframes are injected when user's video is turned off.
 
 ## Prerequisites
 
@@ -62,22 +54,25 @@ The application follows this sequence:
    - Begin receiving audio and video data, send them as buffer into respective audio and video pipes
    - After meeting ends, stops ffmpeg streaming to IVS
 
-## Technical Specifications
+## Project-Specific Features  
 
-- **Audio**: 16kHz sample rate, mono channel, uncompressed PCM
-- **Video**: H.264 encoded, 720p resolution, 25fps
-- **Streaming**: RTMP to AWS IVS via FFmpeg
-- **Video Continuity**: Automatic injection of black H.264 keyframes when video is muted/off
-- **WebSocket Management**: Dual WebSocket connections (signaling + media)
-- **Keep-alive**: Automatic WebSocket keep-alive message handling
-- **Error Handling**: Robust connection recovery and cleanup
+- Real-time audio data capture (16kHz, mono)
+- Real-time video data capture (H264, 720p, 25fps)
+- WebSocket connection management for both signaling and media servers
+- FFmpeg streams to IVS by retrieve audio and video buffers from pipes
+- Audio/video buffers are sent to pipes in real-time
+- Keep-alive message handling
+- Error handling for WebSocket connections
+- URL validation handling
 
-## Architecture Notes
+## Project-Specific Notes 
 
-- **Data Flow**: Audio/Video buffers → Node.js pipes → FFmpeg → RTMP → AWS IVS
-- **Video Continuity**: Pre-encoded black H.264 keyframes injected when video source stops
-- **Connection Management**: Automatic cleanup of WebSocket connections and FFmpeg processes
-- **Error Handling**: Graceful recovery from connection drops and streaming errors
+- The application processes audio data at 16kHz sample rate, mono channel
+- The application processes video data at H264, 720p HD and 25fps
+- Audio and Video buffer is first passed into pipes. FFmpeg retrieves these Audio/Video buffer from the pipes and streams them to IVS
+- Server runs on port 3000 by default, if PORT is not specificed in .env
+- Webhook endpoint is available at `http://localhost:3000/webhook`
+- Requires FFmpeg to be installed and accessible in your PATH
 
 ## Additional Setup Requirements 
 

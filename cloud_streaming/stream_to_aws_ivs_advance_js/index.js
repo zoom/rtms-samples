@@ -21,6 +21,7 @@ const denominationBuffers = {
   16: readFileSync('./black_video_16ms_keyframe.h264'),
   32: readFileSync('./black_video_32ms_keyframe.h264'),
   40: readFileSync('./black_video_40ms_keyframe.h264'),
+    42: readFileSync('./black_video_42ms_keyframe.h264'),
   80: readFileSync('./black_video_80ms_keyframe.h264'),
   160: readFileSync('./black_video_160ms_keyframe.h264'),
   320: readFileSync('./black_video_320ms_keyframe.h264'),
@@ -196,7 +197,7 @@ function connectToMediaWebSocket(mediaUrl, meetingUuid, streamId, signalingSocke
         videoMuteDetectionTimer = setInterval(() => {
           const now = Date.now();
           if (now - lastVideoTime > 320 && videoMuteState === "active") {
-            // First time mute detected - inject 2 frames of 40ms
+            // First time mute detected 
             if (videoStream.writable) {
               videoStream.write(denominationBuffers[40]);
               videoStream.write(denominationBuffers[40]);
@@ -204,8 +205,9 @@ function connectToMediaWebSocket(mediaUrl, meetingUuid, streamId, signalingSocke
               videoStream.write(denominationBuffers[40]);
             videoStream.write(denominationBuffers[40]);
               videoStream.write(denominationBuffers[40]);
-            videoStream.write(denominationBuffers[40]);
+               videoStream.write(denominationBuffers[40]);
               videoStream.write(denominationBuffers[40]);
+                videoStream.write(denominationBuffers[40]);
               console.log(`🎥 Video mute detected: injected 8 × 40ms frames`);
             }
             videoMuteState = "continuous_mute";
@@ -215,7 +217,7 @@ function connectToMediaWebSocket(mediaUrl, meetingUuid, streamId, signalingSocke
               videoStream.write(denominationBuffers[40]);
             }
           }
-        }, 40); // Check every 40ms
+        }, 40); 
 
         // Store timers for cleanup (needs to be updated when timers start)
         activeConnections.get(meetingUuid).videoMuteDetectionTimer = videoMuteDetectionTimer;
@@ -300,7 +302,7 @@ function connectToMediaWebSocket(mediaUrl, meetingUuid, streamId, signalingSocke
                 const { data: videoData } = msg.content;
                 const buffer = Buffer.from(videoData, 'base64');
                 const receiveTime = Date.now();
-
+               
                 // Start keep-alive timers on first media (audio or video)
                 startKeepAliveTimers();
 
