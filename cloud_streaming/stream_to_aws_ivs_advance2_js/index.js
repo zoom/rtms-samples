@@ -219,23 +219,25 @@ function connectToMediaWebSocket(mediaUrl, meetingUuid, streamId, signalingSocke
             }
 
             if (CandidateFrame) {
-
                 timeDiff = CandidateFrame.timestamp - lastVideoTimestamp
             }
 
-
-            // Process the next suitable packet
-            if (videoBuffer.length > 0) {
-                const packet = videoBuffer.shift();
-                if (lastVideoTimestamp !== null) {
-                    const videoInterval = packet.timestamp - lastVideoTimestamp;
-                    console.log(`🎥 Video packet interval: ${videoInterval}ms`);
-                }
-                lastVideoTimestamp = packet.timestamp;
-                videoToWrite = packet.data; // Use the processed packet
-                console.log(`🎥 Processed video packet at ${packet.timestamp}`);
-            } else {
-
+            if (timeDiff < 60) {
+                // Process the next suitable packet
+                if (videoBuffer.length > 0) {
+                    const packet = videoBuffer.shift();
+                    if (lastVideoTimestamp !== null) {
+                        const videoInterval = packet.timestamp - lastVideoTimestamp;
+                        console.log(`🎥 Video packet interval: ${videoInterval}ms`);
+                    }
+                    lastVideoTimestamp = packet.timestamp;
+                    videoToWrite = packet.data; // Use the processed packet
+                    console.log(`🎥 Processed video packet at ${packet.timestamp}`);
+                } 
+            }
+            else{
+                   console.log(`🎥 DROP FRAMES DROP FRAMES  DROP FRAMES  DROP FRAMES  DROP FRAMES  DROP FRAMES  DROP FRAMES  DROP FRAMES  DROP FRAMES  DROP FRAMES `);
+                lastVideoTimestamp+=40;
 
             }
             if (videoStream.writable) {
