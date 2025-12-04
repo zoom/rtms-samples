@@ -11,13 +11,13 @@ import org.springframework.context.annotation.Configuration;
 @Slf4j
 public class ZoomConfig {
 
-    @Value("${ZOOM_CLIENT_ID:YOUR_ZOOM_CLIENT_ID_HERE}")
+    @Value("${ZOOM_CLIENT_ID:xxxxxx}")
     private String clientId;
 
-    @Value("${ZOOM_CLIENT_SECRET:YOUR_ZOOM_CLIENT_SECRET_HERE}")
+    @Value("${ZOOM_CLIENT_SECRET:yyyyyyy}")
     private String clientSecret;
 
-    @Value("${ZOOM_SECRET_TOKEN:YOUR_ZOOM_SECRET_TOKEN_HERE}")
+    @Value("${ZOOM_SECRET_TOKEN:zzzzzz}")
     private String secretToken;
 
     @PostConstruct

@@ -7,12 +7,6 @@ import com.zoom.rtms.vsdkworkingjava.model.RtmsMessages;
 import com.zoom.rtms.vsdkworkingjava.model.RtmsStates;
 import com.zoom.rtms.vsdkworkingjava.model.WebhookEvent;
 import lombok.RequiredArgsConstructor;
-import okhttp3.OkHttpClient;
-import okhttp3.Request;
-import okhttp3.WebSocket;
-import okhttp3.WebSocketListener;
-import okhttp3.Response;
-import okio.ByteString;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import org.springframework.scheduling.annotation.Async;
@@ -21,10 +15,15 @@ import org.springframework.stereotype.Service;
 import javax.crypto.Mac;
 import javax.crypto.spec.SecretKeySpec;
 import java.net.URI;
+import java.net.http.HttpClient;
+import java.net.http.WebSocket;
 import java.nio.ByteBuffer;
+import java.nio.charset.StandardCharsets;
 import java.util.Base64;
 import java.util.List;
 import java.util.Map;
+import java.util.concurrent.CompletableFuture;
+import java.util.concurrent.CompletionStage;
 import java.util.concurrent.ConcurrentHashMap;
 
 @Service
@@ -36,6 +35,7 @@ public class RtmsService {
     private final ObjectMapper objectMapper;
     private final ZoomConfig zoomConfig;
     private final Map<String, RtmsConnection> activeConnections = new ConcurrentHashMap<>();
+    private final HttpClient httpClient = HttpClient.newHttpClient();
 
     public void handleWebhookEvent(WebhookEvent webhookEvent) {
         log.info("Received webhook event: {}", webhookEvent.event());
@@ -143,23 +143,20 @@ public class RtmsService {
                 return;
             }
 
-            log.info("[Signaling] Creating OkHttp WebSocket instance for {}", conn.getServerUrls());
+            log.info("[Signaling] Creating Java WebSocket instance for {}", conn.getServerUrls());
 
-            OkHttpClient client = createOkHttpClient();
-            Request request = new Request.Builder()
-                    .url(conn.getServerUrls())
-                    .build();
+            SignalingWebSocketListener listener = new SignalingWebSocketListener(conn);
+            CompletableFuture<WebSocket> wsFuture = httpClient.newWebSocketBuilder()
+                    .buildAsync(URI.create(conn.getServerUrls()), listener);
 
-            SignalingWebSocketListener signalingListener = new SignalingWebSocketListener(conn);
-            WebSocket webSocket = client.newWebSocket(request, signalingListener);
-
+            WebSocket webSocket = wsFuture.join();
             conn.getSignaling().setSocket(webSocket);
             conn.getSignaling().setState(RtmsConnection.SignalingConnection.SignalingState.CONNECTING);
             log.info("[Signaling] Connection state set to 'connecting' for {}", conn.getSessionId());
-            log.info("[Signaling] OkHttp WebSocket instance created successfully");
+            log.info("[Signaling] Java WebSocket instance created successfully");
 
         } catch (Exception e) {
-            log.error("[Signaling] ❌ Failed to create OkHttp WebSocket instance: {}", e.getMessage());
+            log.error("[Signaling] ❌ Failed to create Java WebSocket instance: {}", e.getMessage());
         }
     }
 
@@ -170,20 +167,17 @@ public class RtmsService {
 
         try {
 
-            OkHttpClient client = createOkHttpClient();
-            Request request = new Request.Builder()
-                    .url(mediaUrl)
-                    .build();
+            MediaWebSocketListener listener = new MediaWebSocketListener(conn, mediaUrl);
+            CompletableFuture<WebSocket> wsFuture = httpClient.newWebSocketBuilder()
+                    .buildAsync(URI.create(mediaUrl), listener);
 
-            MediaWebSocketListener mediaListener = new MediaWebSocketListener(conn, mediaUrl);
-            WebSocket webSocket = client.newWebSocket(request, mediaListener);
-
+            WebSocket webSocket = wsFuture.join();
             conn.getMedia().setSocket(webSocket);
             conn.getMedia().setState(RtmsConnection.MediaConnection.MediaState.CONNECTING);
             log.info("[Media] WebSocket instance created successfully");
 
         } catch (Exception e) {
-            log.error("[Media] ❌ Failed to create OkHttp WebSocket instance: {}", e.getMessage());
+            log.error("[Media] ❌ Failed to create Java WebSocket instance: {}", e.getMessage());
         }
     }
 
@@ -261,12 +255,12 @@ public class RtmsService {
 
         // Close signaling connection
         if (conn.getSignaling().getSocket() != null) {
-            conn.getSignaling().getSocket().close(1000, "Closing session");
+            conn.getSignaling().getSocket().sendClose(WebSocket.NORMAL_CLOSURE, "Closing session");
         }
 
         // Close media connection
         if (conn.getMedia().getSocket() != null) {
-            conn.getMedia().getSocket().close(1000, "Closing session");
+            conn.getMedia().getSocket().sendClose(WebSocket.NORMAL_CLOSURE, "Closing session");
         }
 
         conn.getSignaling().setState(RtmsConnection.SignalingConnection.SignalingState.DISCONNECTED);
@@ -280,7 +274,7 @@ public class RtmsService {
             int msgType = msg.get("msg_type").asInt();
             // log.info("[Signaling] Parsed message type: {} for session {}", msgType,
             // conn.getSessionId());
-            // log.debug("[Signaling] Full message: {}", message);
+            log.debug("[Signaling] Full message: {}", message);
 
             switch (msgType) {
                 case 2 -> handleSignalingHandshakeResponse(conn, msg);
@@ -453,7 +447,7 @@ public class RtmsService {
 
             // Double-check: using signaling WebSocket for signaling keep-alive
             if (conn.getSignaling().getSocket() != null) {
-                conn.getSignaling().getSocket().send(response);
+                conn.getSignaling().getSocket().sendText(response, true);
                 log.info("[Signaling] ✅ Keep-alive response sent successfully via signaling WebSocket");
             } else {
                 log.error("[Signaling] ❌ ERROR: No signaling WebSocket available to send keep-alive response!");
@@ -480,7 +474,7 @@ public class RtmsService {
                 // CRITICAL FIX: Send via signaling socket, not media socket
                 // This matches the JavaScript implementation and RTMS protocol requirements
                 if (conn.getSignaling().getSocket() != null) {
-                    conn.getSignaling().getSocket().send(readyMsg);
+                    conn.getSignaling().getSocket().sendText(readyMsg, true);
                     log.info("[Media] ✅ Ready notification sent successfully via signaling WebSocket");
                 } else {
                     log.error("[Media] ❌ ERROR: No signaling WebSocket available to send ready notification!");
@@ -494,11 +488,6 @@ public class RtmsService {
         } else {
             log.warn("[Media] Media handshake failed with status: {} for {}", statusCode, conn.getSessionId());
         }
-    }
-
-    private OkHttpClient createOkHttpClient() {
-        return new OkHttpClient.Builder()
-                .build();
     }
 
     private void handleMediaKeepAlive(RtmsConnection conn, JsonNode msg) {
@@ -515,7 +504,7 @@ public class RtmsService {
 
             // Double-check: using media WebSocket for media keep-alive
             if (conn.getMedia().getSocket() != null) {
-                conn.getMedia().getSocket().send(response);
+                conn.getMedia().getSocket().sendText(response, true);
                 log.info("[Media] ✅ Keep-alive response sent successfully via media WebSocket");
             } else {
                 log.error("[Media] ❌ ERROR: No media WebSocket available to send keep-alive response!");
@@ -532,8 +521,7 @@ public class RtmsService {
             // user_id can be integer 0 for mixed audio or a string for specific user
             String userId = content.has("user_id") ? content.get("user_id").asText() : "unknown";
             String userName = content.has("user_name") ? content.get("user_name").asText() : "(mixed audio)";
-            // log.info("Audio data received from user_id={}, user_name={}", userId,
-            // userName);
+            log.info("Audio data received from user_id={}, user_name={}", userId, userName);
             // Process audio data here
         }
     }
@@ -649,7 +637,7 @@ public class RtmsService {
             String subscriptionMsg = objectMapper.writeValueAsString(subscription);
             log.info("[Signaling] Sending event subscription for {}", conn.getSessionId());
             log.info("[Signaling] Event subscription payload: {}", subscriptionMsg);
-            conn.getSignaling().getSocket().send(subscriptionMsg);
+            conn.getSignaling().getSocket().sendText(subscriptionMsg, true);
             log.debug("[Signaling] Event subscription sent successfully for {}", conn.getSessionId());
 
         } catch (Exception e) {
@@ -657,25 +645,25 @@ public class RtmsService {
         }
     }
 
-    // Inner WebSocket client classes
+    // Inner WebSocket client classes using Java native WebSocket.Listener
 
-    private class SignalingWebSocketListener extends WebSocketListener {
+    private class SignalingWebSocketListener implements WebSocket.Listener {
 
         private final RtmsConnection connection;
-        private WebSocket webSocket;
+        private final StringBuilder textAccumulator = new StringBuilder();
 
         public SignalingWebSocketListener(RtmsConnection connection) {
             this.connection = connection;
         }
 
         @Override
-        public void onOpen(WebSocket webSocket, Response response) {
-            this.webSocket = webSocket;
-            log.info("[Signaling] OkHttp WebSocket opened successfully for {}", connection.getSessionId());
+        public void onOpen(WebSocket webSocket) {
+            webSocket.request(1); // Request one message
+            log.info("[Signaling] Java WebSocket opened successfully for {}", connection.getSessionId());
 
             if (!connection.isShouldReconnect()) {
                 log.warn("[Signaling] Aborting open: RTMS stopped for {}", connection.getSessionId());
-                webSocket.close(1000, "RTMS stopped");
+                webSocket.sendClose(WebSocket.NORMAL_CLOSURE, "RTMS stopped");
                 return;
             }
 
@@ -690,45 +678,49 @@ public class RtmsService {
                 String handshakeMsg = objectMapper.writeValueAsString(handshakeReq);
                 log.info("[Signaling] Sending handshake for {}", connection.getSessionId());
                 log.info("[Signaling] Handshake payload: {}", handshakeMsg);
-                webSocket.send(handshakeMsg);
+                webSocket.sendText(handshakeMsg, true);
                 connection.getSignaling().setState(RtmsConnection.SignalingConnection.SignalingState.AUTHENTICATED);
                 log.info("[Signaling] Connection state updated to 'authenticated' for {}", connection.getSessionId());
 
             } catch (Exception e) {
-                log.error("[Signaling] Error in OkHttp WebSocket open handler for {}: {}", connection.getSessionId(),
+                log.error("[Signaling] Error in Java WebSocket open handler for {}: {}", connection.getSessionId(),
                         e.getMessage());
                 connection.getSignaling().setState(RtmsConnection.SignalingConnection.SignalingState.DISCONNECTED);
-                webSocket.close(1011, "Handshake error");
+                webSocket.sendClose(1011, "Handshake error");
             }
         }
 
         @Override
-        public void onMessage(WebSocket webSocket, String text) {
-            // log.info("[DEBUG Signaling onMessage] Raw message: {}", text);
-            processSignalingMessage(connection, text);
+        public CompletionStage<?> onText(WebSocket webSocket, CharSequence data, boolean last) {
+            webSocket.request(1); // Request next message
+
+            textAccumulator.append(data);
+            if (last) {
+                String completeMessage = textAccumulator.toString();
+                textAccumulator.setLength(0); // Clear for next message
+                processSignalingMessage(connection, completeMessage);
+            }
+            return null;
         }
 
         @Override
-        public void onMessage(WebSocket webSocket, ByteString bytes) {
-            // log.info("[DEBUG Signaling onMessage] Binary message received, length: {}",
-            // bytes.size());
+        public CompletionStage<?> onBinary(WebSocket webSocket, ByteBuffer data, boolean last) {
+            webSocket.request(1);
+
             try {
-                String textMessage = bytes.utf8();
+                byte[] bytes = new byte[data.remaining()];
+                data.get(bytes);
+                String textMessage = new String(bytes, StandardCharsets.UTF_8);
                 processSignalingMessage(connection, textMessage);
             } catch (Exception e) {
                 log.error("[Signaling] Failed to process binary message: {}", e.getMessage());
-                log.debug("[Signaling] Binary message content: {}", bytes.hex());
             }
+            return null;
         }
 
         @Override
-        public void onClosing(WebSocket webSocket, int code, String reason) {
-            webSocket.close(1000, null);
-        }
-
-        @Override
-        public void onClosed(WebSocket webSocket, int code, String reason) {
-            log.info("Signaling OkHttp WebSocket closed for session {}: {} - {}", connection.getSessionId(), code,
+        public CompletionStage<?> onClose(WebSocket webSocket, int statusCode, String reason) {
+            log.info("Signaling Java WebSocket closed for session {}: {} - {}", connection.getSessionId(), statusCode,
                     reason);
             connection.getSignaling().setState(RtmsConnection.SignalingConnection.SignalingState.DISCONNECTED);
 
@@ -738,7 +730,7 @@ public class RtmsService {
                 // Check connection state before attempting reconnection
                 RtmsConnection currentConn = activeConnections.get(connection.getSessionId());
                 if (!signalingHasConnection() && currentConn != null && currentConn.isShouldReconnect()) {
-                    log.info("Attempting reconnection for signaling OkHttp WebSocket in 3s...");
+                    log.info("Attempting reconnection for signaling Java WebSocket in 3s...");
                     try {
                         Thread.sleep(3000);
                         connectToSignalingWebSocket(currentConn);
@@ -749,12 +741,14 @@ public class RtmsService {
                     log.warn("Skipping reconnection - active connection exists or connection not valid");
                 }
             }
+            return null;
         }
 
         @Override
-        public void onFailure(WebSocket webSocket, Throwable t, Response response) {
-            log.error("Signaling OkHttp WebSocket error for session {}: {}", connection.getSessionId(), t.getMessage());
-            log.error("OkHttp WebSocket failure details:", t);
+        public void onError(WebSocket webSocket, Throwable error) {
+            log.error("Signaling Java WebSocket error for session {}: {}", connection.getSessionId(),
+                    error.getMessage());
+            log.error("Java WebSocket failure details:", error);
             connection.getSignaling().setState(RtmsConnection.SignalingConnection.SignalingState.DISCONNECTED);
         }
 
@@ -763,11 +757,11 @@ public class RtmsService {
         }
     }
 
-    private class MediaWebSocketListener extends WebSocketListener {
+    private class MediaWebSocketListener implements WebSocket.Listener {
 
         private final RtmsConnection connection;
         private final String mediaUrl;
-        private WebSocket webSocket;
+        private final StringBuilder textAccumulator = new StringBuilder();
 
         public MediaWebSocketListener(RtmsConnection connection, String mediaUrl) {
             this.connection = connection;
@@ -775,13 +769,13 @@ public class RtmsService {
         }
 
         @Override
-        public void onOpen(WebSocket webSocket, Response response) {
-            this.webSocket = webSocket;
-            log.info("[Media] OkHttp WebSocket opened successfully for {}", connection.getSessionId());
+        public void onOpen(WebSocket webSocket) {
+            webSocket.request(1); // Request one message
+            log.info("[Media] Java WebSocket opened successfully for {}", connection.getSessionId());
 
             if (!connection.isShouldReconnect()) {
                 log.warn("[Media] Aborting open: RTMS stopped for {}", connection.getSessionId());
-                webSocket.close(1000, "RTMS stopped");
+                webSocket.sendClose(WebSocket.NORMAL_CLOSURE, "RTMS stopped");
                 return;
             }
 
@@ -804,45 +798,50 @@ public class RtmsService {
                 String handshakeMsg = objectMapper.writeValueAsString(handshakeReq);
                 log.info("[Media] Sending handshake for {}", connection.getSessionId());
                 log.info("[Media] Handshake payload: {}", handshakeMsg);
-                webSocket.send(handshakeMsg);
+                webSocket.sendText(handshakeMsg, true);
                 connection.getMedia().setState(RtmsConnection.MediaConnection.MediaState.AUTHENTICATED);
                 log.info("[Media] Connection state updated to 'authenticated' for {}", connection.getSessionId());
 
             } catch (Exception e) {
-                log.error("[Media] Error in OkHttp WebSocket open handler for {}: {}", connection.getSessionId(),
+                log.error("[Media] Error in Java WebSocket open handler for {}: {}", connection.getSessionId(),
                         e.getMessage());
                 connection.getMedia().setState(RtmsConnection.MediaConnection.MediaState.ERROR);
-                webSocket.close(1011, "Handshake error");
+                webSocket.sendClose(1011, "Handshake error");
             }
         }
 
         @Override
-        public void onMessage(WebSocket webSocket, String text) {
-            // log.info("[DEBUG Media onMessage] Raw message: {}", text);
-            processMediaMessage(connection, text);
+        public CompletionStage<?> onText(WebSocket webSocket, CharSequence data, boolean last) {
+            webSocket.request(1); // Request next message
+
+            textAccumulator.append(data);
+            if (last) {
+                String completeMessage = textAccumulator.toString();
+                textAccumulator.setLength(0); // Clear for next message
+                processMediaMessage(connection, completeMessage);
+            }
+            return null;
         }
 
         @Override
-        public void onMessage(WebSocket webSocket, ByteString bytes) {
-            // log.info("[DEBUG Media onMessage] Binary message received, length: {}",
-            // bytes.size());
+        public CompletionStage<?> onBinary(WebSocket webSocket, ByteBuffer data, boolean last) {
+            webSocket.request(1);
+
             try {
-                String textMessage = bytes.utf8();
+                byte[] bytes = new byte[data.remaining()];
+                data.get(bytes);
+                String textMessage = new String(bytes, StandardCharsets.UTF_8);
                 processMediaMessage(connection, textMessage);
             } catch (Exception e) {
                 log.error("[Media] Failed to process binary message: {}", e.getMessage());
-                log.debug("[Media] Binary message content: {}", bytes.hex());
             }
+            return null;
         }
 
         @Override
-        public void onClosing(WebSocket webSocket, int code, String reason) {
-            webSocket.close(1000, null);
-        }
-
-        @Override
-        public void onClosed(WebSocket webSocket, int code, String reason) {
-            log.info("Media OkHttp WebSocket closed for session {}: {} - {}", connection.getSessionId(), code, reason);
+        public CompletionStage<?> onClose(WebSocket webSocket, int statusCode, String reason) {
+            log.info("Media Java WebSocket closed for session {}: {} - {}", connection.getSessionId(), statusCode,
+                    reason);
             connection.getMedia().setState(RtmsConnection.MediaConnection.MediaState.CLOSED);
 
             if (!connection.isShouldReconnect()) {
@@ -852,14 +851,14 @@ public class RtmsService {
                 RtmsConnection currentConn = activeConnections.get(connection.getSessionId());
                 if (currentConn == null || !currentConn.isShouldReconnect()) {
                     log.debug("Connection no longer valid or reconnection disabled");
-                    return;
+                    return null;
                 }
 
                 if (connection.getSignaling().getState() == RtmsConnection.SignalingConnection.SignalingState.READY) {
                     // Check if media connection already exists
                     boolean mediaHasConnection = mediaHasConnection();
                     if (!mediaHasConnection) {
-                        log.info("Reconnecting media OkHttp WebSocket in 3s...");
+                        log.info("Reconnecting media Java WebSocket in 3s...");
                         try {
                             Thread.sleep(3000);
                             connectToMediaWebSocket(currentConn, mediaUrl);
@@ -874,12 +873,13 @@ public class RtmsService {
                     connectToSignalingWebSocket(currentConn);
                 }
             }
+            return null;
         }
 
         @Override
-        public void onFailure(WebSocket webSocket, Throwable t, Response response) {
-            log.error("Media OkHttp WebSocket error for session {}: {}", connection.getSessionId(), t.getMessage());
-            log.error("OkHttp Media WebSocket failure details:", t);
+        public void onError(WebSocket webSocket, Throwable error) {
+            log.error("Media Java WebSocket error for session {}: {}", connection.getSessionId(), error.getMessage());
+            log.error("Java Media WebSocket failure details:", error);
             connection.getMedia().setState(RtmsConnection.MediaConnection.MediaState.ERROR);
         }
 
