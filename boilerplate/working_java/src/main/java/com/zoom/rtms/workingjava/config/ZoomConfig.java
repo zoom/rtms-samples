@@ -1,4 +1,4 @@
-package com.zoom.rtms.vsdkworkingjava.config;
+package com.zoom.rtms.workingjava.config;
 
 import jakarta.annotation.PostConstruct;
 import lombok.Getter;

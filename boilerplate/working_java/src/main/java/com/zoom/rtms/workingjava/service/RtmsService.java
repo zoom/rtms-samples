@@ -1,11 +1,11 @@
-package com.zoom.rtms.vsdkworkingjava.service;
+package com.zoom.rtms.workingjava.service;
 
 import com.fasterxml.jackson.databind.JsonNode;
 import com.fasterxml.jackson.databind.ObjectMapper;
-import com.zoom.rtms.vsdkworkingjava.config.ZoomConfig;
-import com.zoom.rtms.vsdkworkingjava.model.RtmsMessages;
-import com.zoom.rtms.vsdkworkingjava.model.RtmsStates;
-import com.zoom.rtms.vsdkworkingjava.model.WebhookEvent;
+import com.zoom.rtms.workingjava.config.ZoomConfig;
+import com.zoom.rtms.workingjava.model.RtmsMessages;
+import com.zoom.rtms.workingjava.model.RtmsStates;
+import com.zoom.rtms.workingjava.model.WebhookEvent;
 import lombok.RequiredArgsConstructor;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;

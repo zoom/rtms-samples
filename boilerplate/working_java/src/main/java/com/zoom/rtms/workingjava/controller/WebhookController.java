@@ -1,9 +1,9 @@
-package com.zoom.rtms.vsdkworkingjava.controller;
+package com.zoom.rtms.workingjava.controller;
 
-import com.zoom.rtms.vsdkworkingjava.config.AppConfig;
-import com.zoom.rtms.vsdkworkingjava.config.ZoomConfig;
-import com.zoom.rtms.vsdkworkingjava.model.WebhookEvent;
-import com.zoom.rtms.vsdkworkingjava.service.RtmsService;
+import com.zoom.rtms.workingjava.config.AppConfig;
+import com.zoom.rtms.workingjava.config.ZoomConfig;
+import com.zoom.rtms.workingjava.model.WebhookEvent;
+import com.zoom.rtms.workingjava.service.RtmsService;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.beans.factory.annotation.Value;

@@ -1,4 +1,4 @@
-package com.zoom.rtms.vsdkworkingjava.model;
+package com.zoom.rtms.workingjava.model;
 
 import com.fasterxml.jackson.annotation.JsonInclude;
 import com.fasterxml.jackson.annotation.JsonProperty;

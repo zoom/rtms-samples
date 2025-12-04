@@ -1,4 +1,4 @@
-package com.zoom.rtms.vsdkworkingjava.model;
+package com.zoom.rtms.workingjava.model;
 
 public class RtmsStates {
 

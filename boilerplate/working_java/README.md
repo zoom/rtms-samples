@@ -57,8 +57,8 @@ https://<your-ngrok-subdomain>.ngrok.io/webhook
 ## Architecture
 
 ```
-src/main/java/com/zoom/rtms/vsdkworkingjava/
-├── VsdkWorkingJavaApplication.java          # Main Spring Boot application
+src/main/java/com/zoom/rtms/workingjava/
+├── WorkingJavaApplication.java          # Main Spring Boot application
 ├── config/
 │   ├── ZoomConfig.java                      # Zoom configuration properties
 │   └── AppConfig.java                       # Application configuration properties

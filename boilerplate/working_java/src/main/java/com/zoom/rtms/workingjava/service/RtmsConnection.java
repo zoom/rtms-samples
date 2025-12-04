@@ -1,4 +1,4 @@
-package com.zoom.rtms.vsdkworkingjava.service;
+package com.zoom.rtms.workingjava.service;
 
 import lombok.AllArgsConstructor;
 import lombok.Builder;
