@@ -3,7 +3,7 @@ package com.zoom.rtms.vsdkworkingjava.controller;
 import com.zoom.rtms.vsdkworkingjava.config.AppConfig;
 import com.zoom.rtms.vsdkworkingjava.config.ZoomConfig;
 import com.zoom.rtms.vsdkworkingjava.model.WebhookEvent;
-import com.zoom.rtms.vsdkworkingjava.service.RmsService;
+import com.zoom.rtms.vsdkworkingjava.service.RtmsService;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.beans.factory.annotation.Value;
@@ -22,7 +22,7 @@ import java.util.Map;
 @RequestMapping("${APP_WEBHOOK_PATH:/webhook}")
 public class WebhookController {
 
-    private final RmsService rmsService;
+    private final RtmsService rtmsService;
     private final ZoomConfig zoomConfig;
     private final AppConfig appConfig;
 
@@ -33,20 +33,20 @@ public class WebhookController {
 
         // Handle URL validation
         if ("endpoint.url_validation".equals(webhookEvent.event()) &&
-            webhookEvent.payload() != null &&
-            webhookEvent.payload().containsKey("plainToken")) {
+                webhookEvent.payload() != null &&
+                webhookEvent.payload().containsKey("plainToken")) {
 
             String plainToken = (String) webhookEvent.payload().get("plainToken");
             String encryptedToken = generateValidationToken(plainToken);
 
             log.info("Webhook validation response sent");
             return ResponseEntity.ok(Map.of(
-                "plainToken", plainToken,
-                "encryptedToken", encryptedToken
-            ));
+                    "plainToken", plainToken,
+                    "encryptedToken", encryptedToken));
         }
 
-        // For all other webhooks (rtms_started, rtms_stopped, etc.), respond immediately with 200 OK
+        // For all other webhooks (rtms_started, rtms_stopped, etc.), respond
+        // immediately with 200 OK
         // and process asynchronously in background
         log.info("Webhook acknowledged (200 OK) - processing asynchronously");
         processWebhookAsync(webhookEvent);
@@ -60,7 +60,7 @@ public class WebhookController {
             log.info("Processing webhook asynchronously: {}", webhookEvent.event());
 
             // Handle RTMS events asynchronously
-            rmsService.handleWebhookEvent(webhookEvent);
+            rtmsService.handleWebhookEvent(webhookEvent);
 
             log.info("Webhook processing completed: {}", webhookEvent.event());
         } catch (Exception e) {
@@ -72,9 +72,8 @@ public class WebhookController {
         try {
             Mac mac = Mac.getInstance("HmacSHA256");
             SecretKeySpec secretKey = new SecretKeySpec(
-                zoomConfig.getSecretToken().getBytes(),
-                "HmacSHA256"
-            );
+                    zoomConfig.getSecretToken().getBytes(),
+                    "HmacSHA256");
             mac.init(secretKey);
             byte[] hash = mac.doFinal(plainToken.getBytes());
             return Base64.getEncoder().encodeToString(hash);
