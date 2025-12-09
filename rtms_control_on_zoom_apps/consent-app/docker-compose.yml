@@ -1,0 +1,97 @@
+version: '3.8'
+
+services:
+  # Redis for session storage and state management
+  redis:
+    image: redis:7-alpine
+    container_name: zoom-consent-redis
+    ports:
+      - "6379:6379"
+    volumes:
+      - redis_data:/data
+    command: redis-server --appendonly yes
+    networks:
+      - zoom-consent-network
+    healthcheck:
+      test: ["CMD", "redis-cli", "ping"]
+      interval: 10s
+      timeout: 3s
+      retries: 5
+
+  # Backend Node.js/Express server
+  backend:
+    build:
+      context: ./backend
+      dockerfile: Dockerfile
+    container_name: zoom-consent-backend
+    ports:
+      - "3000:3000"
+    environment:
+      - NODE_ENV=${NODE_ENV:-development}
+      - PORT=3000
+      - REDIS_URL=redis://redis:6379
+      - FRONTEND_URL=http://frontend:3000
+      - ZOOM_APP_CLIENT_ID=${ZOOM_APP_CLIENT_ID}
+      - ZOOM_APP_CLIENT_SECRET=${ZOOM_APP_CLIENT_SECRET}
+      - ZOOM_APP_REDIRECT_URI=${ZOOM_APP_REDIRECT_URI}
+      - PUBLIC_URL=${PUBLIC_URL}
+      - SESSION_SECRET=${SESSION_SECRET}
+      - REDIS_ENCRYPTION_KEY=${REDIS_ENCRYPTION_KEY}
+      - ZOOM_SECRET_TOKEN=${ZOOM_SECRET_TOKEN}
+      - RTMS_SERVER_URL=http://rtms:3002
+    depends_on:
+      redis:
+        condition: service_healthy
+      frontend:
+        condition: service_started
+    volumes:
+      - ./backend/src:/app/src
+    networks:
+      - zoom-consent-network
+    command: npm run dev
+
+  # Frontend React application
+  frontend:
+    build:
+      context: ./frontend
+      dockerfile: Dockerfile
+    container_name: zoom-consent-frontend
+    environment:
+      - REACT_APP_BACKEND_URL=http://localhost:3000
+      - CHOKIDAR_USEPOLLING=true
+      - WDS_SOCKET_PORT=0
+      - DANGEROUSLY_DISABLE_HOST_CHECK=true
+    volumes:
+      - ./frontend/src:/app/src
+      - ./frontend/public:/app/public
+    networks:
+      - zoom-consent-network
+    command: npm start
+
+  # RTMS Server - Captures meeting transcripts when RTMS is started
+  rtms:
+    build:
+      context: ./rtms/sdk
+      dockerfile: Dockerfile
+    container_name: zoom-consent-rtms
+    ports:
+      - "3002:3002"
+    environment:
+      - ZOOM_APP_CLIENT_ID=${ZOOM_APP_CLIENT_ID}
+      - ZOOM_APP_CLIENT_SECRET=${ZOOM_APP_CLIENT_SECRET}
+      - ZOOM_SECRET_TOKEN=${ZOOM_SECRET_TOKEN}
+      - RTMS_PORT=3002
+    volumes:
+      - ./rtms/sdk:/app
+      - /app/node_modules  # Preserve node_modules from Docker build
+      - ./rtms/app/data:/app/data
+    networks:
+      - zoom-consent-network
+    command: npm start
+
+networks:
+  zoom-consent-network:
+    driver: bridge
+
+volumes:
+  redis_data:
