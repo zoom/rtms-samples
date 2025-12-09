@@ -1,0 +1,111 @@
+.App {
+  min-height: 100vh;
+  background-color: #f8f9fa;
+}
+
+.App-header {
+  background-color: #2d8cff;
+  padding: 1rem;
+  color: white;
+  box-shadow: 0 2px 4px rgba(0, 0, 0, 0.1);
+}
+
+.consent-prompt {
+  max-width: 600px;
+  margin: 2rem auto;
+  padding: 2rem;
+  background: white;
+  border-radius: 8px;
+  box-shadow: 0 2px 8px rgba(0, 0, 0, 0.1);
+}
+
+.participant-list {
+  background: white;
+  border-radius: 8px;
+  padding: 1rem;
+  margin-bottom: 1rem;
+}
+
+.participant-item {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  padding: 0.75rem;
+  border-bottom: 1px solid #e9ecef;
+}
+
+.participant-item:last-child {
+  border-bottom: none;
+}
+
+.consent-status {
+  display: inline-block;
+  padding: 0.25rem 0.75rem;
+  border-radius: 20px;
+  font-size: 0.875rem;
+  font-weight: 500;
+}
+
+.consent-status.pending {
+  background-color: #ffc107;
+  color: #000;
+}
+
+.consent-status.agreed {
+  background-color: #28a745;
+  color: white;
+}
+
+.consent-status.disagreed {
+  background-color: #dc3545;
+  color: white;
+}
+
+.rtms-status {
+  background: white;
+  border-radius: 8px;
+  padding: 1.5rem;
+  margin-bottom: 1rem;
+}
+
+.status-indicator {
+  display: inline-block;
+  width: 12px;
+  height: 12px;
+  border-radius: 50%;
+  margin-right: 0.5rem;
+}
+
+.status-indicator.running {
+  background-color: #28a745;
+  animation: pulse 2s infinite;
+}
+
+.status-indicator.paused {
+  background-color: #ffc107;
+}
+
+.status-indicator.stopped {
+  background-color: #6c757d;
+}
+
+@keyframes pulse {
+  0%, 100% {
+    opacity: 1;
+  }
+  50% {
+    opacity: 0.5;
+  }
+}
+
+.guest-view {
+  max-width: 500px;
+  margin: 3rem auto;
+  text-align: center;
+}
+
+.host-dashboard {
+  max-width: 1200px;
+  margin: 0 auto;
+  padding: 2rem;
+}
