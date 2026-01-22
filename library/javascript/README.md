@@ -135,14 +135,73 @@ Access constants via `RTMSManager.MEDIA_PARAMS`:
 
 The `RTMSManager` emits the following events:
 
+### Media Events
 - `audio`: `(buffer, userId, userName, timestamp, meetingUuid, streamId, rtmsType)`
 - `video`: `(buffer, userId, userName, timestamp, meetingUuid, streamId, rtmsType)`
 - `transcript`: `(text, userId, userName, timestamp, meetingUuid, streamId, rtmsType, ...)`
 - `chat`: `(text, userId, userName, timestamp, meetingUuid, streamId, rtmsType)`
-- `event`: Raw Zoom events.
-- `stream_state_changed`: When a media stream starts or stops.
+
+### Lifecycle Events
 - `meeting.rtms_started` / `meeting.rtms_stopped`: Lifecycle events for meeting streams.
 - `session.rtms_started` / `session.rtms_stopped`: Lifecycle events for Video SDK sessions.
+- `stream_state_changed`: When a media stream starts or stops.
+- `session_state_changed`: When the RTMS session state changes.
+
+### Meeting Events (Built-in)
+
+The library has **built-in support for real-time meeting events**. Subscribe to the `event` handler to receive notifications about meeting dynamics:
+
+```javascript
+RTMSManager.on('event', (eventData, meetingUuid, streamId, rtmsType) => {
+  switch (eventData.event_type) {
+    case 1:
+      console.log('First packet capture timestamp received');
+      break;
+    case 2:
+      console.log(`Active speaker changed to: ${eventData.user_name} (${eventData.user_id})`);
+      break;
+    case 3:
+      console.log(`Participant joined: ${eventData.user_name} (${eventData.user_id})`);
+      break;
+    case 4:
+      console.log(`Participant left: ${eventData.user_name} (${eventData.user_id})`);
+      break;
+  }
+});
+```
+
+| Event Type | Code | Description |
+|------------|------|-------------|
+| First Packet Capture | `1` | Timestamp when first media packet was captured |
+| Active Speaker Changed | `2` | Notifies when the active speaker changes |
+| Participant Joined | `3` | A participant joined the meeting |
+| Participant Left | `4` | A participant left the meeting |
+
+### Stream State Events
+
+Monitor stream health and state changes:
+
+```javascript
+RTMSManager.on('stream_state_changed', (msg, meetingUuid, streamId, rtmsType) => {
+  // msg.state: 0=Inactive, 1=Active, 2=Interrupted, 3/4=Terminating
+  // msg.stop_reason: See stop reason codes below
+});
+
+RTMSManager.on('session_state_changed', (msg, meetingUuid, streamId, rtmsType) => {
+  // msg.state: 2=Started, 3=Paused, 4=Resumed, 5=Stopped
+});
+```
+
+**Stop Reason Codes** (available in `msg.stop_reason`):
+| Code | Reason |
+|------|--------|
+| 1 | Host triggered stop |
+| 2 | User triggered stop |
+| 3 | User left meeting |
+| 4 | User was ejected |
+| 5 | App disabled by host |
+| 6 | Meeting ended |
+| 7-18 | Various connection/system reasons (see root README for full list) |
 
 ## Advanced Usage
 

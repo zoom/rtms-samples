@@ -1,12 +1,30 @@
 {
-  "name": "rtms-manager",
-  "version": "1.0.0",
-  "description": "Zoom RTMS SDK Library",
-  "main": "RTMSManager.js",
+  "name": "rtms-manager-dev",
+  "version": "2.0.0",
+  "description": "Zoom RTMS SDK Library - Developer-friendly API for real-time media streaming",
+  "main": "index.js",
+  "types": "types/index.d.ts",
   "type": "module",
+  "exports": {
+    ".": {
+      "types": "./types/index.d.ts",
+      "import": "./index.js"
+    }
+  },
+  "keywords": [
+    "zoom",
+    "rtms",
+    "real-time",
+    "media",
+    "streaming",
+    "audio",
+    "video",
+    "transcript",
+    "meeting",
+    "webinar"
+  ],
   "dependencies": {
     "ws": "^8.16.0",
-    "express": "^4.21.2",
     "node-fetch": "^3.3.2"
   }
 }

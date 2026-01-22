@@ -1,33 +1,60 @@
 import fs from 'fs';
 import path from 'path';
+import { fileURLToPath } from 'url';
 
-let logDir = null;
-let loggingEnabled = false;
+const __filename = fileURLToPath(import.meta.url);
+const __dirname = path.dirname(__filename);
+// Path to logs directory
+const LOG_DIR = path.join(__dirname, '../../logs');
 
-function ensureLogDir() {
-  if (logDir && !fs.existsSync(logDir)) {
-    fs.mkdirSync(logDir, { recursive: true });
-  }
+if (!fs.existsSync(LOG_DIR)) {
+  fs.mkdirSync(LOG_DIR, { recursive: true });
 }
 
 function getLogFilePath() {
-  if (!logDir) return null;
   const now = new Date();
-  const dateStr = now.toISOString().split('T')[0];
+  const dateStr = now.toISOString().split('T')[0]; // YYYY-MM-DD
   const hour = now.getHours().toString().padStart(2, '0');
   const filename = `rtms_${dateStr}_${hour}.log`;
-  return path.join(logDir, filename);
+  return path.join(LOG_DIR, filename);
 }
 
+/**
+ * Log levels: off < error < warn < info < debug
+ */
+const LOG_LEVELS = {
+  off: 0,
+  error: 1,
+  warn: 2,
+  info: 3,
+  debug: 4
+};
+
+/**
+ * FileLogger with configurable log levels
+ * Default: 'off' for cleaner output in production
+ * 
+ * @example
+ * FileLogger.setLevel('info');  // Enable info, warn, error
+ * FileLogger.setLevel('off');   // Disable all logging
+ * FileLogger.setLevel('debug'); // Enable all logging
+ */
 export class FileLogger {
+  /** Current log level (default: 'off' for clean output) */
+  static level = 'off';
+  /** Whether to output to console */
   static consoleEnabled = true;
+  /** Whether to write to file */
+  static fileEnabled = true;
+  
   static logBuffer = [];
   static flushTimer = null;
-  static flushInterval = 100;
-  static maxBufferSize = 50;
+  static flushInterval = 100; // Flush every 100ms
+  static maxBufferSize = 50; // Or when buffer reaches 50 entries
   static isShuttingDown = false;
 
   static {
+    // Setup process exit handler to flush remaining logs
     if (typeof process !== 'undefined') {
       process.on('exit', () => {
         this.isShuttingDown = true;
@@ -46,33 +73,46 @@ export class FileLogger {
     }
   }
 
-  static configure(options = {}) {
-    if (options.logDir) {
-      logDir = options.logDir;
-      ensureLogDir();
+  /**
+   * Set the logging level
+   * @param {'off'|'error'|'warn'|'info'|'debug'} level
+   */
+  static setLevel(level) {
+    if (level in LOG_LEVELS) {
+      this.level = level;
+      // Enable console when logging is on
+      this.consoleEnabled = level !== 'off';
     }
-    if (typeof options.enabled === 'boolean') {
-      loggingEnabled = options.enabled;
-    }
-    if (typeof options.console === 'boolean') {
-      this.consoleEnabled = options.console;
-    }
+  }
+
+  /**
+   * Check if a given level should be logged
+   * @param {'error'|'warn'|'info'|'debug'} level
+   */
+  static shouldLog(level) {
+    return LOG_LEVELS[level] <= LOG_LEVELS[this.level];
   }
 
   static setConsoleOutput(enabled) {
     this.consoleEnabled = !!enabled;
   }
 
+  static setFileOutput(enabled) {
+    this.fileEnabled = !!enabled;
+  }
+
   static addToBuffer(logMessage) {
-    if (!loggingEnabled || !logDir) return;
+    if (!this.fileEnabled) return;
     
     this.logBuffer.push(logMessage);
 
+    // Flush if buffer is full
     if (this.logBuffer.length >= this.maxBufferSize) {
       this.flush();
       return;
     }
 
+    // Setup flush timer if not already running
     if (!this.flushTimer) {
       this.flushTimer = setTimeout(() => {
         this.flush();
@@ -87,14 +127,12 @@ export class FileLogger {
     }
 
     if (this.logBuffer.length === 0) return;
-    
-    const logFilePath = getLogFilePath();
-    if (!logFilePath) return;
 
     const logsToWrite = this.logBuffer.join('');
     this.logBuffer = [];
 
-    fs.appendFile(logFilePath, logsToWrite, (err) => {
+    // Async write
+    fs.appendFile(getLogFilePath(), logsToWrite, (err) => {
       if (err) console.error('Failed to write to log file:', err);
     });
   }
@@ -106,9 +144,6 @@ export class FileLogger {
     }
 
     if (this.logBuffer.length === 0) return;
-    
-    const logFilePath = getLogFilePath();
-    if (!logFilePath) return;
 
     const logsToWrite = this.logBuffer.join('');
     this.logBuffer = [];
@@ -121,25 +156,75 @@ export class FileLogger {
     }
   }
 
-  static log(...args) {
-    const timestamp = new Date().toISOString();
-    const message = args.map(arg =>
+  static formatMessage(...args) {
+    return args.map(arg =>
       (typeof arg === 'object' && arg !== null) ? JSON.stringify(arg, null, 2) : String(arg)
     ).join(' ');
+  }
+
+  /**
+   * Debug level logging (most verbose)
+   */
+  static debug(...args) {
+    if (!this.shouldLog('debug')) return;
+    
+    const timestamp = new Date().toISOString();
+    const message = this.formatMessage(...args);
+    const logMessage = `[${timestamp}] [DEBUG] ${message}`;
+
+    if (this.consoleEnabled) {
+      console.log(logMessage);
+    }
+    this.addToBuffer(logMessage + '\n');
+  }
+
+  /**
+   * Info level logging
+   */
+  static info(...args) {
+    if (!this.shouldLog('info')) return;
+    
+    const timestamp = new Date().toISOString();
+    const message = this.formatMessage(...args);
     const logMessage = `[${timestamp}] ${message}`;
 
     if (this.consoleEnabled) {
       console.log(logMessage);
     }
-
     this.addToBuffer(logMessage + '\n');
   }
 
-  static error(...args) {
+  /**
+   * General log (alias for info)
+   */
+  static log(...args) {
+    this.info(...args);
+  }
+
+  /**
+   * Warning level logging
+   */
+  static warn(...args) {
+    if (!this.shouldLog('warn')) return;
+    
     const timestamp = new Date().toISOString();
-    const message = args.map(arg =>
-      (typeof arg === 'object' && arg !== null) ? JSON.stringify(arg, null, 2) : String(arg)
-    ).join(' ');
+    const message = this.formatMessage(...args);
+    const logMessage = `[${timestamp}] [WARN] ${message}`;
+
+    if (this.consoleEnabled) {
+      console.warn(logMessage);
+    }
+    this.addToBuffer(logMessage + '\n');
+  }
+
+  /**
+   * Error level logging (always logged unless 'off')
+   */
+  static error(...args) {
+    if (!this.shouldLog('error')) return;
+    
+    const timestamp = new Date().toISOString();
+    const message = this.formatMessage(...args);
     const logMessage = `[${timestamp}] [ERROR] ${message}`;
 
     if (this.consoleEnabled) {
@@ -154,22 +239,6 @@ export class FileLogger {
       this.addToBuffer(logMessage + '\n');
     }
   }
-
-  static info(...args) {
-    this.log(...args);
-  }
-
-  static warn(...args) {
-    const timestamp = new Date().toISOString();
-    const message = args.map(arg =>
-      (typeof arg === 'object' && arg !== null) ? JSON.stringify(arg, null, 2) : String(arg)
-    ).join(' ');
-    const logMessage = `[${timestamp}] [WARN] ${message}`;
-
-    if (this.consoleEnabled) {
-      console.warn(logMessage);
-    }
-
-    this.addToBuffer(logMessage + '\n');
-  }
 }
+
+export default FileLogger;

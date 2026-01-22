@@ -4,7 +4,84 @@ import { ActiveConnectionManager } from './ActiveConnectionManager.js';
 import { RTMS_MEDIA_PARAMS } from './utils/rtmsMediaParams.js';
 import { RTMSConfigHelper } from './utils/RTMSConfigHelper.js';
 import { FileLogger } from './utils/FileLogger.js';
+import { RTMSError } from './utils/RTMSError.js';
 import { redactSecrets } from './utils/redactSecrets.js';
+
+/**
+ * Media type constants for easy configuration
+ * Use with mediaTypes config option: RTMSManager.MEDIA.AUDIO | RTMSManager.MEDIA.TRANSCRIPT
+ */
+const MEDIA = Object.freeze({
+  AUDIO: 1,
+  VIDEO: 2,
+  SHARESCREEN: 4,
+  TRANSCRIPT: 8,
+  CHAT: 16,
+  ALL: 32
+});
+
+/**
+ * Preset configurations for common use cases
+ * Use with spread: { ...RTMSManager.PRESETS.TRANSCRIPTION, credentials: {...} }
+ */
+const PRESETS = Object.freeze({
+  /** Audio only - optimized for speech processing */
+  AUDIO_ONLY: {
+    mediaTypes: MEDIA.AUDIO,
+    mediaParams: {
+      audio: {
+        contentType: RTMS_MEDIA_PARAMS.MEDIA_CONTENT_TYPE_RTP,
+        sampleRate: RTMS_MEDIA_PARAMS.AUDIO_SAMPLE_RATE_SR_16K,
+        channel: RTMS_MEDIA_PARAMS.AUDIO_CHANNEL_MONO,
+        codec: RTMS_MEDIA_PARAMS.MEDIA_PAYLOAD_TYPE_L16,
+        dataOpt: RTMS_MEDIA_PARAMS.MEDIA_DATA_OPTION_AUDIO_MIXED_STREAM,
+        sendRate: 100
+      }
+    }
+  },
+  /** Transcription - audio + transcript for real-time captions */
+  TRANSCRIPTION: {
+    mediaTypes: MEDIA.AUDIO | MEDIA.TRANSCRIPT,
+    mediaParams: {
+      audio: {
+        contentType: RTMS_MEDIA_PARAMS.MEDIA_CONTENT_TYPE_RTP,
+        sampleRate: RTMS_MEDIA_PARAMS.AUDIO_SAMPLE_RATE_SR_16K,
+        channel: RTMS_MEDIA_PARAMS.AUDIO_CHANNEL_MONO,
+        codec: RTMS_MEDIA_PARAMS.MEDIA_PAYLOAD_TYPE_L16,
+        dataOpt: RTMS_MEDIA_PARAMS.MEDIA_DATA_OPTION_AUDIO_MIXED_STREAM,
+        sendRate: 100
+      },
+      transcript: {
+        contentType: RTMS_MEDIA_PARAMS.MEDIA_CONTENT_TYPE_TEXT,
+        language: RTMS_MEDIA_PARAMS.LANGUAGE_ID_ENGLISH
+      }
+    }
+  },
+  /** Video recording - audio + video for recording */
+  VIDEO_RECORDING: {
+    mediaTypes: MEDIA.AUDIO | MEDIA.VIDEO,
+    mediaParams: {
+      audio: {
+        contentType: RTMS_MEDIA_PARAMS.MEDIA_CONTENT_TYPE_RTP,
+        sampleRate: RTMS_MEDIA_PARAMS.AUDIO_SAMPLE_RATE_SR_16K,
+        channel: RTMS_MEDIA_PARAMS.AUDIO_CHANNEL_MONO,
+        codec: RTMS_MEDIA_PARAMS.MEDIA_PAYLOAD_TYPE_L16,
+        dataOpt: RTMS_MEDIA_PARAMS.MEDIA_DATA_OPTION_AUDIO_MIXED_STREAM,
+        sendRate: 100
+      },
+      video: {
+        codec: RTMS_MEDIA_PARAMS.MEDIA_PAYLOAD_TYPE_H264,
+        dataOpt: RTMS_MEDIA_PARAMS.MEDIA_DATA_OPTION_VIDEO_SINGLE_ACTIVE_STREAM,
+        resolution: RTMS_MEDIA_PARAMS.MEDIA_RESOLUTION_HD,
+        fps: 25
+      }
+    }
+  },
+  /** Full media - all media types (default) */
+  FULL_MEDIA: {
+    mediaTypes: MEDIA.ALL
+  }
+});
 
 /**
  * RTMSManager
@@ -21,11 +98,11 @@ export class RTMSManager extends EventEmitter {
   /**
    * Get the singleton instance of RTMSManager.
    * @returns {RTMSManager}
-   * @throws {Error} If init() has not been called yet.
+   * @throws {RTMSError} If init() has not been called yet.
    */
   static get instance() {
     if (!RTMSManager.#instance) {
-      throw new Error('RTMSManager must be initialized first with RTMSManager.init()');
+      throw RTMSError.fromCode('NOT_INITIALIZED');
     }
     return RTMSManager.#instance;
   }
@@ -39,7 +116,7 @@ export class RTMSManager extends EventEmitter {
     try {
       RTMSManager.instance.emit(event, ...args);
     } catch (e) {
-      FileLogger.error(`RTMSManager.handleEvent: not initialized ${e.message}`);
+      FileLogger.error(`RTMSManager.handleEvent: ${e.message}`);
     }
   }
 
@@ -52,7 +129,7 @@ export class RTMSManager extends EventEmitter {
     if (RTMSManager.#instance) {
       RTMSManager.instance.on(event, handler);
     } else {
-      throw new Error('[RTMSManager] Must call init() before registering event handlers.');
+      throw RTMSError.fromCode('NOT_INITIALIZED');
     }
   }
 
@@ -77,14 +154,33 @@ export class RTMSManager extends EventEmitter {
     try {
       return RTMSManager.instance.getActiveConnections();
     } catch (error) {
-      FileLogger.warn(`[RTMSManager] getActiveConnections failed: ${error.message}. RTMSManager may not be initialized. Call RTMSManager.init() first.`);
+      FileLogger.warn(`[RTMSManager] getActiveConnections failed: ${error.message}`);
       return [];
     }
   }
 
 
   /**
-   * Flat RTMS Media Params Constants from Zoom docs
+   * Media type constants for easy configuration
+   * @example
+   * mediaTypes: RTMSManager.MEDIA.AUDIO | RTMSManager.MEDIA.TRANSCRIPT
+   */
+  static get MEDIA() {
+    return MEDIA;
+  }
+
+  /**
+   * Preset configurations for common use cases
+   * @example
+   * await RTMSManager.init({ ...RTMSManager.PRESETS.TRANSCRIPTION, credentials: {...} })
+   */
+  static get PRESETS() {
+    return PRESETS;
+  }
+
+  /**
+   * Flat RTMS Media Params Constants from Zoom docs (advanced usage)
+   * @deprecated Use RTMSManager.MEDIA for media types, this is for advanced codec/format config
    */
   static get MEDIA_PARAMS() {
     return RTMS_MEDIA_PARAMS;
@@ -99,9 +195,34 @@ export class RTMSManager extends EventEmitter {
 
   /**
    * Initialize the RTMS Manager with a configuration object.
+   * Auto-starts after initialization - no need to call start() separately.
+   * 
    * Note: Can only be called once. Subsequent calls will return the existing instance
    * and ignore the new configuration. To reinitialize, the process must be restarted.
-   * @param {Object} options
+   * 
+   * @param {Object} options - Configuration options
+   * @param {Object} options.credentials - Product-keyed credentials or shorthand
+   * @param {number} [options.mediaTypes=RTMSManager.MEDIA.ALL] - Media types to subscribe
+   * @param {string} [options.logging='off'] - Logging level: 'off'|'error'|'warn'|'info'|'debug'
+   * @returns {Promise<RTMSManager>}
+   * 
+   * @example
+   * // Shorthand credentials (applies to all products)
+   * await RTMSManager.init({
+   *   clientId: 'xxx',
+   *   clientSecret: 'xxx', 
+   *   secretToken: 'xxx'
+   * });
+   * 
+   * @example
+   * // Product-keyed credentials
+   * await RTMSManager.init({
+   *   credentials: {
+   *     meeting: { clientId: 'xxx', clientSecret: 'xxx', secretToken: 'xxx' },
+   *     videoSdk: { clientId: 'yyy', clientSecret: 'yyy', secretToken: 'yyy' }
+   *   },
+   *   mediaTypes: RTMSManager.MEDIA.AUDIO | RTMSManager.MEDIA.TRANSCRIPT
+   * });
    */
   static async init(options = {}) {
     if (RTMSManager.#instance) {
@@ -109,15 +230,16 @@ export class RTMSManager extends EventEmitter {
       return RTMSManager.#instance;
     }
 
-    if (options.logging) {
-      FileLogger.configure({
-        logDir: options.logging.logDir,
-        enabled: options.logging.enabled !== false,
-        console: options.logging.console !== false
-      });
-    }
-
+    // Merge provided options with defaults (handles normalization internally)
     const config = RTMSConfigHelper.merge(options);
+
+    // Configure logging level (default: 'off' for clean output)
+    if (config.logging && config.logging !== 'off') {
+      FileLogger.setLevel(config.logging);
+    } else if (!options.logger) {
+      // Default to 'off' unless custom logger provided
+      FileLogger.setLevel('off');
+    }
 
     // Handle the master gap filler flag
     if (config.enableRealTimeAudioVideoGapFiller) {
@@ -125,21 +247,27 @@ export class RTMSManager extends EventEmitter {
       config.useFiller = true;
     }
 
-    // Compatibility mapper for internal property names used by handlers and secondary managers
+    // Build internal config with flattened credentials for sub-modules
+    const meetingCreds = config.credentials.meeting || {};
+    const videoSdkCreds = config.credentials.videoSdk || {};
+    const s2sCreds = config.credentials.s2s || {};
+
     const internalConfig = {
       ...config,
-      // Map nested structured credentials to flat format expected by sub-modules
-      clientId: config.credentials.meeting.clientId || config.credentials.websocket.clientId,
-      clientSecret: config.credentials.meeting.clientSecret || config.credentials.websocket.clientSecret,
-      zoomSecretToken: config.credentials.meeting.zoomSecretToken,
-      videoClientId: config.credentials.video.videoClientId,
-      videoClientSecret: config.credentials.video.videoClientSecret,
-      videoSecretToken: config.credentials.video.videoSecretToken,
-      s2sClientId: config.credentials.s2s.clientId,
-      s2sClientSecret: config.credentials.s2s.clientSecret,
-      accountId: config.credentials.s2s.accountId,
-      webhookPath: config.webhookPath || '/webhook',
-      zoomWSURLForEvents: config.credentials.websocket.zoomWSURLForEvents,
+      // Flattened credentials for internal use
+      clientId: meetingCreds.clientId,
+      clientSecret: meetingCreds.clientSecret,
+      secretToken: meetingCreds.secretToken,
+      // Video SDK credentials
+      videoClientId: videoSdkCreds.clientId,
+      videoClientSecret: videoSdkCreds.clientSecret,
+      videoSecretToken: videoSdkCreds.secretToken,
+      // S2S credentials
+      s2sClientId: s2sCreds.clientId,
+      s2sClientSecret: s2sCreds.clientSecret,
+      accountId: s2sCreds.accountId,
+      // Map mediaTypes to legacy mediaTypesFlag for internal handlers
+      mediaTypesFlag: config.mediaTypes,
       // Map mediaParams to naming convention expected by low-level RTMS socket handlers
       mediaParams: {
         audio: {
@@ -174,6 +302,9 @@ export class RTMSManager extends EventEmitter {
       logger: options.logger || FileLogger
     });
 
+    // Auto-start - SDK is ready to process events immediately
+    await RTMSManager.#instance.start();
+
     return RTMSManager.#instance;
   }
 
@@ -186,32 +317,37 @@ export class RTMSManager extends EventEmitter {
     this.streamHistory = new Map();
     this.streamHistoryAccessOrder = []; // Track access order for LRU eviction
 
-    // Note: We no longer need this.eventHandlers = new Map() because we extend EventEmitter
-
     // Internal handlers for RTMS lifecycle events
-    // We use super.on() to register these internal listeners
+    // Supports: meeting, webinar, videoSdk (session), contactCenter, phone
     this.on('meeting.rtms_started', (payload) => {
       const { meeting_uuid, rtms_stream_id, server_urls, event_ts } = payload;
-      this.onStreamStart(meeting_uuid, 'meeting', rtms_stream_id, server_urls, {
-        clientId: this.config.clientId,
-        clientSecret: this.config.clientSecret
-      }, event_ts);
+      const creds = RTMSConfigHelper.getCredentialsForProduct('meeting', this.config);
+      this.onStreamStart(meeting_uuid, 'meeting', rtms_stream_id, server_urls, creds, event_ts);
     });
 
     this.on('webinar.rtms_started', (payload) => {
       const { webinar_uuid, rtms_stream_id, server_urls, event_ts } = payload;
-      this.onStreamStart(webinar_uuid, 'webinar', rtms_stream_id, server_urls, {
-        clientId: this.config.clientId,
-        clientSecret: this.config.clientSecret
-      }, event_ts);
+      const creds = RTMSConfigHelper.getCredentialsForProduct('webinar', this.config);
+      this.onStreamStart(webinar_uuid, 'webinar', rtms_stream_id, server_urls, creds, event_ts);
     });
 
     this.on('session.rtms_started', (payload) => {
       const { session_id, rtms_stream_id, server_urls, event_ts } = payload;
-      this.onStreamStart(session_id, 'session', rtms_stream_id, server_urls, {
-        clientId: this.config.videoClientId || this.config.clientId,
-        clientSecret: this.config.videoClientSecret || this.config.clientSecret
-      }, event_ts);
+      const creds = RTMSConfigHelper.getCredentialsForProduct('videoSdk', this.config);
+      this.onStreamStart(session_id, 'videoSdk', rtms_stream_id, server_urls, creds, event_ts);
+    });
+
+    // Future product support - contactCenter and phone
+    this.on('contactcenter.rtms_started', (payload) => {
+      const { session_id, rtms_stream_id, server_urls, event_ts } = payload;
+      const creds = RTMSConfigHelper.getCredentialsForProduct('contactCenter', this.config);
+      this.onStreamStart(session_id, 'contactCenter', rtms_stream_id, server_urls, creds, event_ts);
+    });
+
+    this.on('phone.rtms_started', (payload) => {
+      const { call_id, rtms_stream_id, server_urls, event_ts } = payload;
+      const creds = RTMSConfigHelper.getCredentialsForProduct('phone', this.config);
+      this.onStreamStart(call_id, 'phone', rtms_stream_id, server_urls, creds, event_ts);
     });
 
     this.on('meeting.rtms_stopped', (payload) => {
@@ -229,12 +365,20 @@ export class RTMSManager extends EventEmitter {
       this.onStreamStop(rtms_stream_id);
     });
 
+    this.on('contactcenter.rtms_stopped', (payload) => {
+      const { rtms_stream_id } = payload;
+      this.onStreamStop(rtms_stream_id);
+    });
+
+    this.on('phone.rtms_stopped', (payload) => {
+      const { rtms_stream_id } = payload;
+      this.onStreamStop(rtms_stream_id);
+    });
+
     // Bind methods
     this.start = this.start.bind(this);
     this.stop = this.stop.bind(this);
   }
-
-  // Note: We removed the custom on() and emit() methods to use the native EventEmitter ones.
 
   // Start the RTMS manager
   async start() {
@@ -243,11 +387,11 @@ export class RTMSManager extends EventEmitter {
       return;
     }
     if (this._state !== 'INITIALIZED' && this._state !== 'STOPPED') {
-      throw new Error(`[RTMSManager] Cannot start from state: ${this._state}`);
+      throw new RTMSError('INVALID_CONFIG', `Cannot start from state: ${this._state}`);
     }
 
     this._state = 'STARTED';
-    this.logger.info(`[RTMSManager] 🚀 RTMS Manager ready - feed RTMS events via emit(event, payload)`);
+    this.logger.info(`[RTMSManager] Ready - feed RTMS events via emit(event, payload)`);
     return Promise.resolve();
   }
 
@@ -262,11 +406,11 @@ export class RTMSManager extends EventEmitter {
 
       const handlers = this.connectionManager.getAll();
       for (const handler of handlers) {
-        this.logger.info(`[RTMSManager] Stopping RTMS for ${handler.rtmsType} ${handler.rtmsId} stream ${handler.streamId}`);
+        this.logger.info(`[RTMSManager] Stopping ${handler.rtmsType} ${handler.rtmsId}`);
         handler.stop();
       }
       this.connectionManager.clear();
-      this.logger.info('[RTMSManager] RTMS Manager stopped');
+      this.logger.info('[RTMSManager] Stopped');
       this._state = 'STOPPED';
       resolve();
     });
@@ -274,11 +418,11 @@ export class RTMSManager extends EventEmitter {
 
   onStreamStart(rtmsId, rtmsType, streamId, serverUrls, creds, startTime = null) {
     if (this.connectionManager.has(streamId)) {
-      this.logger.warn(`[RTMSManager] Duplicate stream ID ${streamId} detected for ${rtmsType} ${rtmsId}. Ignoring.`);
+      this.logger.warn(`[RTMSManager] Duplicate stream ID ${streamId} for ${rtmsType} ${rtmsId}`);
       return true;
     }
 
-    this.logger.info(`[RTMSManager] Starting RTMS for ${rtmsType} ${rtmsId} stream ${streamId}`);
+    this.logger.info(`[RTMSManager] Starting ${rtmsType} ${rtmsId} stream ${streamId}`);
 
     const handler = new RTMSMessageHandler(
       rtmsId,
@@ -286,7 +430,6 @@ export class RTMSManager extends EventEmitter {
       serverUrls,
       creds.clientId,
       creds.clientSecret,
-      this.config.mediaSocketConnectionMode,
       this.emit.bind(this), // Pass the native emit method
       this.config.mediaTypesFlag,
       this.config,
@@ -300,7 +443,7 @@ export class RTMSManager extends EventEmitter {
   onStreamStop(streamId) {
     const handler = this.connectionManager.get(streamId);
     if (handler) {
-      this.logger.info(`[RTMSManager] Stopping RTMS for ${handler.rtmsType} ${handler.rtmsId} stream ${streamId}`);
+      this.logger.info(`[RTMSManager] Stopping ${handler.rtmsType} ${handler.rtmsId} stream ${streamId}`);
       handler.stop();
 
       // Archive stream data
@@ -314,7 +457,6 @@ export class RTMSManager extends EventEmitter {
         streamId: handler.streamId,
         serverUrls: handler.serverUrls,
         clientId: handler.clientId,
-        mediaSocketConnectionMode: handler.mediaSocketConnectionMode,
         mediaConfig: handler.mediaConfig,
         pingRtt: handler.pingRtt
       });
@@ -356,7 +498,7 @@ export class RTMSManager extends EventEmitter {
         const oldestStreamId = instance.streamHistoryAccessOrder.shift();
         if (oldestStreamId) {
           instance.streamHistory.delete(oldestStreamId);
-          instance.logger.log(`[RTMSManager] Evicted stream ${oldestStreamId} from history (LRU, size limit: ${maxSize})`);
+          instance.logger.log(`[RTMSManager] Evicted stream ${oldestStreamId} from history (LRU)`);
         }
       }
     }
@@ -436,7 +578,6 @@ export class RTMSManager extends EventEmitter {
         streamId: active.streamId,
         serverUrls: active.serverUrls,
         clientId: active.clientId,
-        mediaSocketConnectionMode: active.mediaSocketConnectionMode,
         pingRtt: active.pingRtt,
         startTime: active.startTime,
         firstPacketTimestamp: active.firstPacketTimestamp,

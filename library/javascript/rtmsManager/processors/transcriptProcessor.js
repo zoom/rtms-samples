@@ -1,3 +1,16 @@
-export async function processTranscript(data, userId, userName, timestamp, rtmsId, streamId, emit, rtmsType, start_time, end_time, language, attribute) {
-  emit('transcript', data, userId, userName, timestamp, rtmsId, streamId, rtmsType, start_time, end_time, language, attribute);
+export async function processTranscript(eventData, emit) {
+  emit('transcript', {
+    type: 'transcript',
+    text: eventData.text,
+    userId: eventData.userId,
+    userName: eventData.userName,
+    timestamp: eventData.timestamp,
+    meetingId: eventData.meetingId,
+    streamId: eventData.streamId,
+    productType: eventData.productType,
+    startTime: eventData.startTime,
+    endTime: eventData.endTime,
+    language: eventData.language,
+    attribute: eventData.attribute
+  });
 }

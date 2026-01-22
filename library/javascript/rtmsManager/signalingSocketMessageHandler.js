@@ -8,8 +8,13 @@ import {
 import { connectToMediaWebSocket } from './mediaSocket.js';
 import { FileLogger } from './utils/FileLogger.js';
 import { RTMSFlagHelper, TYPE_FLAGS } from './utils/RTMSFlagHelper.js';
+import { RTMSError } from './utils/RTMSError.js';
 
-export function handleSignalingMessage(data, meetingUuid, streamId, signalingWs, conn, emit, mediaSocketConnectionMode, mediaTypesFlag, clientId, clientSecret) {
+/**
+ * Handle signaling socket messages
+ * Uses SPLIT mode only - each media type gets its own WebSocket connection
+ */
+export function handleSignalingMessage(data, meetingUuid, streamId, signalingWs, conn, emit, mediaTypesFlag, clientId, clientSecret) {
  
   let msg;
   try {
@@ -22,60 +27,43 @@ export function handleSignalingMessage(data, meetingUuid, streamId, signalingWs,
 
   switch (msg.msg_type) {
     case 2: // SIGNALING_HAND_SHAKE_RESP
-      FileLogger.log(`[Signaling] [${conn.rtmsType},${meetingUuid},${streamId}] Processing handshake response (case 2) for ${conn.rtmsType} ${meetingUuid}. Handshake response: ${JSON.stringify(msg, null, 2)}`);
+      FileLogger.log(`[Signaling] [${conn.rtmsType},${meetingUuid},${streamId}] Handshake response for ${conn.rtmsType} ${meetingUuid}`);
+      
       if (msg.status_code === 0) {
         const mediaUrl = msg.media_server?.server_urls?.all;
         const hostname = new URL(mediaUrl).hostname;
         const countryCode = hostname.split('.').slice(-3, -2)[0] || 'unknown';
-        FileLogger.log(`[Signaling] [${conn.rtmsType},${meetingUuid},${streamId}] Handshake OK. Media URL: ${mediaUrl} (Server location: ${countryCode.toUpperCase()})`);
+        FileLogger.log(`[Signaling] [${conn.rtmsType},${meetingUuid},${streamId}] Handshake OK. Media URL: ${mediaUrl} (Server: ${countryCode.toUpperCase()})`);
         conn.signaling.state = 'ready';
-        FileLogger.log(`[Signaling] [${conn.rtmsType},${meetingUuid},${streamId}] Connection state updated to 'ready' for ${conn.rtmsType} ${meetingUuid}`);
 
-
-        FileLogger.log(`[Signaling] [${conn.rtmsType},${meetingUuid},${streamId}] Initiating media WebSocket connection (mode: ${mediaSocketConnectionMode}, flags: ${mediaTypesFlag})`);
+        // Initialize media connections (split mode - one socket per media type)
         if (!conn.media) conn.media = {};
-        if (mediaSocketConnectionMode === 'unified') {
-          connectToMediaWebSocket(
-            mediaUrl,
-            meetingUuid,
-            streamId,
-            signalingWs,
-            conn,
-            clientId,
-            clientSecret,
-            'unified',
-            mediaTypesFlag,
-            emit
-          );
-        } else {
-          if (!conn.media) conn.media = {};
-          
-          //this is necessary when some features are not available yet
-          const effectiveFlags = RTMSFlagHelper.calculateEffectiveFlags(mediaTypesFlag, msg.media_server?.server_urls);
-          
-          FileLogger.log(`[Signaling] [${conn.rtmsType},${meetingUuid},${streamId}] Debug: mediaTypesFlag = ${mediaTypesFlag}, effectiveFlags = ${effectiveFlags}`);
-          for (const [type, flag] of Object.entries(TYPE_FLAGS)) {
-            FileLogger.log(`[Signaling] [${conn.rtmsType},${meetingUuid},${streamId}] Debug: Checking ${type} (flag ${flag}). Result: ${effectiveFlags & flag}`);
-            if (effectiveFlags & flag) {
-              const typeUrl = msg.media_server?.server_urls?.[type] || mediaUrl;
-              FileLogger.log(`[Signaling] [${conn.rtmsType},${meetingUuid},${streamId}] Connecting ${type} media WS (flag ${flag})`);
-              connectToMediaWebSocket(
-                typeUrl,
-                meetingUuid,
-                streamId,
-                signalingWs,
-                conn,
-                clientId,
-                clientSecret,
-                type,
-                flag,
-                emit
-              );
-            }
+        
+        // Calculate effective flags based on what's available
+        const effectiveFlags = RTMSFlagHelper.calculateEffectiveFlags(mediaTypesFlag, msg.media_server?.server_urls);
+        
+        FileLogger.log(`[Signaling] [${conn.rtmsType},${meetingUuid},${streamId}] Requested media: ${mediaTypesFlag}, available: ${effectiveFlags}`);
+        
+        for (const [type, flag] of Object.entries(TYPE_FLAGS)) {
+          if (effectiveFlags & flag) {
+            const typeUrl = msg.media_server?.server_urls?.[type] || mediaUrl;
+            FileLogger.log(`[Signaling] [${conn.rtmsType},${meetingUuid},${streamId}] Connecting ${type} media socket`);
+            connectToMediaWebSocket(
+              typeUrl,
+              meetingUuid,
+              streamId,
+              signalingWs,
+              conn,
+              clientId,
+              clientSecret,
+              type,
+              flag,
+              emit
+            );
           }
         }
 
-        // Send event subscription payload (msg_type 5)
+        // Subscribe to signaling events
         const subscribePayload = {
           msg_type: 5,
           events: [
@@ -84,100 +72,102 @@ export function handleSignalingMessage(data, meetingUuid, streamId, signalingWs,
             { event_type: 4, subscribe: true }  // PARTICIPANT_LEAVE
           ]
         };
-
-        FileLogger.log(`[Signaling] [${conn.rtmsType},${meetingUuid},${streamId}] Sending event subscription payload`);
+        FileLogger.log(`[Signaling] [${conn.rtmsType},${meetingUuid},${streamId}] Subscribing to events`);
         signalingWs.send(JSON.stringify(subscribePayload));
-       
 
       } else {
-        FileLogger.warn(`[Signaling] [${conn.rtmsType},${meetingUuid},${streamId}] Handshake failed: status_code = ${msg.status_code}. ${getRtmsStatusCode(msg.status_code)}. ${getRtmsStopReason(msg.reason)}`);
+        // Handshake failed - emit RTMSError
+        const error = RTMSError.fromZoomStatus(msg.status_code, {
+          meetingId: meetingUuid,
+          streamId
+        });
+        FileLogger.error(`[Signaling] [${conn.rtmsType},${meetingUuid},${streamId}] ${error.toShortString()}`);
+        
+        // Emit error event for application handling
+        emit('error', error);
       }
       break;
 
     case 6: // Events
-      FileLogger.log(`[Signaling] [${conn.rtmsType},${meetingUuid},${streamId}] Processing event message (case 6) for ${conn.rtmsType} ${meetingUuid}. Message: ${JSON.stringify(msg, null, 2)}`);
       if (msg.event) {
-       
         switch (msg.event.event_type) {
           case 0: // UNDEFINED
-            FileLogger.log(`[Signaling] [${conn.rtmsType},${meetingUuid},${streamId}] UNDEFINED event received`);
+            FileLogger.log(`[Signaling] [${conn.rtmsType},${meetingUuid},${streamId}] UNDEFINED event`);
             break;
 
           case 1: // FIRST_PACKET_TIMESTAMP
-            FileLogger.log(`[Signaling] [${conn.rtmsType},${meetingUuid},${streamId}] FIRST_PACKET_TIMESTAMP — first media packet at ${msg.event.timestamp}`);
+            FileLogger.log(`[Signaling] [${conn.rtmsType},${meetingUuid},${streamId}] FIRST_PACKET_TIMESTAMP: ${msg.event.timestamp}`);
             conn.setFirstPacketTimestamp(msg.event.timestamp);
             break;
 
           case 2: // ACTIVE_SPEAKER_CHANGE
-            FileLogger.log(`[Signaling] [${conn.rtmsType},${meetingUuid},${streamId}] ACTIVE_SPEAKER_CHANGE — ${msg.event.user_name} (ID: ${msg.event.user_id}) is now speaking`);
+            FileLogger.log(`[Signaling] [${conn.rtmsType},${meetingUuid},${streamId}] ACTIVE_SPEAKER: ${msg.event.user_name} (ID: ${msg.event.user_id})`);
             break;
 
           case 3: // PARTICIPANT_JOIN
             if (msg.event.participants && Array.isArray(msg.event.participants)) {
               msg.event.participants.forEach(p => {
-                FileLogger.log(`[Signaling] [${conn.rtmsType},${meetingUuid},${streamId}] PARTICIPANT_JOIN — ${p.user_name || 'Unknown'} (ID: ${p.user_id || 'Unknown'}) joined`);
+                FileLogger.log(`[Signaling] [${conn.rtmsType},${meetingUuid},${streamId}] JOIN: ${p.user_name || 'Unknown'}`);
               });
             } else {
-              FileLogger.log(`[Signaling] [${conn.rtmsType},${meetingUuid},${streamId}] PARTICIPANT_JOIN — ${msg.event.user_name || 'Unknown'} (ID: ${msg.event.user_id || 'Unknown'}) joined`);
+              FileLogger.log(`[Signaling] [${conn.rtmsType},${meetingUuid},${streamId}] JOIN: ${msg.event.user_name || 'Unknown'}`);
             }
             break;
 
           case 4: // PARTICIPANT_LEAVE
             if (msg.event.participants && Array.isArray(msg.event.participants)) {
               msg.event.participants.forEach(p => {
-                FileLogger.log(`[Signaling] [${conn.rtmsType},${meetingUuid},${streamId}] PARTICIPANT_LEAVE — ${p.user_name || 'Unknown'} (ID: ${p.user_id || 'Unknown'}) left`);
+                FileLogger.log(`[Signaling] [${conn.rtmsType},${meetingUuid},${streamId}] LEAVE: ${p.user_name || 'Unknown'}`);
               });
             } else {
-              FileLogger.log(`[Signaling] [${conn.rtmsType},${meetingUuid},${streamId}] PARTICIPANT_LEAVE — ${msg.event.user_name || 'Unknown'} (ID: ${msg.event.user_id || 'Unknown'}) left`);
+              FileLogger.log(`[Signaling] [${conn.rtmsType},${meetingUuid},${streamId}] LEAVE: ${msg.event.user_name || 'Unknown'}`);
             }
             break;
 
           case 5: // SHARING_START
-            FileLogger.log(`[Signaling] [${conn.rtmsType},${meetingUuid},${streamId}] SHARING_START — Sharing has started in the meeting`);
+            FileLogger.log(`[Signaling] [${conn.rtmsType},${meetingUuid},${streamId}] SHARING_START`);
             break;
 
           case 6: // SHARING_STOP
-            FileLogger.log(`[Signaling] [${conn.rtmsType},${meetingUuid},${streamId}] SHARING_STOP — Sharing has stopped in the meeting`);
+            FileLogger.log(`[Signaling] [${conn.rtmsType},${meetingUuid},${streamId}] SHARING_STOP`);
             break;
 
           case 7: // MEDIA_CONNECTION_INTERRUPTED
-            FileLogger.log(`[Signaling] [${conn.rtmsType},${meetingUuid},${streamId}] MEDIA_CONNECTION_INTERRUPTED — A media type connection was interrupted`);
+            FileLogger.log(`[Signaling] [${conn.rtmsType},${meetingUuid},${streamId}] MEDIA_CONNECTION_INTERRUPTED`);
             break;
 
           default:
             FileLogger.log(`[Signaling] [${conn.rtmsType},${meetingUuid},${streamId}] Unknown event_type: ${msg.event.event_type}`);
         }
-      } else {
-        FileLogger.log(`[Signaling] [${conn.rtmsType},${meetingUuid},${streamId}] Event message received but no event data`);
       }
 
-      emit('event', msg.event, meetingUuid, streamId, conn.rtmsType || 'meeting');
+      // Emit event object
+      emit('event', {
+        type: 'event',
+        eventType: msg.event.event_type,
+        data: msg.event,
+        meetingId: meetingUuid,
+        streamId,
+        productType: conn.rtmsType || 'meeting',
+        timestamp: msg.event.timestamp || Date.now()
+      });
       break;
 
     case 8: // Stream State changed
-      FileLogger.log(`[Signaling] [${conn.rtmsType},${meetingUuid},${streamId}] Processing stream state change (case 8) for ${conn.rtmsType} ${meetingUuid}. Message: ${JSON.stringify(msg, null, 2)}`);
+      FileLogger.log(`[Signaling] [${conn.rtmsType},${meetingUuid},${streamId}] Stream state: ${getRtmsStreamState(msg.state)}, reason: ${getRtmsStopReason(msg.reason)}`);
 
-      if ('reason' in msg) {
-        FileLogger.log(`[Signaling] [${conn.rtmsType},${meetingUuid},${streamId}] Stream state change reason: ${msg.reason}, ${getRtmsStopReason(msg.reason)}`);
-      }
-
-      if ('state' in msg) {
-        FileLogger.log(`[Signaling] [${conn.rtmsType},${meetingUuid},${streamId}] Stream state: ${msg.state},  ${getRtmsStreamState(msg.state)}`);
-      }
-      //meeting ended
+      // Meeting ended (reason: 6, state: 4)
       if (msg.reason === 6 && msg.state === 4) {
-        FileLogger.log(`[Signaling] [${conn.rtmsType},${meetingUuid},${streamId}] Meeting ended detected, cleaning up connections for ${conn.rtmsType} ${meetingUuid}`);
+        FileLogger.log(`[Signaling] [${conn.rtmsType},${meetingUuid},${streamId}] Meeting ended, cleaning up`);
 
         if (conn) {
           conn.shouldReconnect = false;
-          FileLogger.log(`[Signaling] [${conn.rtmsType},${meetingUuid},${streamId}] Disabled reconnection for ${conn.rtmsType} ${meetingUuid}`);
 
-          // Explicitly update states
+          // Close signaling socket
           if (conn.signaling) {
             conn.signaling.state = 'closed';
             const ws = conn.signaling.socket;
             if (ws && typeof ws.close === 'function') {
-              FileLogger.log(`[Signaling] [${conn.rtmsType},${meetingUuid},${streamId}] Closing signaling WebSocket for ${conn.rtmsType} ${meetingUuid}`);
               if (ws.readyState === WebSocket.CONNECTING) {
                 ws.once('open', () => ws.close());
               } else {
@@ -186,12 +176,12 @@ export function handleSignalingMessage(data, meetingUuid, streamId, signalingWs,
             }
           }
 
+          // Close all media sockets
           if (conn.media) {
             Object.values(conn.media).forEach(m => {
               if (!m || typeof m !== 'object') return;
               const ws = m.socket || m;
               if (ws && typeof ws.close === 'function') {
-                FileLogger.log(`[Signaling] [${conn.rtmsType},${meetingUuid},${streamId}] Closing media WebSocket for ${conn.rtmsType} ${meetingUuid}`);
                 if (ws.readyState === WebSocket.CONNECTING) {
                   ws.once('open', () => ws.close());
                 } else {
@@ -203,33 +193,39 @@ export function handleSignalingMessage(data, meetingUuid, streamId, signalingWs,
         }
       }
 
-      emit('stream_state_changed', msg, meetingUuid, streamId, conn.rtmsType || 'meeting');
+      emit('stream_state_changed', {
+        type: 'stream_state_changed',
+        state: msg.state,
+        reason: msg.reason,
+        data: msg,
+        meetingId: meetingUuid,
+        streamId,
+        productType: conn.rtmsType || 'meeting',
+        timestamp: Date.now()
+      });
       break;
 
     case 9: // Session State Changed
-      FileLogger.log(`[Signaling] [${conn.rtmsType},${meetingUuid},${streamId}] Processing session state change (case 9) for ${conn.rtmsType} ${meetingUuid}. Message: ${JSON.stringify(msg, null, 2)}`);
-      if ('stop_reason' in msg) {
-        FileLogger.log(`[Signaling] [${conn.rtmsType},${meetingUuid},${streamId}] Session stop reason: ${msg.stop_reason}, ${getRtmsStopReason(msg.reason)}`);
-      }
+      FileLogger.log(`[Signaling] [${conn.rtmsType},${meetingUuid},${streamId}] Session state: ${getRtmsSessionState(msg.state)}, stop_reason: ${getRtmsStopReason(msg.stop_reason)}`);
 
-      if ('state' in msg) {
-        FileLogger.log(`[Signaling] [${conn.rtmsType},${meetingUuid},${streamId}] Session state: ${msg.state}, ${getRtmsSessionState(msg.state)}`);
-      }
-
-      emit('session_state_changed', msg, meetingUuid, streamId, conn.rtmsType || 'meeting');
+      emit('session_state_changed', {
+        type: 'session_state_changed',
+        state: msg.state,
+        stopReason: msg.stop_reason,
+        data: msg,
+        meetingId: meetingUuid,
+        streamId,
+        productType: conn.rtmsType || 'meeting',
+        timestamp: Date.now()
+      });
       break;
 
     case 12: // KEEP_ALIVE_REQ
-      FileLogger.log(`[Signaling] [${conn.rtmsType},${meetingUuid},${streamId}] Case 12, Responding to KEEP_ALIVE_REQ`);
       conn.signaling.lastKeepAlive = Date.now();
-
-      const keepAliveResponse = {
+      signalingWs.send(JSON.stringify({
         msg_type: 13,
         timestamp: msg.timestamp
-      };
-     
-      signalingWs.send(JSON.stringify(keepAliveResponse));
-    
+      }));
       break;
 
     default:

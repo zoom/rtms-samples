@@ -11,6 +11,24 @@ const TYPE_FLAGS = {
   chat: 16
 };
 
+/**
+ * Connect to a media WebSocket for a specific media type.
+ * 
+ * SPLIT MODE ONLY: Each media type (audio, video, etc.) gets its own dedicated
+ * WebSocket connection. This is the recommended approach for reliability and
+ * allows independent reconnection per media type.
+ * 
+ * @param {string} mediaUrl - WebSocket URL for the media server
+ * @param {string} meetingUuid - Meeting UUID
+ * @param {string} streamId - RTMS stream ID
+ * @param {WebSocket} signalingSocket - The signaling socket (for reference)
+ * @param {Object} conn - Connection object
+ * @param {string} clientId - Zoom client ID
+ * @param {string} clientSecret - Zoom client secret
+ * @param {string} mediaType - Media type: 'audio', 'video', 'sharescreen', 'transcript', 'chat'
+ * @param {number} mediaTypeFlag - Bitmask flag for this media type
+ * @param {Function} emit - Event emitter function
+ */
 export function connectToMediaWebSocket(
   mediaUrl,
   meetingUuid,
@@ -23,14 +41,13 @@ export function connectToMediaWebSocket(
   mediaTypeFlag,
   emit
 ) {
-  FileLogger.log(`[Media] [${conn.rtmsType},${meetingUuid},${streamId}] Connecting for ${conn.rtmsType} ${meetingUuid} (${mediaType || 'unified'}) to ${mediaUrl}...`);
+  FileLogger.log(`[Media] [${conn.rtmsType},${meetingUuid},${streamId}] Connecting ${mediaType} socket to ${mediaUrl}...`);
 
   const mediaWs = new WebSocket(mediaUrl);
 
-  const isSplit = mediaType && mediaType !== 'unified';
-  const mediaKey = isSplit ? mediaType : 'socket';
-  const mediaObj = isSplit ? (conn.media[mediaType] || { socket: null, state: 'idle', url: mediaUrl }) : conn.media;
-  if (isSplit && !conn.media[mediaType]) conn.media[mediaType] = mediaObj;
+  // Each media type gets its own connection object
+  const mediaObj = conn.media[mediaType] || { socket: null, state: 'idle', url: mediaUrl };
+  if (!conn.media[mediaType]) conn.media[mediaType] = mediaObj;
 
   mediaObj.socket = mediaWs;
   mediaObj.state = 'connecting';
@@ -44,11 +61,11 @@ export function connectToMediaWebSocket(
       return;
     }
 
-    FileLogger.log(`[Media] [${conn.rtmsType},${meetingUuid},${streamId}] Generating signature for handshake (${mediaType || 'unified'})`);
+    FileLogger.log(`[Media] [${conn.rtmsType},${meetingUuid},${streamId}] Generating signature for ${mediaType} handshake`);
     
 
       const messageToSign = `${clientId},${meetingUuid},${streamId}`;
-       FileLogger.log(`[Media] Message to sign: [REDACTED],${meetingUuid},${streamId}`);
+       FileLogger.log(`[Media] [${conn.rtmsType},${meetingUuid},${streamId}] Message to sign: ${messageToSign}`);
     const signature = generateRTMSSignature(meetingUuid, streamId, clientId, clientSecret);
    
 
@@ -90,7 +107,7 @@ export function connectToMediaWebSocket(
       payload_encryption: false,
       media_params: mediaParams
     };
-    FileLogger.log(`[Media] [${conn.rtmsType},${meetingUuid},${streamId}] Full media handshake payload (${mediaType || 'unified'}): ${JSON.stringify({ ...handshakeMsg, signature: '[REDACTED]' }, null, 2)}`);
+    FileLogger.log(`[Media] [${conn.rtmsType},${meetingUuid},${streamId}] ${mediaType} handshake payload: ${JSON.stringify(handshakeMsg, null, 2)}`);
 
     // Store the media configuration in the connection object
     conn.mediaConfig = handshakeMsg.media_params;
@@ -106,13 +123,13 @@ export function connectToMediaWebSocket(
       signalingSocket,
       meetingUuid,
       streamId,
-      mediaType: isSplit ? mediaType : 'unified',
+      mediaType,
       emit
     });
   });
 
   mediaWs.on('close', async () => {
-    FileLogger.warn(`[Media] [${conn.rtmsType},${meetingUuid},${streamId}] Closed for ${conn.rtmsType} ${meetingUuid} (${mediaType || 'unified'})`);
+    FileLogger.warn(`[Media] [${conn.rtmsType},${meetingUuid},${streamId}] ${mediaType} socket closed`);
     mediaObj.state = 'closed';
 
     if (!conn.shouldReconnect) {
@@ -146,7 +163,7 @@ export function connectToMediaWebSocket(
   });
 
   mediaWs.on('error', (err) => {
-    FileLogger.error(`[Media] [${conn.rtmsType},${meetingUuid},${streamId}] Error (${mediaType || 'unified'}): ${err.message}`);
+    FileLogger.error(`[Media] [${conn.rtmsType},${meetingUuid},${streamId}] ${mediaType} socket error: ${err.message}`);
     mediaObj.state = 'error';
   });
 }

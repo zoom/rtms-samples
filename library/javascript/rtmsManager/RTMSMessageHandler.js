@@ -10,7 +10,19 @@ import {
 import { FileLogger } from './utils/FileLogger.js';
 
 export class RTMSMessageHandler {
-  constructor(rtmsId, streamId, serverUrls, clientId, clientSecret, mediaSocketConnectionMode, emit, mediaTypesFlag = 32, config = {}, rtmsType = 'meeting', startTime = null) {
+  /**
+   * @param {string} rtmsId - Meeting/session UUID
+   * @param {string} streamId - RTMS stream ID
+   * @param {Object} serverUrls - Server URLs from webhook
+   * @param {string} clientId - OAuth client ID
+   * @param {string} clientSecret - OAuth client secret
+   * @param {Function} emit - Event emitter function
+   * @param {number} mediaTypesFlag - Media types to subscribe (bitmask)
+   * @param {Object} config - Configuration options
+   * @param {string} rtmsType - Product type (meeting, webinar, videoSdk, etc.)
+   * @param {number|null} startTime - Start timestamp from webhook
+   */
+  constructor(rtmsId, streamId, serverUrls, clientId, clientSecret, emit, mediaTypesFlag = 32, config = {}, rtmsType = 'meeting', startTime = null) {
     this.rtmsId = rtmsId;
     this.rtmsType = rtmsType;
     this.streamId = streamId;
@@ -18,13 +30,14 @@ export class RTMSMessageHandler {
     this.serverUrls = serverUrls;
     this.clientId = clientId;
     this.clientSecret = clientSecret;
-    this.mediaSocketConnectionMode = mediaSocketConnectionMode;
     this.emit = emit;
     this.mediaTypesFlag = mediaTypesFlag;
     this.config = config;
     this.shouldReconnect = true;
     this.signaling = { socket: null, state: 'connecting', lastKeepAlive: null };
-    this.media = this.mediaSocketConnectionMode === 'split' ? {} : { socket: null, state: 'idle', lastKeepAlive: null };
+    
+    // Split mode only - each media type gets its own socket
+    this.media = {};
     
     this._firstPacketTimestamp = null;
     this._lastPacketTimestamp = null;
@@ -35,7 +48,6 @@ export class RTMSMessageHandler {
     this.videoFiller = null;
 
     if (this.config.useFiller) {
-      // Defensive null checks for config properties
       const audioParams = this.config.mediaParams?.audio;
       const videoParams = this.config.mediaParams?.video;
 
@@ -49,12 +61,31 @@ export class RTMSMessageHandler {
       this.audioFiller = new MediaAudioFiller(this.rtmsId, this.streamId, 'mixed', this.startTime, audioParams || {});
       this.videoFiller = new MediaVideoFiller(this.rtmsId, this.streamId, 'mixed', this.startTime, videoParams || {});
 
+      // Filler emits event objects
       this.audioFiller.on('data', (chunk, uid, ts, mid, sid) => {
-        this.emit('audio', chunk, uid, 'Mixed Audio', ts, mid, sid, this.rtmsType);
+        this.emit('audio', {
+          type: 'audio',
+          buffer: chunk,
+          userId: uid,
+          userName: 'Mixed Audio',
+          timestamp: ts,
+          meetingId: mid,
+          streamId: sid,
+          productType: this.rtmsType
+        });
       });
 
       this.videoFiller.on('data', (chunk, uid, ts, mid, sid) => {
-        this.emit('video', chunk, uid, 'Mixed Video', ts, mid, sid, this.rtmsType);
+        this.emit('video', {
+          type: 'video',
+          buffer: chunk,
+          userId: uid,
+          userName: 'Mixed Video',
+          timestamp: ts,
+          meetingId: mid,
+          streamId: sid,
+          productType: this.rtmsType
+        });
       });
     }
 
@@ -84,7 +115,7 @@ export class RTMSMessageHandler {
   }
 
   connect() {
-    FileLogger.log(`[Handler:${this.streamId.slice(-8)}] Starting handler for ${this.rtmsType} ${this.rtmsId} stream ${this.streamId}`);
+    FileLogger.log(`[Handler:${this.streamId.slice(-8)}] Starting for ${this.rtmsType} ${this.rtmsId}`);
     connectToSignalingWebSocket(
       this.rtmsId,
       this.streamId,
@@ -92,14 +123,13 @@ export class RTMSMessageHandler {
       this,
       this.clientId,
       this.clientSecret,
-      this.mediaSocketConnectionMode,
       (...args) => this.emit(...args),
       this.mediaTypesFlag
     );
   }
 
   stop() {
-    FileLogger.log(`[Handler:${this.streamId.slice(-8)}] Stopping handler for ${this.rtmsType} ${this.rtmsId} stream ${this.streamId}`);
+    FileLogger.log(`[Handler:${this.streamId.slice(-8)}] Stopping for ${this.rtmsType} ${this.rtmsId}`);
     this.shouldReconnect = false;
     this._lastPacketTimestamp = Date.now();
 
@@ -114,6 +144,7 @@ export class RTMSMessageHandler {
       this.signaling.socket.close();
     }
 
+    // Close all media sockets
     if (this.media && typeof this.media === 'object') {
       Object.values(this.media).forEach(m => {
         if (m && m.socket) m.socket.close();
@@ -121,7 +152,7 @@ export class RTMSMessageHandler {
     }
   }
 
-  getActiveConnections() { // compat?
+  getActiveConnections() {
     return [this];
   }
 }
