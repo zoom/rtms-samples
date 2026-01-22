@@ -95,34 +95,57 @@
     const maxLines = 20;
 
     const socket = new WebSocket("<%= websocketUrl %>");
-
-    const keepAliveInterval = 30000;
-    const keepAlive = setInterval(() => {
-      if (socket.readyState === WebSocket.OPEN) {
-        socket.send(JSON.stringify({ type: 'ping' }));
-        console.log('🔄 Sent keepalive ping');
-      }
-    }, keepAliveInterval);
+    let registeredMeetingUUID = null;
+    let registeredUserID = null;
 
     socket.onopen = () => {
-      console.log('✅ WebSocket connected');
-      // Do not write to transcriptBox here to avoid leftovers
+      console.log('✅ WebSocket connected, waiting for Zoom SDK context to register...');
     };
 
     socket.onmessage = (event) => {
       try {
         const msg = JSON.parse(event.data);
 
+        if (msg.type === 'ping') {
+          socket.send(JSON.stringify({ type: 'pong' }));
+          return;
+        }
+
+        if (msg.type === 'connected') {
+          console.log('📡 Server ready, will register after getting Zoom context');
+          return;
+        }
+
+        if (msg.type === 'registration_success') {
+          console.log('✅ Registered with backend:', msg.meetingUUID, msg.userID);
+          return;
+        }
+
+        if (msg.type === 'error') {
+          console.error('❌ Backend error:', msg.message);
+          return;
+        }
+
         if (msg.type === 'transcript') {
           const line = `[${new Date(msg.timestamp).toLocaleTimeString()}] ${msg.user}: ${msg.content}`;
           transcriptLines.push(line);
           if (transcriptLines.length > maxLines) transcriptLines.shift();
-
-          // Completely clear and replace transcript display
-          transcriptBox.textContent = ''; // 👈 clears the div
           transcriptBox.textContent = transcriptLines.join('\n');
           transcriptBox.scrollTop = transcriptBox.scrollHeight;
         }
+
+        if (msg.type === 'participant_join') {
+          console.log(`👋 Participant joined: ${msg.user}`);
+        }
+
+        if (msg.type === 'participant_leave') {
+          console.log(`👋 Participant left: ${msg.user}`);
+        }
+
+        if (msg.type === 'active_speaker') {
+          console.log(`🎤 Active speaker: ${msg.user}`);
+        }
+
       } catch (err) {
         console.warn('Non-JSON or invalid message:', event.data);
       }
@@ -135,6 +158,22 @@
     socket.onclose = () => {
       console.warn('WebSocket connection closed');
     };
+
+    function registerWithBackend(meetingUUID, userID) {
+      if (socket.readyState === WebSocket.OPEN) {
+        socket.send(JSON.stringify({
+          type: 'register',
+          meetingUUID: meetingUUID,
+          userID: String(userID)
+        }));
+        registeredMeetingUUID = meetingUUID;
+        registeredUserID = userID;
+        console.log('📤 Sent registration:', meetingUUID, userID);
+      } else {
+        console.warn('⏳ Socket not ready, will retry registration...');
+        setTimeout(() => registerWithBackend(meetingUUID, userID), 500);
+      }
+    }
     let runningContext;
     (async () => {
       try {
@@ -168,6 +207,10 @@
         const userContext = await zoomSdk.getUserContext();
         const meetingUUID = await zoomSdk.getMeetingUUID();
         const appContext = await zoomSdk.getAppContext();
+
+        if (meetingUUID?.meetingUUID && userContext?.participantUUID) {
+          registerWithBackend(meetingUUID.meetingUUID, userContext.participantUUID);
+        }
 
         // Attach button event listeners
         startRtmsBtn.addEventListener('click', async () => {

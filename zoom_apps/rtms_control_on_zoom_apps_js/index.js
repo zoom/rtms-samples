@@ -1,9 +1,10 @@
 import { RTMSManager } from '../../library/javascript/rtmsManager/RTMSManager.js';
 import WebhookManager from '../../library/javascript/webhookManager/WebhookManager.js';
+import { FrontendWssManager } from '../../library/javascript/rtmsManager/FrontendWssManager.js';
 import express from 'express';
 import http from 'http';
 import https from 'https';
-import { WebSocketServer, WebSocket } from 'ws';
+import { WebSocket } from 'ws';
 import dotenv from 'dotenv';
 import path from 'path';
 import { fileURLToPath } from 'url';
@@ -74,39 +75,21 @@ app.get('/', (req, res) => {
 
 await RTMSManager.init(rtmsConfig);
 
-const frontendClients = new Set();
-const frontendWss = new WebSocketServer({ server, path: '/ws' });
-
-frontendWss.on('connection', (ws) => {
-  frontendClients.add(ws);
-  console.log('Frontend client connected');
-  ws.send('Connected to RTMS backend');
-
-  ws.on('close', () => {
-    frontendClients.delete(ws);
-    console.log('Frontend client disconnected');
-  });
-
-  ws.on('error', (err) => {
-    frontendClients.delete(ws);
-    console.error('WebSocket error:', err);
-  });
-});
-
-function broadcastToFrontendClients(message) {
-  const json = typeof message === 'string' ? message : JSON.stringify(message);
-  for (const client of frontendClients) {
-    if (client.readyState === WebSocket.OPEN) {
-      client.send(json);
-    }
+const frontendWss = new FrontendWssManager({
+  server,
+  config: {
+    frontendWssEnabled: true,
+    frontendWssPath: '/ws'
   }
-}
+});
+frontendWss.setup();
 
 RTMSManager.on('audio', ({ buffer, userId, userName, timestamp, meetingId, streamId, productType }) => {
   console.log(`Audio received from ${userName || 'mixed'} (${buffer.length} bytes)`);
-  broadcastToFrontendClients({
+  frontendWss.broadcastToMeeting(meetingId, {
     type: 'audio',
     user: userName || 'mixed',
+    userId,
     size: buffer.length,
     timestamp
   });
@@ -114,9 +97,10 @@ RTMSManager.on('audio', ({ buffer, userId, userName, timestamp, meetingId, strea
 
 RTMSManager.on('video', ({ buffer, userId, userName, timestamp, meetingId, streamId, productType }) => {
   console.log(`Video received from ${userName} (${buffer.length} bytes)`);
-  broadcastToFrontendClients({
+  frontendWss.broadcastToMeeting(meetingId, {
     type: 'video',
     user: userName,
+    userId,
     size: buffer.length,
     timestamp
   });
@@ -124,9 +108,10 @@ RTMSManager.on('video', ({ buffer, userId, userName, timestamp, meetingId, strea
 
 RTMSManager.on('transcript', ({ text, userId, userName, timestamp, meetingId, streamId, productType }) => {
   console.log(`Transcript from ${userName}: ${text}`);
-  broadcastToFrontendClients({
+  frontendWss.broadcastToUser(meetingId, String(userId), {
     type: 'transcript',
     user: userName,
+    userId,
     content: text,
     timestamp
   });
@@ -134,9 +119,10 @@ RTMSManager.on('transcript', ({ text, userId, userName, timestamp, meetingId, st
 
 RTMSManager.on('screenshare', ({ buffer, userId, userName, timestamp, meetingId, streamId, productType }) => {
   console.log(`Screen share received from ${userName} (${buffer.length} bytes)`);
-  broadcastToFrontendClients({
+  frontendWss.broadcastToMeeting(meetingId, {
     type: 'screenshare',
     user: userName,
+    userId,
     size: buffer.length,
     timestamp
   });
@@ -144,9 +130,10 @@ RTMSManager.on('screenshare', ({ buffer, userId, userName, timestamp, meetingId,
 
 RTMSManager.on('chat', ({ text, userId, userName, timestamp, meetingId, streamId, productType }) => {
   console.log(`Chat from ${userName}: ${text}`);
-  broadcastToFrontendClients({
+  frontendWss.broadcastToMeeting(meetingId, {
     type: 'chat',
     user: userName,
+    userId,
     content: text,
     timestamp
   });
@@ -154,7 +141,7 @@ RTMSManager.on('chat', ({ text, userId, userName, timestamp, meetingId, streamId
 
 RTMSManager.on('meeting.rtms_started', (payload) => {
   console.log(`RTMS started for meeting ${payload.meeting_uuid}`);
-  broadcastToFrontendClients({
+  frontendWss.broadcastToMeeting(payload.meeting_uuid, {
     type: 'rtms_started',
     meetingUuid: payload.meeting_uuid
   });
@@ -162,37 +149,61 @@ RTMSManager.on('meeting.rtms_started', (payload) => {
 
 RTMSManager.on('meeting.rtms_stopped', (payload) => {
   console.log(`RTMS stopped for meeting ${payload.meeting_uuid}`);
-  broadcastToFrontendClients({
+  frontendWss.broadcastToMeeting(payload.meeting_uuid, {
     type: 'rtms_stopped',
     meetingUuid: payload.meeting_uuid
   });
 });
 
-RTMSManager.on('participantJoin', ({ userId, userName, meetingId }) => {
-  console.log(`Participant joined: ${userName} (${userId})`);
-  broadcastToFrontendClients({
-    type: 'participant_join',
-    user: userName,
-    userId
-  });
-});
-
-RTMSManager.on('participantLeave', ({ userId, userName, meetingId }) => {
-  console.log(`Participant left: ${userName} (${userId})`);
-  broadcastToFrontendClients({
-    type: 'participant_leave',
-    user: userName,
-    userId
-  });
-});
-
-RTMSManager.on('activeSpeakerChange', ({ userId, userName, meetingId }) => {
-  console.log(`Active speaker changed: ${userName} (${userId})`);
-  broadcastToFrontendClients({
-    type: 'active_speaker',
-    user: userName,
-    userId
-  });
+RTMSManager.on('event', ({ eventType, data, meetingId, streamId, productType }) => {
+  switch (eventType) {
+    case 2:
+      console.log(`Active speaker changed: ${data.user_name} (${data.user_id})`);
+      frontendWss.broadcastToMeeting(meetingId, {
+        type: 'active_speaker',
+        user: data.user_name,
+        userId: data.user_id
+      });
+      break;
+    case 3:
+      if (data.participants && Array.isArray(data.participants)) {
+        data.participants.forEach(p => {
+          console.log(`Participant joined: ${p.user_name} (${p.user_id})`);
+          frontendWss.broadcastToMeeting(meetingId, {
+            type: 'participant_join',
+            user: p.user_name,
+            userId: p.user_id
+          });
+        });
+      } else {
+        console.log(`Participant joined: ${data.user_name} (${data.user_id})`);
+        frontendWss.broadcastToMeeting(meetingId, {
+          type: 'participant_join',
+          user: data.user_name,
+          userId: data.user_id
+        });
+      }
+      break;
+    case 4:
+      if (data.participants && Array.isArray(data.participants)) {
+        data.participants.forEach(p => {
+          console.log(`Participant left: ${p.user_name} (${p.user_id})`);
+          frontendWss.broadcastToMeeting(meetingId, {
+            type: 'participant_leave',
+            user: p.user_name,
+            userId: p.user_id
+          });
+        });
+      } else {
+        console.log(`Participant left: ${data.user_name} (${data.user_id})`);
+        frontendWss.broadcastToMeeting(meetingId, {
+          type: 'participant_leave',
+          user: data.user_name,
+          userId: data.user_id
+        });
+      }
+      break;
+  }
 });
 
 if (config.mode === 'webhook') {
@@ -317,6 +328,7 @@ server.listen(config.port, () => {
 
 process.on('SIGINT', async () => {
   console.log('Shutting down...');
+  frontendWss.stop();
   server.close();
   await RTMSManager.stop();
   process.exit(0);
