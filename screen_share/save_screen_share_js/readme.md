@@ -1,119 +1,72 @@
-# Zoom RTMS Sharescreen Capture Service
+# Zoom RTMS Save Screen Share (JavaScript)
 
-This Node.js application listens for Zoom Real-Time Media Streaming (RTMS) events and captures shared screen data from ongoing Zoom meetings. It uses WebSocket connections to receive and process media data, including sharescreen frames, audio, video, transcript, and chat.
+This sample application demonstrates how to use the `RTMSManager` from the shared library to capture and save screen share (deskshare) frames from Zoom meetings to local storage.
 
 ## Project Overview
 
-- Listens for Zoom webhook events related to RTMS.
-- Connects to signaling and media WebSocket servers.
-- Captures and saves shared screen (deskshare) data using a custom handler.
-- Supports multiple media types: audio, video, deskshare, chat, and transcript.
-- Includes basic frontend serving via Express.
+- Uses `RTMSManager` for simplified connection and event handling.
+- Uses `WebhookManager` to handle Zoom RTMS webhooks.
+- Detects and saves **JPEG**, **PNG**, and **H.264** formats.
+- Organizes recordings by meeting ID.
+- Implemented as an ES module (`"type": "module"`).
+
+## Prerequisites
+
+- Node.js v18 or higher.
+- A Zoom App with RTMS permissions (Meetings and RTMS scopes).
+- A tunneling service like Ngrok to expose your local server.
 
 ## Environment Variables
 
-Create a `.env` file with the following keys:
+Create a `.env` file in this directory:
 
 ```env
-ZOOM_SECRET_TOKEN=your_zoom_secret_token
-ZOOM_CLIENT_ID=your_zoom_client_id
-ZOOM_CLIENT_SECRET=your_zoom_client_secret
+ZOOM_CLIENT_ID=your_client_id
+ZOOM_CLIENT_SECRET=your_client_secret
+ZOOM_SECRET_TOKEN=your_webhook_secret_token
 PORT=3000
 WEBHOOK_PATH=/webhook
 ```
 
-## Features
-
-- Validates Zoom webhook with encrypted response.
-- WebSocket handshakes secured with HMAC SHA256 signatures.
-- Real-time media stream capture from Zoom meetings.
-- Dedicated logic to process sharescreen data using `saveSharescreen.js`.
-- Handles keep-alive requests and maintains connection health.
-- Automatically cleans up connections when meetings end.
-
-## Endpoints
-
-- `GET /` – Serves the main index page.
-- `GET /home` – Serves the Zoom iframe interface.
-- `POST /webhook` – Handles Zoom RTMS webhook events.
-
-## Deskshare Handshake Requirement
-
-Before any deskshare (shared screen) data can be received via the media WebSocket, a proper media handshake **must** be performed. This handshake specifies the intent to receive deskshare frames by including `deskshare` parameters in the `media_params` object of the handshake request.
-
-### Required Handshake Payload
-
-```js
-const handshake = {
-    msg_type: 3,
-    protocol_version: 1,
-    meeting_uuid: meetingUuid,
-    rtms_stream_id: streamId,
-    signature,
-    media_type: 32,
-    payload_encryption: false,
-    media_params: {
-        audio: { ... },
-        video: { ... },
-        deskshare: {
-            codec: 5 // JPG
-        },
-        chat: { ... }
-    }
-};
-```
-
-If this handshake is not sent or the `deskshare` property is missing, the server will not emit any deskshare frames (`msg_type: 16`).
-
-## saveSharescreen.js – Deskshare Capture Logic
-
-This module processes and saves incoming deskshare frames. It performs the following:
-
-- **Base64 Data Handling**
-  - Strips off `data:` prefix if present.
-  - Converts base64 to binary buffer.
-
-- **Format Detection**
-  - **JPEG**: Starts with `FFD8`, ends with `FFD9`.
-  - **PNG**: Matches PNG header.
-  - **H.264**: Identified using common start codes (`00 00 00 01` or `00 00 01`).
-  - Unknown formats are logged and skipped.
-
-- **Output Logic**
-  - Creates `recordings/` folder if it doesn’t exist.
-  - Constructs a filename using sanitized `user_id` and `timestamp`.
-  - Skips JPEGs that:
-    - Are below 1000 bytes.
-    - Are within the first 3 frames (to avoid low-quality noise).
-  - Writes:
-    - **JPEG/PNG** → Individual `.jpg` or `.png` file.
-    - **H.264** → Appended to user-specific `.h264` stream file.
-
-- **Filename Safety**
-  - Removes non-alphanumeric characters from `user_id`.
-
 ## How It Works
 
-1. A Zoom RTMS-enabled app triggers events when a meeting starts or ends.
-2. The server receives `meeting.rtms_started` and connects to Zoom’s signaling WebSocket.
-3. After a successful handshake, it receives the media server URL and connects to it.
-4. The application sends a media handshake requesting deskshare frames.
-5. The server receives and processes `msg_type: 16` (deskshare), passing it to `handleShareData`.
-6. WebSocket connections are closed when `meeting.rtms_stopped` is received.
+1. The application initializes `RTMSManager` with `mediaTypesFlag: 4` (sharescreen).
+2. When a `sharescreen` event is emitted, the frame is passed to `handleShareData`.
+3. Frames are saved to the `recordings/{meetingId}/` directory.
+4. **Format Handling**:
+   - **JPEG**: Saved as individual `.jpg` files. Frames smaller than 1000 bytes or within the first 3 frames are skipped to ensure quality.
+   - **PNG**: Saved as individual `.png` files.
+   - **H.264**: Appended to a user-specific `.h264` stream file.
 
-## Prerequisites
+## Sharescreen Payload Structure
 
-- Node.js v14 or higher
-- A valid Zoom App with RTMS permissions
-- Ngrok or another tunneling service for public webhook exposure
+The `sharescreen` event provides a payload with the following properties:
 
-## Running the Server
+| Property | Description |
+|----------|-------------|
+| `buffer` | Raw image (JPEG/PNG) or video (H264) buffer. |
+| `userId` | The ID of the user sharing their screen. |
+| `userName` | The name of the user sharing their screen. |
+| `timestamp` | The timestamp of the frame. |
+| `meetingId` | The UUID of the Zoom meeting. |
+| `streamId` | The internal RTMS stream ID. |
+| `productType` | Either `"meeting"` or `"session"`. |
 
-```bash
-node index.js
-```
+## Running the Application
 
-## Notes
+1. Install dependencies:
+   ```bash
+   npm install
+   ```
 
-- JPEG filtering logic is in place to skip redundant or very small frames.
-- Extend `saveSharescreen.js` for more formats or metadata if required.
+2. Start the server:
+   ```bash
+   node index.js
+   ```
+
+3. Start Ngrok (or similar) to expose port 3000:
+   ```bash
+   ngrok http 3000
+   ```
+
+4. Update your Zoom App's Event Notification URL to `https://your-ngrok-url/webhook`.
