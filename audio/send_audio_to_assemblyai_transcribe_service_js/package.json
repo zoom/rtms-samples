@@ -9,6 +9,7 @@
     "express": "^4.21.2",
     "node-fetch": "^3.3.2",
     "node-record-lpcm16": "^1.0.1",
+    "rtms-manager": "file:../../library/javascript/rtmsManager",
     "ws": "^8.16.0"
   }
 }

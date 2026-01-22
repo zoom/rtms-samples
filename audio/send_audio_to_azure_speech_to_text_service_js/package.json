@@ -6,6 +6,7 @@
     "dotenv": "^16.4.1",
     "express": "^4.21.2",
     "microsoft-cognitiveservices-speech-sdk": "^1.43.1",
+    "rtms-manager": "file:../../library/javascript/rtmsManager",
     "ws": "^8.16.0"
   }
 }

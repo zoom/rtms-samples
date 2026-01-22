@@ -6,7 +6,7 @@
     "@aws-sdk/client-transcribe-streaming": "^3.808.0",
     "dotenv": "^16.4.1",
     "express": "^4.21.2",
+    "rtms-manager": "file:../../library/javascript/rtmsManager",
     "ws": "^8.16.0"
   }
 }
-

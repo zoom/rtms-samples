@@ -1,266 +1,129 @@
-import express from 'express';
-import crypto from 'crypto';
-import WebSocket from 'ws';
+import { RTMSManager } from '../../library/javascript/rtmsManager/RTMSManager.js';
+import WebhookManager from '../../library/javascript/webhookManager/WebhookManager.js';
+import WebsocketManager from '../../library/javascript/webSocketManager/WebsocketManager.js';
 import dotenv from 'dotenv';
-import fs from 'fs';
-import { exec } from 'child_process';
-import { promisify } from 'util';
+import path from 'path';
+import { fileURLToPath } from 'url';
+import express from 'express';
+import http from 'http';
 
 // Import the transcription function
-import { sendAudioChunk,startDeepgramTranscription } from './deepgram.js';
-// Load environment variables from a .env file
-dotenv.config();
+import { sendAudioChunk, startDeepgramTranscription } from './deepgram.js';
 
+const __filename = fileURLToPath(import.meta.url);
+const __dirname = path.dirname(__filename);
+
+dotenv.config({ path: path.join(__dirname, '.env') });
+
+// Start Deepgram transcription connection
 startDeepgramTranscription();
 
+const { MEDIA_PARAMS } = RTMSManager;
+
+const appConfig = {
+  port: process.env.PORT || 3000,
+  managerType: process.env.RTMSTRIGGERMANAGERTYPE || 'webhook',
+};
+
+const rtmsConfig = {
+  mediaSocketConnectionMode: process.env.MEDIA_SOCKET_CONNECTION_MODE || 'unified',
+  mediaTypesFlag: 1, // Audio only
+  credentials: {
+    meeting: {
+      clientId: process.env.ZOOM_CLIENT_ID,
+      clientSecret: process.env.ZOOM_CLIENT_SECRET,
+      zoomSecretToken: process.env.ZOOM_SECRET_TOKEN,
+    },
+    s2s: {
+      clientId: process.env.ZOOM_S2S_CLIENT_ID || null,
+      clientSecret: process.env.ZOOM_S2S_CLIENT_SECRET || null,
+      accountId: process.env.ZOOM_ACCOUNT_ID || null,
+    },
+    websocket: {
+      zoomWSURLForEvents: process.env.zoomWSURLForEvents || '',
+      clientId: process.env.ZOOM_CLIENT_ID,
+      clientSecret: process.env.ZOOM_CLIENT_SECRET,
+    }
+  },
+  mediaParams: {
+    audio: {
+      contentType: MEDIA_PARAMS.MEDIA_CONTENT_TYPE_RTP,
+      sampleRate: MEDIA_PARAMS.AUDIO_SAMPLE_RATE_SR_16K,
+      channel: MEDIA_PARAMS.AUDIO_CHANNEL_MONO,
+      codec: MEDIA_PARAMS.MEDIA_PAYLOAD_TYPE_L16,
+      dataOpt: MEDIA_PARAMS.MEDIA_DATA_OPTION_AUDIO_MIXED_STREAM,
+      sendRate: 20,
+    }
+  }
+};
+
+console.log('[Deepgram] App Configuration:', appConfig);
+console.log('[Consumer] RTMS Configuration:', RTMSManager.redactSecrets(rtmsConfig));
+
+// 1. Create Express App and HTTP Server
 const app = express();
-const port = process.env.PORT || 3000;
-const execAsync = promisify(exec);
+const server = http.createServer(app);
 
-const ZOOM_SECRET_TOKEN = process.env.ZOOM_SECRET_TOKEN;
-const CLIENT_ID = process.env.ZOOM_CLIENT_ID;
-const CLIENT_SECRET = process.env.ZOOM_CLIENT_SECRET;
-const WEBHOOK_PATH = process.env.WEBHOOK_PATH || '/webhook';
-
-
-
-// Middleware to parse JSON bodies in incoming requests
 app.use(express.json());
 
-// Map to keep track of active WebSocket connections and audio chunks
-const activeConnections = new Map();
-// Handle POST requests to the webhook endpoint
-app.post(WEBHOOK_PATH, (req, res) => {
-    // Respond with HTTP 200 status
-    res.sendStatus(200);
-    console.log('RTMS Webhook received:', JSON.stringify(req.body, null, 2));
-    const { event, payload } = req.body;
+// 2. Initialize RTMS Manager (Core Logic)
+await RTMSManager.init(rtmsConfig);
 
-    // Handle URL validation event
-    if (event === 'endpoint.url_validation' && payload?.plainToken) {
-        // Generate a hash for URL validation using the plainToken and a secret token
-        const hash = crypto
-            .createHmac('sha256', ZOOM_SECRET_TOKEN)
-            .update(payload.plainToken)
-            .digest('hex');
-        console.log('Responding to URL validation challenge');
-        return res.json({
-            plainToken: payload.plainToken,
-            encryptedToken: hash,
-        });
+// 3. Initialize Event Source Managers based on config
+if (appConfig.managerType === 'webhook') {
+  const webhookManager = new WebhookManager({
+    config: {
+      webhookPath: process.env.WEBHOOK_PATH || '/',
+      zoomSecretToken: rtmsConfig.credentials.meeting.zoomSecretToken,
+    },
+    app: app
+  });
+
+  webhookManager.on('event', (event, payload) => {
+    console.log('[Deepgram] Webhook Event:', event);
+    RTMSManager.handleEvent(event, payload);
+  });
+
+  webhookManager.setup();
+  console.log('[Deepgram] Webhook Manager initialized');
+
+} else if (appConfig.managerType === 'websocket') {
+  const websocketManager = new WebsocketManager({
+    config: {
+      zoomWSURLForEvents: rtmsConfig.credentials.websocket.zoomWSURLForEvents,
+      clientId: rtmsConfig.credentials.websocket.clientId,
+      clientSecret: rtmsConfig.credentials.websocket.clientSecret
     }
+  });
 
-    // Handle RTMS started event
-    if (event === 'meeting.rtms_started') {
-        console.log('RTMS Started event received');
-        const { meeting_uuid, rtms_stream_id, server_urls } = payload;
-        // Initiate connection to the signaling WebSocket server
-        connectToSignalingWebSocket(meeting_uuid, rtms_stream_id, server_urls);
-    }
+  websocketManager.on('event', (event, payload) => {
+    console.log('[Deepgram] Websocket Event:', event);
+    RTMSManager.handleEvent(event, payload);
+  });
 
-    // Handle RTMS stopped event
-    if (event === 'meeting.rtms_stopped') {
-        console.log('RTMS Stopped event received');
-        const { meeting_uuid } = payload;
+  await websocketManager.start();
+  console.log('[Deepgram] Websocket Manager initialized');
+}
 
-        // Close all active WebSocket connections for the given meeting UUID
-        if (activeConnections.has(meeting_uuid)) {
-            const connections = activeConnections.get(meeting_uuid);
-            for (const conn of Object.values(connections)) {
-                if (conn && typeof conn.close === 'function') {
-                    conn.close();
-                }
-            }
-            activeConnections.delete(meeting_uuid);
-        }
-    }
+// 4. Register media/event handlers
+RTMSManager.on('audio', (buffer, userId, userName, timestamp, meetingUuid, streamId, rtmsType) => {
+  sendAudioChunk(buffer);
 });
 
-// Function to generate a signature for authentication
-function generateSignature(CLIENT_ID, meetingUuid, streamId, CLIENT_SECRET) {
-    console.log('Generating signature with parameters:');
-    console.log('meetingUuid:', meetingUuid);
-    console.log('streamId:', streamId);
+RTMSManager.on('error', (error) => {
+  console.error('[Deepgram] RTMS Error:', error.message);
+});
 
-    // Create a message string and generate an HMAC SHA256 signature
-    const message = `${CLIENT_ID},${meetingUuid},${streamId}`;
-    return crypto.createHmac('sha256', CLIENT_SECRET).update(message).digest('hex');
-}
+// 5. Start the Server and RTMS Manager
+await RTMSManager.start();
 
-// Function to connect to the signaling WebSocket server
-function connectToSignalingWebSocket(meetingUuid, streamId, serverUrl) {
-    console.log(`Connecting to signaling WebSocket for meeting ${meetingUuid}`);
+server.listen(appConfig.port, () => {
+  console.log(`[Deepgram] Server listening on port ${appConfig.port}`);
+});
 
-    const ws = new WebSocket(serverUrl);
-
-    // Store connection for cleanup later
-    if (!activeConnections.has(meetingUuid)) {
-        activeConnections.set(meetingUuid, {});
-    }
-    activeConnections.get(meetingUuid).signaling = ws;
-
-    ws.on('open', () => {
-        console.log(`Signaling WebSocket connection opened for meeting ${meetingUuid}`);
-        const signature = generateSignature(
-            CLIENT_ID,
-            meetingUuid,
-            streamId,
-            CLIENT_SECRET
-        );
-
-        // Send handshake message to the signaling server
-        const handshake = {
-            msg_type: 1, // SIGNALING_HAND_SHAKE_REQ
-            protocol_version: 1,
-            meeting_uuid: meetingUuid,
-            rtms_stream_id: streamId,
-            sequence: Math.floor(Math.random() * 1e9),
-            signature,
-        };
-        ws.send(JSON.stringify(handshake));
-        console.log('Sent handshake to signaling server');
-    });
-
-    ws.on('message', (data) => {
-        const msg = JSON.parse(data);
-        console.log('Signaling Message:', JSON.stringify(msg, null, 2));
-
-        // Handle successful handshake response
-        if (msg.msg_type === 2 && msg.status_code === 0) { // SIGNALING_HAND_SHAKE_RESP
-            const mediaUrl = msg.media_server?.server_urls?.all;
-            if (mediaUrl) {
-                // Connect to the media WebSocket server using the media URL
-                connectToMediaWebSocket(mediaUrl, meetingUuid, streamId, ws);
-            }
-        }
-
-        // Respond to keep-alive requests
-        if (msg.msg_type === 12) { // KEEP_ALIVE_REQ
-            const keepAliveResponse = {
-                msg_type: 13, // KEEP_ALIVE_RESP
-                timestamp: msg.timestamp,
-            };
-            console.log('Responding to Signaling KEEP_ALIVE_REQ:', keepAliveResponse);
-            ws.send(JSON.stringify(keepAliveResponse));
-        }
-    });
-
-    ws.on('error', (err) => {
-        console.error('Signaling socket error:', err);
-    });
-
-    ws.on('close', () => {
-        console.log('Signaling socket closed');
-        if (activeConnections.has(meetingUuid)) {
-            delete activeConnections.get(meetingUuid).signaling;
-        }
-    });
-}
-
-// Function to connect to the media WebSocket server
-function connectToMediaWebSocket(mediaUrl, meetingUuid, streamId, signalingSocket) {
-    console.log(`Connecting to media WebSocket at ${mediaUrl}`);
-
-    const mediaWs = new WebSocket(mediaUrl, { rejectUnauthorized: false });
-
-    // Store connection for cleanup later
-    if (activeConnections.has(meetingUuid)) {
-        activeConnections.get(meetingUuid).media = mediaWs;
-    }
-
-
-
-    mediaWs.on('open', () => {
-        const signature = generateSignature(
-            CLIENT_ID,
-            meetingUuid,
-            streamId,
-            CLIENT_SECRET
-        );
-        const handshake = {
-            msg_type: 3, // DATA_HAND_SHAKE_REQ
-            protocol_version: 1,
-            meeting_uuid: meetingUuid,
-            rtms_stream_id: streamId,
-            signature,
-            media_type: 1, // MEDIA_DATA_AUDIO
-            payload_encryption: false,    
-            media_params: {
-              audio: {
-                content_type: 1,
-                sample_rate: 1,
-                channel: 1,
-                codec: 1,
-                data_opt: 1,
-                send_rate: 20
-              }
-            }
-        };
-        mediaWs.send(JSON.stringify(handshake));
-    });
-
-    mediaWs.on('message', (data) => {
-        try {
-            // Try to parse as JSON first
-            const msg = JSON.parse(data.toString());
-            // debugging
-            //console.log('Media JSON Message:', JSON.stringify(msg, null, 2));
-
-            // Handle successful media handshake
-            if (msg.msg_type === 4 && msg.status_code === 0) { // DATA_HAND_SHAKE_RESP
-                signalingSocket.send(
-                    JSON.stringify({
-                        msg_type: 7, // CLIENT_READY_ACK
-                        rtms_stream_id: streamId,
-                    })
-                );
-                console.log('Media handshake successful, sent start streaming request');
-            }
-
-            // Respond to keep-alive requests
-            if (msg.msg_type === 12) { // KEEP_ALIVE_REQ
-                mediaWs.send(
-                    JSON.stringify({
-                        msg_type: 13, // KEEP_ALIVE_RESP
-                        timestamp: msg.timestamp,
-                    })
-                );
-                console.log('Responded to Media KEEP_ALIVE_REQ');
-            }
-
-            // Handle audio data
-            if (msg.msg_type === 14 && msg.content && msg.content.data) {
-                let { user_id, user_name, data: audioData, timestamp } = msg.content, buffer = Buffer.from(audioData, 'base64');
-              sendAudioChunk(buffer);
-            }
-            // Handle video data
-            if (msg.msg_type === 15 && msg.content && msg.content.data) {
-              
-            }
-            // Handle transcript data
-            if (msg.msg_type === 17 && msg.content && msg.content.data) {
-              
-            }
-        } catch (err) {
-            console.error('Error processing media message:', err);
-        }
-    });
-
-    mediaWs.on('error', (err) => {
-        console.error('Media socket error:', err);
-    });
-
-    mediaWs.on('close', () => {
-        console.log('Media socket closed');
-        if (activeConnections.has(meetingUuid)) {
-            delete activeConnections.get(meetingUuid).media;
-        }
-    });
-}
-
-
-// Start the server and listen on the specified port
-app.listen(port, () => {
-    console.log(`Server running at http://localhost:${port}`);
-    console.log(`Webhook endpoint available at http://localhost:${port}${WEBHOOK_PATH}`);
+process.on('SIGINT', async () => {
+  console.log('[Deepgram] Shutting down...');
+  server.close();
+  await RTMSManager.stop();
+  process.exit(0);
 });

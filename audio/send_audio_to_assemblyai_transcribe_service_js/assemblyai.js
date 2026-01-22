@@ -132,20 +132,25 @@ function initializeSingleStream(meetingUuid, collector) {
     streamingWs.on('close', (code, reason) => {
         console.log(`🔌 AssemblyAI streaming closed for meeting ${meetingUuid}: ${code} - ${reason}`);
         
-        // Log WebSocket close codes for debugging
         const closeReasons = {
             1000: 'Normal closure',
             1001: 'Going away',
             1002: 'Protocol error',
             1003: 'Unsupported data',
             1006: 'Abnormal closure',
+            1008: 'Unauthorized (invalid API key)',
             1011: 'Server error',
             1015: 'TLS handshake failure'
         };
         
         console.log(`🔍 Close reason: ${closeReasons[code] || 'Unknown'} (${code})`);
         
-        // Try to reconnect if not intentionally stopped
+        if (code === 1008) {
+            console.error(`❌ AssemblyAI API key is invalid or disabled. Please check your ASSEMBLYAI_API_KEY.`);
+            collector.stopRequested = true;
+            return;
+        }
+        
         if (!collector.stopRequested && code !== 1000) {
             setTimeout(() => {
                 console.log(`🔄 Attempting to reconnect AssemblyAI for meeting ${meetingUuid}`);
