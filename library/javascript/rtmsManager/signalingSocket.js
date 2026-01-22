@@ -66,8 +66,10 @@ export function connectToSignalingWebSocket(
 
       const handshakeMsg = {
         msg_type: 1,
+        protocol_version: 1,
         meeting_uuid: meetingUuid,
         rtms_stream_id: streamId,
+        sequence: Math.floor(Math.random() * 1e9),
         signature,
       };
 

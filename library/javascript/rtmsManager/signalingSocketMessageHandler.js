@@ -36,7 +36,7 @@ export function handleSignalingMessage(data, meetingUuid, streamId, signalingWs,
         FileLogger.log(`[Signaling] [${conn.rtmsType},${meetingUuid},${streamId}] Handshake OK. Media URL: ${mediaUrl} (Server: ${countryCode.toUpperCase()})`);
         conn.signaling.state = 'ready';
 
-        // Initialize media connections (split mode - one socket per media type)
+        // Initialize media connections
         if (!conn.media) conn.media = {};
         
         // Calculate effective flags based on what's available
@@ -44,22 +44,43 @@ export function handleSignalingMessage(data, meetingUuid, streamId, signalingWs,
         
         FileLogger.log(`[Signaling] [${conn.rtmsType},${meetingUuid},${streamId}] Requested media: ${mediaTypesFlag}, available: ${effectiveFlags}`);
         
-        for (const [type, flag] of Object.entries(TYPE_FLAGS)) {
-          if (effectiveFlags & flag) {
-            const typeUrl = msg.media_server?.server_urls?.[type] || mediaUrl;
-            FileLogger.log(`[Signaling] [${conn.rtmsType},${meetingUuid},${streamId}] Connecting ${type} media socket`);
-            connectToMediaWebSocket(
-              typeUrl,
-              meetingUuid,
-              streamId,
-              signalingWs,
-              conn,
-              clientId,
-              clientSecret,
-              type,
-              flag,
-              emit
-            );
+        // Check if unified mode is enabled (single socket for all media types)
+        const useUnifiedMode = conn.config?.useUnifiedMediaSocket === true;
+        
+        if (useUnifiedMode) {
+          // Unified mode: single WebSocket for all media types (better sync)
+          FileLogger.log(`[Signaling] [${conn.rtmsType},${meetingUuid},${streamId}] Connecting unified media socket`);
+          connectToMediaWebSocket(
+            mediaUrl,
+            meetingUuid,
+            streamId,
+            signalingWs,
+            conn,
+            clientId,
+            clientSecret,
+            'all',
+            effectiveFlags,
+            emit
+          );
+        } else {
+          // Split mode: separate socket per media type
+          for (const [type, flag] of Object.entries(TYPE_FLAGS)) {
+            if (effectiveFlags & flag) {
+              const typeUrl = msg.media_server?.server_urls?.[type] || mediaUrl;
+              FileLogger.log(`[Signaling] [${conn.rtmsType},${meetingUuid},${streamId}] Connecting ${type} media socket`);
+              connectToMediaWebSocket(
+                typeUrl,
+                meetingUuid,
+                streamId,
+                signalingWs,
+                conn,
+                clientId,
+                clientSecret,
+                type,
+                flag,
+                emit
+              );
+            }
           }
         }
 

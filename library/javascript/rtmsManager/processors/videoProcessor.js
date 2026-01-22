@@ -11,7 +11,7 @@
  * @param {Function} emit - Event emitter function
  * @param {Object} [videoFiller] - Optional video filler for gap filling
  */
-export async function processVideo(eventData, emit, videoFiller = null) {
+export function processVideo(eventData, emit, videoFiller = null) {
   if (videoFiller) {
     videoFiller.processBuffer(eventData.buffer, eventData.timestamp);
   } else {

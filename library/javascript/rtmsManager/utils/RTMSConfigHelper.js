@@ -23,6 +23,9 @@ export class RTMSConfigHelper {
       enableGapFilling: false,
       useFiller: false,
       
+      // Media socket mode: true = single socket for all media (better sync), false = separate sockets
+      useUnifiedMediaSocket: false,
+      
       // History settings
       maxStreamHistorySize: 100,
       

@@ -11,7 +11,7 @@
  * @param {Function} emit - Event emitter function
  * @param {Object} [audioFiller] - Optional audio filler for gap filling
  */
-export async function processAudio(eventData, emit, audioFiller = null) {
+export function processAudio(eventData, emit, audioFiller = null) {
   if (audioFiller) {
     audioFiller.processBuffer(eventData.buffer, eventData.timestamp);
   } else {

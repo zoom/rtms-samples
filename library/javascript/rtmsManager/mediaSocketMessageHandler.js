@@ -69,7 +69,7 @@ export async function handleMediaMessage(data, {
           const { user_id, user_name, data: audioData, timestamp } = msg.content;
           const buffer = Buffer.from(audioData, 'base64');
           
-          await processAudio({
+          processAudio({
             buffer,
             userId: user_id,
             userName: user_name,
@@ -86,7 +86,7 @@ export async function handleMediaMessage(data, {
           const { user_id, user_name, data: videoData, timestamp } = msg.content;
           const buffer = Buffer.from(videoData, 'base64');
           
-          await processVideo({
+          processVideo({
             buffer,
             userId: user_id,
             userName: user_name,
