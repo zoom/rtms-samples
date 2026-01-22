@@ -195,6 +195,370 @@ RTMSManager.on('transcript', async ({ text, userName }) => {
     └── start_stop_rtms_control_js/
 ```
 
+## Production Architecture
+
+### Scaling for High-Volume Concurrent Meetings
+
+```
+┌─────────────────────────────────────────────────────────────────────────────┐
+│                           Load Balancer (nginx/ALB)                         │
+└─────────────────────────────────────────────────────────────────────────────┘
+                                      │
+              ┌───────────────────────┼───────────────────────┐
+              ▼                       ▼                       ▼
+     ┌─────────────────┐     ┌─────────────────┐     ┌─────────────────┐
+     │  RTMS Worker 1  │     │  RTMS Worker 2  │     │  RTMS Worker N  │
+     │  (RTMSManager)  │     │  (RTMSManager)  │     │  (RTMSManager)  │
+     └────────┬────────┘     └────────┬────────┘     └────────┬────────┘
+              │                       │                       │
+              └───────────────────────┼───────────────────────┘
+                                      ▼
+                    ┌─────────────────────────────────┐
+                    │     Message Queue (Redis/SQS)   │
+                    │   - Meeting assignments         │
+                    │   - Transcription jobs          │
+                    │   - Processing results          │
+                    └─────────────────────────────────┘
+                                      │
+              ┌───────────────────────┼───────────────────────┐
+              ▼                       ▼                       ▼
+     ┌─────────────────┐     ┌─────────────────┐     ┌─────────────────┐
+     │  Transcription  │     │  Transcription  │     │  Transcription  │
+     │  Service Pool   │     │  Service Pool   │     │  Service Pool   │
+     │  (Deepgram)     │     │  (AssemblyAI)   │     │  (AWS/Fallback) │
+     └─────────────────┘     └─────────────────┘     └─────────────────┘
+```
+
+### Multi-Provider Transcription with Fallback
+
+```javascript
+// Cascading fallback pattern for transcription services
+const transcriptionProviders = [
+  { name: 'deepgram', client: deepgramClient, priority: 1, rateLimit: 100 },
+  { name: 'assemblyai', client: assemblyClient, priority: 2, rateLimit: 50 },
+  { name: 'aws', client: awsTranscribeClient, priority: 3, rateLimit: 200 },
+];
+
+class TranscriptionManager {
+  constructor(providers) {
+    this.providers = providers.sort((a, b) => a.priority - b.priority);
+    this.circuitBreakers = new Map();
+    
+    // Initialize circuit breakers for each provider
+    for (const provider of providers) {
+      this.circuitBreakers.set(provider.name, new CircuitBreaker({
+        failureThreshold: 5,
+        resetTimeout: 30000,
+      }));
+    }
+  }
+
+  async transcribe(audioBuffer, meetingId) {
+    for (const provider of this.providers) {
+      const breaker = this.circuitBreakers.get(provider.name);
+      
+      if (breaker.isOpen()) {
+        console.log(`[${provider.name}] Circuit open, skipping`);
+        continue;
+      }
+
+      try {
+        const result = await breaker.call(() => 
+          provider.client.transcribe(audioBuffer)
+        );
+        return { provider: provider.name, transcript: result };
+      } catch (error) {
+        console.error(`[${provider.name}] Failed: ${error.message}`);
+        // Continue to next provider
+      }
+    }
+    
+    throw new Error('All transcription providers failed');
+  }
+}
+
+// Usage with RTMSManager
+const transcriptionManager = new TranscriptionManager(transcriptionProviders);
+
+RTMSManager.on('audio', async ({ buffer, meetingId }) => {
+  try {
+    const result = await transcriptionManager.transcribe(buffer, meetingId);
+    console.log(`Transcribed via ${result.provider}: ${result.transcript}`);
+  } catch (error) {
+    // All providers failed - queue for retry or alert
+    await deadLetterQueue.push({ buffer, meetingId, error: error.message });
+  }
+});
+```
+
+### Circuit Breaker Pattern
+
+```javascript
+class CircuitBreaker {
+  constructor({ failureThreshold = 5, resetTimeout = 30000 }) {
+    this.failureThreshold = failureThreshold;
+    this.resetTimeout = resetTimeout;
+    this.failures = 0;
+    this.state = 'CLOSED'; // CLOSED, OPEN, HALF_OPEN
+    this.lastFailureTime = null;
+  }
+
+  isOpen() {
+    if (this.state === 'OPEN') {
+      // Check if we should try again
+      if (Date.now() - this.lastFailureTime >= this.resetTimeout) {
+        this.state = 'HALF_OPEN';
+        return false;
+      }
+      return true;
+    }
+    return false;
+  }
+
+  async call(fn) {
+    if (this.isOpen()) {
+      throw new Error('Circuit breaker is open');
+    }
+
+    try {
+      const result = await fn();
+      this.onSuccess();
+      return result;
+    } catch (error) {
+      this.onFailure();
+      throw error;
+    }
+  }
+
+  onSuccess() {
+    this.failures = 0;
+    this.state = 'CLOSED';
+  }
+
+  onFailure() {
+    this.failures++;
+    this.lastFailureTime = Date.now();
+    if (this.failures >= this.failureThreshold) {
+      this.state = 'OPEN';
+    }
+  }
+}
+```
+
+### Concurrent Meeting Management
+
+```javascript
+class MeetingPoolManager {
+  constructor({ maxConcurrentMeetings = 100, queueTimeout = 30000 }) {
+    this.maxConcurrent = maxConcurrentMeetings;
+    this.activeMeetings = new Map();
+    this.waitingQueue = [];
+  }
+
+  async acquireSlot(meetingId) {
+    if (this.activeMeetings.size < this.maxConcurrent) {
+      this.activeMeetings.set(meetingId, { startTime: Date.now() });
+      return true;
+    }
+
+    // Queue the meeting
+    return new Promise((resolve, reject) => {
+      const timeout = setTimeout(() => {
+        this.waitingQueue = this.waitingQueue.filter(w => w.meetingId !== meetingId);
+        reject(new Error(`Meeting ${meetingId} queue timeout`));
+      }, this.queueTimeout);
+
+      this.waitingQueue.push({ meetingId, resolve, reject, timeout });
+    });
+  }
+
+  releaseSlot(meetingId) {
+    this.activeMeetings.delete(meetingId);
+    
+    // Process waiting queue
+    if (this.waitingQueue.length > 0) {
+      const next = this.waitingQueue.shift();
+      clearTimeout(next.timeout);
+      this.activeMeetings.set(next.meetingId, { startTime: Date.now() });
+      next.resolve(true);
+    }
+  }
+
+  getStats() {
+    return {
+      active: this.activeMeetings.size,
+      queued: this.waitingQueue.length,
+      maxConcurrent: this.maxConcurrent,
+    };
+  }
+}
+
+// Integration with RTMSManager
+const meetingPool = new MeetingPoolManager({ maxConcurrentMeetings: 100 });
+
+RTMSManager.on('meeting.rtms_started', async (payload) => {
+  try {
+    await meetingPool.acquireSlot(payload.meeting_uuid);
+    console.log(`Meeting ${payload.meeting_uuid} started. Pool: ${JSON.stringify(meetingPool.getStats())}`);
+  } catch (error) {
+    console.error(`Meeting ${payload.meeting_uuid} rejected: ${error.message}`);
+    // Optionally notify or handle overflow
+  }
+});
+
+RTMSManager.on('meeting.rtms_stopped', (payload) => {
+  meetingPool.releaseSlot(payload.meeting_uuid);
+});
+```
+
+### Error Handling Strategy
+
+```javascript
+// Error classification for appropriate handling
+class RTMSErrorHandler {
+  static classify(error) {
+    const errorPatterns = {
+      RETRYABLE: [
+        /ECONNRESET/,
+        /ETIMEDOUT/,
+        /socket hang up/,
+        /503/,
+        /429/, // Rate limited
+      ],
+      FATAL: [
+        /401/, // Auth failed
+        /403/, // Forbidden
+        /Invalid signature/,
+      ],
+      RECOVERABLE: [
+        /ENOTFOUND/,
+        /WebSocket closed/,
+      ],
+    };
+
+    for (const [type, patterns] of Object.entries(errorPatterns)) {
+      if (patterns.some(p => p.test(error.message))) {
+        return type;
+      }
+    }
+    return 'UNKNOWN';
+  }
+
+  static async handle(error, context) {
+    const type = this.classify(error);
+    
+    switch (type) {
+      case 'RETRYABLE':
+        // Exponential backoff retry
+        await this.retryWithBackoff(context.retry, context.maxRetries || 3);
+        break;
+      
+      case 'FATAL':
+        // Log, alert, don't retry
+        console.error(`Fatal error for meeting ${context.meetingId}: ${error.message}`);
+        await alerting.critical('RTMS Fatal Error', { error, context });
+        break;
+      
+      case 'RECOVERABLE':
+        // Attempt reconnection
+        console.warn(`Recoverable error, reconnecting: ${error.message}`);
+        await RTMSManager.reconnect(context.meetingId);
+        break;
+      
+      default:
+        console.error(`Unknown error: ${error.message}`);
+        await alerting.warning('RTMS Unknown Error', { error, context });
+    }
+  }
+
+  static async retryWithBackoff(fn, maxRetries, baseDelay = 1000) {
+    for (let i = 0; i < maxRetries; i++) {
+      try {
+        return await fn();
+      } catch (error) {
+        if (i === maxRetries - 1) throw error;
+        const delay = baseDelay * Math.pow(2, i) + Math.random() * 1000;
+        await new Promise(r => setTimeout(r, delay));
+      }
+    }
+  }
+}
+```
+
+### Health Monitoring & Metrics
+
+```javascript
+// Health check endpoint for load balancers
+app.get('/health', (req, res) => {
+  const health = {
+    status: 'ok',
+    timestamp: new Date().toISOString(),
+    uptime: process.uptime(),
+    meetings: {
+      active: RTMSManager.getActiveStreams().length,
+      poolStats: meetingPool.getStats(),
+    },
+    memory: process.memoryUsage(),
+    transcription: {
+      circuitBreakers: Object.fromEntries(
+        transcriptionManager.providers.map(p => [
+          p.name,
+          transcriptionManager.circuitBreakers.get(p.name).state
+        ])
+      ),
+    },
+  };
+
+  const isHealthy = health.meetings.active < meetingPool.maxConcurrent * 0.9;
+  res.status(isHealthy ? 200 : 503).json(health);
+});
+
+// Prometheus-style metrics endpoint
+app.get('/metrics', (req, res) => {
+  const metrics = [
+    `rtms_active_meetings ${RTMSManager.getActiveStreams().length}`,
+    `rtms_queued_meetings ${meetingPool.getStats().queued}`,
+    `rtms_memory_heap_used ${process.memoryUsage().heapUsed}`,
+    `rtms_uptime_seconds ${process.uptime()}`,
+  ];
+  res.set('Content-Type', 'text/plain');
+  res.send(metrics.join('\n'));
+});
+```
+
+### Graceful Shutdown
+
+```javascript
+async function gracefulShutdown(signal) {
+  console.log(`Received ${signal}. Starting graceful shutdown...`);
+  
+  // 1. Stop accepting new meetings
+  server.close();
+  
+  // 2. Wait for active meetings to complete (with timeout)
+  const shutdownTimeout = 30000;
+  const activeStreams = RTMSManager.getActiveStreams();
+  
+  if (activeStreams.length > 0) {
+    console.log(`Waiting for ${activeStreams.length} active meetings...`);
+    
+    await Promise.race([
+      Promise.all(activeStreams.map(s => RTMSManager.stopStream(s.streamId))),
+      new Promise(r => setTimeout(r, shutdownTimeout)),
+    ]);
+  }
+  
+  // 3. Cleanup resources
+  await RTMSManager.stop();
+  
+  console.log('Graceful shutdown complete');
+  process.exit(0);
+}
+
+process.on('SIGTERM', () => gracefulShutdown('SIGTERM'));
+process.on('SIGINT', () => gracefulShutdown('SIGINT'));
+```
+
 ## Architecture
 
 ### RTMS Connection Flow

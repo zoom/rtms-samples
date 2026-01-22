@@ -203,6 +203,131 @@ RTMSManager.on('session_state_changed', (msg, meetingUuid, streamId, rtmsType) =
 | 6 | Meeting ended |
 | 7-18 | Various connection/system reasons (see root README for full list) |
 
+## Production Considerations
+
+### Connection Management
+
+The RTMSManager maintains WebSocket connections for each active meeting. For production deployments:
+
+```javascript
+// Configure connection limits and timeouts
+await RTMSManager.init({
+  // ... other config
+  connectionConfig: {
+    maxConcurrentConnections: 100,    // Max simultaneous meetings
+    connectionTimeout: 10000,          // Connection establishment timeout
+    keepAliveInterval: 30000,          // Keep-alive ping interval
+    reconnectAttempts: 3,              // Auto-reconnect attempts
+    reconnectDelay: 3000,              // Delay between reconnect attempts
+  }
+});
+```
+
+### Error Handling
+
+RTMSManager emits errors that should be handled in production:
+
+```javascript
+// Handle connection errors
+RTMSManager.on('error', (error, context) => {
+  console.error(`RTMS Error [${context.meetingId}]: ${error.message}`);
+  
+  // Classify and handle errors appropriately
+  if (error.code === 'ECONNRESET' || error.code === 'ETIMEDOUT') {
+    // Transient network error - RTMSManager will auto-reconnect
+    metrics.increment('rtms.connection.transient_error');
+  } else if (error.message.includes('401') || error.message.includes('403')) {
+    // Auth error - check credentials
+    alerting.critical('RTMS Authentication Failed', { error, context });
+  } else {
+    // Unknown error
+    alerting.warning('RTMS Unknown Error', { error, context });
+  }
+});
+
+// Handle stream interruptions
+RTMSManager.on('stream_state_changed', (msg, meetingUuid, streamId) => {
+  if (msg.state === 2) { // Interrupted
+    console.warn(`Stream interrupted: ${streamId}, reason: ${msg.stop_reason}`);
+    metrics.increment('rtms.stream.interrupted');
+  }
+});
+```
+
+### Memory Management
+
+For long-running processes handling many meetings:
+
+```javascript
+// Monitor memory usage
+setInterval(() => {
+  const usage = process.memoryUsage();
+  if (usage.heapUsed > 500 * 1024 * 1024) { // 500MB threshold
+    console.warn('High memory usage detected');
+    
+    // Force garbage collection if available
+    if (global.gc) global.gc();
+    
+    // Clear old stream history
+    RTMSManager.clearStreamHistory(Date.now() - 3600000); // Clear streams older than 1 hour
+  }
+}, 60000);
+
+// Clean up on meeting end
+RTMSManager.on('meeting.rtms_stopped', async (payload) => {
+  const { meeting_uuid, rtms_stream_id } = payload;
+  
+  // Ensure all resources are released
+  await RTMSManager.cleanupStream(rtms_stream_id);
+  
+  // Clear any meeting-specific state
+  meetingState.delete(meeting_uuid);
+});
+```
+
+### Logging Configuration
+
+Configure structured logging for production:
+
+```javascript
+await RTMSManager.init({
+  logging: process.env.LOG_LEVEL || 'info', // 'debug', 'info', 'warn', 'error'
+  logDir: '/var/log/rtms',
+  logFormat: 'json', // 'json' or 'text'
+  logRotation: {
+    maxSize: '100m',
+    maxFiles: 10,
+  }
+});
+```
+
+### Health Checks
+
+Implement health checks for load balancer integration:
+
+```javascript
+app.get('/health', (req, res) => {
+  const activeStreams = RTMSManager.getActiveStreams();
+  const health = {
+    status: 'ok',
+    timestamp: new Date().toISOString(),
+    activeStreams: activeStreams.length,
+    uptime: process.uptime(),
+    memory: process.memoryUsage(),
+  };
+  
+  // Return 503 if overloaded
+  const isHealthy = activeStreams.length < MAX_CONCURRENT_MEETINGS * 0.9;
+  res.status(isHealthy ? 200 : 503).json(health);
+});
+
+app.get('/ready', (req, res) => {
+  // Check if RTMSManager is ready to accept connections
+  const isReady = RTMSManager.isReady();
+  res.status(isReady ? 200 : 503).json({ ready: isReady });
+});
+```
+
 ## Advanced Usage
 
 ### Real-Time Media Synchronization
