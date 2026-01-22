@@ -65,9 +65,13 @@ webhookManager.on('event', (event, payload) => {
 
 webhookManager.setup();
 
-RTMSManager.on('transcript', ({ text, userId, userName, timestamp, meetingId }) => {
-  console.log(`[TRANSCRIPT] ${userName}: ${text}`);
-  writeTranscriptToVtt(userName, timestamp, text, meetingId);
+RTMSManager.on('transcript', (payload) => {
+  console.log('='.repeat(60));
+  console.log('[TRANSCRIPT PAYLOAD]', JSON.stringify(payload, null, 2));
+  console.log('='.repeat(60));
+  
+  const { text, userName, timestamp, meetingId, startTime, endTime } = payload;
+  writeTranscriptToVtt(userName, text, meetingId, startTime, endTime, timestamp);
 });
 
 RTMSManager.on('meeting.rtms_started', (payload) => {

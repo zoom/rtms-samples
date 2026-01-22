@@ -2,87 +2,91 @@ import fs from 'fs';
 import path from 'path';
 
 let srtIndex = 1;
-let startTimestamp = null; // ✅ will hold first transcript timestamp
+let sessionStartTime = null;
 
-// 🔧 Set session start (optional external call)
-export function setTranscriptStartTimestamp(ts) {
-  startTimestamp = ts;
-  console.log(`⏱️ Transcript start time set to: ${startTimestamp}`);
+export function resetTranscriptSession() {
+  srtIndex = 1;
+  sessionStartTime = null;
 }
 
 function formatVttTimestamp(ms) {
-  const date = new Date(ms);
-  if (isNaN(date.getTime())) return '00:00:00.000';
+  if (ms < 0) ms = 0;
+  const totalSeconds = Math.floor(ms / 1000);
+  const hours = Math.floor(totalSeconds / 3600);
+  const minutes = Math.floor((totalSeconds % 3600) / 60);
+  const seconds = totalSeconds % 60;
+  const milliseconds = Math.floor(ms % 1000);
 
-  const h = String(date.getUTCHours()).padStart(2, '0');
-  const m = String(date.getUTCMinutes()).padStart(2, '0');
-  const s = String(date.getUTCSeconds()).padStart(2, '0');
-  const msPart = String(date.getUTCMilliseconds()).padStart(3, '0');
+  const h = String(hours).padStart(2, '0');
+  const m = String(minutes).padStart(2, '0');
+  const s = String(seconds).padStart(2, '0');
+  const msPart = String(milliseconds).padStart(3, '0');
   return `${h}:${m}:${s}.${msPart}`;
 }
 
 function formatSrtTimestamp(ms) {
-  const date = new Date(ms);
-  if (isNaN(date.getTime())) return '00:00:00,000';
+  if (ms < 0) ms = 0;
+  const totalSeconds = Math.floor(ms / 1000);
+  const hours = Math.floor(totalSeconds / 3600);
+  const minutes = Math.floor((totalSeconds % 3600) / 60);
+  const seconds = totalSeconds % 60;
+  const milliseconds = Math.floor(ms % 1000);
 
-  const h = String(date.getUTCHours()).padStart(2, '0');
-  const m = String(date.getUTCMinutes()).padStart(2, '0');
-  const s = String(date.getUTCSeconds()).padStart(2, '0');
-  const msPart = String(date.getUTCMilliseconds()).padStart(3, '0');
+  const h = String(hours).padStart(2, '0');
+  const m = String(minutes).padStart(2, '0');
+  const s = String(seconds).padStart(2, '0');
+  const msPart = String(milliseconds).padStart(3, '0');
   return `${h}:${m}:${s},${msPart}`;
 }
 
-// ✨ Accept meetingFolder as extra parameter
-export function writeTranscriptToVtt(user_name, timestamp, data, meetingUuid) {
+function sanitizeFileName(name) {
+  return name.replace(/[<>:"\/\\|?*=\s]/g, '_');
+}
 
+/**
+ * Write transcript to VTT, SRT, and TXT files
+ * @param {string} userName - Speaker name
+ * @param {string} text - Transcript text
+ * @param {string} meetingUuid - Meeting UUID for folder naming
+ * @param {number} startTime - Utterance start time in milliseconds
+ * @param {number} endTime - Utterance end time in milliseconds
+ * @param {number} timestamp - Event timestamp in microseconds
+ */
+export function writeTranscriptToVtt(userName, text, meetingUuid, startTime, endTime, timestamp) {
   const safeMeetingUuid = sanitizeFileName(meetingUuid);
-
-  const meetingFolder= path.join('recordings', safeMeetingUuid);
+  const meetingFolder = path.join('recordings', safeMeetingUuid);
+  
   if (!fs.existsSync(meetingFolder)) {
     fs.mkdirSync(meetingFolder, { recursive: true });
   }
 
-  if (!startTimestamp) {
-    startTimestamp = timestamp; // fallback if not manually set
-    console.log(`⚠️ startTimestamp not set — defaulting to first transcript line: ${startTimestamp}`);
+  if (!sessionStartTime) {
+    sessionStartTime = startTime;
+    console.log(`[writeTranscript] Session start time set to: ${sessionStartTime}ms`);
   }
 
-  // 🔥 Ensure the meeting folder exists
-  if (!fs.existsSync(meetingFolder)) {
-    fs.mkdirSync(meetingFolder, { recursive: true });
-  }
-
-  // Build output file paths inside the meeting folder
   const vttFilePath = path.join(meetingFolder, 'transcript.vtt');
   const srtFilePath = path.join(meetingFolder, 'transcript.srt');
   const txtFilePath = path.join(meetingFolder, 'transcript.txt');
 
-  const relative = timestamp - startTimestamp;
-  const start = formatVttTimestamp(relative);
-  const end = formatVttTimestamp(relative + 2000);
-  const vttLine = `${start} --> ${end}\n${user_name}: ${data}\n\n`;
+  const relativeStart = startTime - sessionStartTime;
+  const relativeEnd = endTime - sessionStartTime;
+
+  const vttStart = formatVttTimestamp(relativeStart);
+  const vttEnd = formatVttTimestamp(relativeEnd);
+  const vttLine = `${vttStart} --> ${vttEnd}\n${userName}: ${text}\n\n`;
 
   if (!fs.existsSync(vttFilePath)) {
     fs.writeFileSync(vttFilePath, 'WEBVTT\n\n');
   }
   fs.appendFileSync(vttFilePath, vttLine);
-  //console.log(`📝 VTT saved to ${vttFilePath}`);
 
-  const srtStart = formatSrtTimestamp(relative);
-  const srtEnd = formatSrtTimestamp(relative + 2000);
-  const srtLine = `${srtIndex++}\n${srtStart} --> ${srtEnd}\n${user_name}: ${data}\n\n`;
-
+  const srtStart = formatSrtTimestamp(relativeStart);
+  const srtEnd = formatSrtTimestamp(relativeEnd);
+  const srtLine = `${srtIndex++}\n${srtStart} --> ${srtEnd}\n${userName}: ${text}\n\n`;
   fs.appendFileSync(srtFilePath, srtLine);
-  //console.log(`🎞️ SRT saved to ${srtFilePath}`);
 
-  const readableTime = new Date(timestamp).toISOString();
-  const txtLine = `[${readableTime}] ${user_name}: ${data}\n`;
+  const absoluteTime = new Date(Math.floor(timestamp / 1000)).toISOString();
+  const txtLine = `[${absoluteTime}] ${userName}: ${text}\n`;
   fs.appendFileSync(txtFilePath, txtLine);
-  //console.log(`📄 TXT saved to ${txtFilePath}`);
 }
-
-
-function sanitizeFileName(name) {
-    return name.replace(/[<>:"\/\\|?*=\s]/g, '_');
-  }
-  

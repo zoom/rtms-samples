@@ -15,7 +15,7 @@ const openai = new OpenAI({
  * @param {string} model - The model to use (e.g., 'anthropic/claude-3-haiku')
  * @returns {Promise<string>}
  */
-export async function chatWithOpenRouter(message, model = 'anthropic/claude-3-haiku') {
+export async function chatWithOpenRouter(message, model = process.env.OPENROUTER_MODEL || 'x-ai/grok-4.1-fast') {
 
   
   try {
@@ -32,10 +32,7 @@ export async function chatWithOpenRouter(message, model = 'anthropic/claude-3-ha
 }
 
 export async function chatWithMultipleModels(message) {
-  const models = [
-    'meta-llama/llama-4-maverick:free',
-    'meta-llama/llama-4-scout:free',
-  ];
+  const models = (process.env.OPENROUTER_MODELS || 'x-ai/grok-4.1-fast').split(',').map(m => m.trim());
 
   await Promise.all(models.map(async (model) => {
     try {
@@ -59,10 +56,7 @@ export async function chatWithMultipleModels(message) {
 }
 
 export async function contextualSynthesisFromMultipleModels(message) {
-  const models = [
-    'meta-llama/llama-4-maverick:free',
-    'meta-llama/llama-4-scout:free',
-  ];
+  const models = (process.env.OPENROUTER_MODELS || 'x-ai/grok-4.1-fast').split(',').map(m => m.trim());
 
   console.log(`📨 Received prompt: "${message}"\n`);
   console.log(`🤖 Sending prompt to ${models.length} models in parallel...\n`);
@@ -106,7 +100,7 @@ Here are responses from multiple AI models. Cross-check the answers, validate fa
 ${combinedContext}
   `.trim();
 
-  const synthesisModel = 'anthropic/claude-3-haiku';
+  const synthesisModel = process.env.OPENROUTER_SYNTHESIS_MODEL || 'x-ai/grok-4.1-fast';
 
   try {
     console.log(`🧪 Synthesizing final answer using ${synthesisModel}...\n`);

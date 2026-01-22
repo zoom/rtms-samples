@@ -1,16 +1,15 @@
+# Zoom RTMS Transcription and AI Synthesis (OpenRouter)
 
-# Zoom RTMS Transcription and AI Synthesis
-
-This project captures real-time transcript data from Zoom meetings using Zoom's RTMS (Real-Time Meeting Service) and synthesizes a refined response using multiple AI models via the OpenRouter API.
+This project captures realtime transcript data from Zoom meetings using Zoom's RTMS (Realtime Media Service) and synthesizes refined responses using multiple AI models via the OpenRouter API. It utilizes the shared `RTMSManager` and `WebhookManager` for robust connection handling.
 
 ## Features
 
-- Real-time transcript data capture from Zoom meetings
-- Webhook validation using HMAC signatures
-- Management of WebSocket connections (signaling and media)
+- Realtime transcript data capture from Zoom meetings
+- Automated connection management via `RTMSManager`
+- Webhook validation and event handling via `WebhookManager`
 - AI-based transcript processing using OpenRouter models
 - Parallel querying of multiple models and synthesis of output
-- Modular architecture
+- Configurable models via environment variables
 
 ## Prerequisites
 
@@ -21,6 +20,9 @@ ZOOM_SECRET_TOKEN=your_zoom_secret
 ZOOM_CLIENT_ID=your_client_id
 ZOOM_CLIENT_SECRET=your_client_secret
 OPENROUTER_API_KEY=your_openrouter_key
+OPENROUTER_MODEL=x-ai/grok-4.1-fast            # Default model for single queries
+OPENROUTER_MODELS=x-ai/grok-4.1-fast           # Comma-separated list for multi-model queries
+OPENROUTER_SYNTHESIS_MODEL=x-ai/grok-4.1-fast  # Model used for synthesizing final answers
 PORT=3000
 WEBHOOK_PATH=/webhook
 ```
@@ -41,47 +43,51 @@ WEBHOOK_PATH=/webhook
 
 ## AI Integration
 
-Transcript data from RTMS (`msg_type 17`) is processed by the `contextualSynthesisFromMultipleModels()` function in `chatWithOpenrouter.js`, which performs the following steps:
+Transcript data is processed by the `contextualSynthesisFromMultipleModels()` function in `chatWithOpenrouter.js`, which performs the following steps:
 
-1. Sends the transcript to multiple models:
-   - meta-llama/llama-4-maverick:free
-   - meta-llama/llama-4-scout:free
+1. Sends the transcript to multiple models (configured via `OPENROUTER_MODELS`).
+2. Collects and aggregates responses from all successful model queries.
+3. Synthesizes a final, consolidated answer using the model specified in `OPENROUTER_SYNTHESIS_MODEL`.
 
-2. Collects and aggregates responses
+## Implementation Details
 
-3. Synthesizes a final, consolidated answer using:
-   - anthropic/claude-3-haiku
+The project leverages shared library components:
 
-## Workflow
+- **RTMSManager**: Manages signaling and media WebSocket connections, authentication, and keep-alives.
+- **WebhookManager**: Handles Zoom webhook validation and distributes events.
 
-### Meeting Start
+### Workflow
 
-- Receive `meeting.rtms_started` event
-- Establish signaling WebSocket connection
-- Perform handshake and retrieve media server URL
+1. **Initialization**: The server initializes `RTMSManager` and `WebhookManager`.
+2. **Meeting Start**: On `meeting.rtms_started`, `RTMSManager` automatically connects to Zoom's media servers.
+3. **Transcript Handling**:
+   - The application listens for `transcript` events from `RTMSManager`.
+   - The payload includes `text`, `userName`, `timestamp`, `meetingId`, etc.
+   - Transcripts are forwarded to the OpenRouter-based AI synthesis pipeline.
+4. **Meeting End**: On `meeting.rtms_stopped`, connections are gracefully closed.
 
-### Media Connection
+## Transcript Data Payload
 
-- Establish WebSocket connection to media server
-- Perform handshake for audio, video, and transcript
-- Listen for `msg_type 17` (transcript data)
+The `transcript` event provides the following data:
 
-### Transcript Handling
-
-- Forward transcript to OpenRouter-based AI synthesis pipeline
-- Aggregate and output final response
-
-### Meeting End
-
-- Receive `meeting.rtms_stopped` event
-- Close all active WebSocket connections
+- `text`: The transcript text content
+- `userId`: Speaker's user ID
+- `userName`: Speaker's name
+- `timestamp`: Event timestamp (microseconds)
+- `meetingId`: Unique meeting UUID
+- `streamId`: RTMS stream ID
+- `productType`: "meeting" or "session"
+- `startTime`: Utterance start time (milliseconds)
+- `endTime`: Utterance end time (milliseconds)
+- `language`: Language ID
+- `attribute`: Transcript attribute
 
 ## File Structure
 
 ```
 .
-├── index.js                  # Main server logic and webhook handling
-├── chatWithOpenrouter.js    # AI model interaction logic
+├── index.js                  # Main server logic and RTMS event handling
+├── chatWithOpenrouter.js    # AI model interaction and synthesis logic
 ├── .env                      # Environment configuration file
 ```
 
@@ -90,11 +96,5 @@ Transcript data from RTMS (`msg_type 17`) is processed by the `contextualSynthes
 | Issue | Recommendation |
 |-------|----------------|
 | No transcript received | Ensure Zoom RTMS scopes are enabled and app is properly configured |
-| WebSocket errors | Check credentials and network exposure via tunneling |
-| No AI output | Verify OpenRouter API key and connectivity |
-
-## Notes
-
-- FFmpeg is required if future expansion to audio/video conversion is planned.
-- No transcript data is persisted to disk in this implementation.
-- Extend the current implementation to save transcripts in VTT/SRT/TXT if required.
+| Connection errors | Check credentials and network exposure via tunneling |
+| No AI output | Verify OpenRouter API key and model configurations in `.env` |
