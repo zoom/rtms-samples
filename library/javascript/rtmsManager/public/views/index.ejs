@@ -134,6 +134,13 @@
 
     socket.onclose = () => {
       console.warn('WebSocket connection closed');
+      // Clear keep-alive interval
+      clearInterval(keepAlive);
+      // Auto-reconnect after 3 seconds
+      setTimeout(() => {
+        console.log('🔄 Attempting to reconnect...');
+        location.reload();
+      }, 3000);
     };
     let runningContext;
     (async () => {
@@ -167,6 +174,28 @@
         const userContext = await zoomSdk.getUserContext();
         const meetingUUID = await zoomSdk.getMeetingUUID();
         const appContext = await zoomSdk.getAppContext();
+
+        // Register with backend once context is available
+        if (meetingUUID && userContext) {
+          if (socket.readyState === WebSocket.OPEN) {
+            console.log(`[Frontend] Registering client: ${userContext.participantId} in ${meetingUUID.meetingUUID}`);
+            socket.send(JSON.stringify({
+              type: 'register',
+              meetingUUID: meetingUUID.meetingUUID,
+              userID: userContext.participantId
+            }));
+          } else {
+            socket.onopen = () => {
+              console.log('✅ WebSocket connected');
+              console.log(`[Frontend] Registering client: ${userContext.participantId} in ${meetingUUID.meetingUUID}`);
+              socket.send(JSON.stringify({
+                type: 'register',
+                meetingUUID: meetingUUID.meetingUUID,
+                userID: userContext.participantId
+              }));
+            };
+          }
+        }
 
         // Attach button event listeners
         startRtmsBtn.addEventListener('click', async () => {

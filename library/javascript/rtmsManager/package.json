@@ -1,0 +1,12 @@
+{
+  "name": "rtms-manager",
+  "version": "1.0.0",
+  "description": "Zoom RTMS SDK Library",
+  "main": "RTMSManager.js",
+  "type": "module",
+  "dependencies": {
+    "ws": "^8.16.0",
+    "express": "^4.21.2",
+    "node-fetch": "^3.3.2"
+  }
+}
