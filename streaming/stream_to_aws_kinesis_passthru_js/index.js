@@ -29,9 +29,8 @@ const WEBHOOK_PATH = process.env.WEBHOOK_PATH || '/webhook';
 // Middleware to parse JSON bodies in incoming requests
 app.use(express.json());
 
-// Map to keep track of active WebSocket connections and audio chunks
 const activeConnections = new Map();
-
+const RECONNECT_DELAY = 3000;
 
 // Handle POST requests to the webhook endpoint
 app.post(WEBHOOK_PATH, (req, res) => {
@@ -54,29 +53,16 @@ app.post(WEBHOOK_PATH, (req, res) => {
         });
     }
 
-    // Handle RTMS started event
     if (event === 'meeting.rtms_started') {
         console.log('RTMS Started event received');
         const { meeting_uuid, rtms_stream_id, server_urls } = payload;
-        // Initiate connection to the signaling WebSocket server
         connectToSignalingWebSocket(meeting_uuid, rtms_stream_id, server_urls);
     }
 
-    // Handle RTMS stopped event
     if (event === 'meeting.rtms_stopped') {
         console.log('RTMS Stopped event received');
-        const { meeting_uuid } = payload;
-
-        // Close all active WebSocket connections for the given meeting UUID
-        if (activeConnections.has(meeting_uuid)) {
-            const connections = activeConnections.get(meeting_uuid);
-            for (const conn of Object.values(connections)) {
-                if (conn && typeof conn.close === 'function') {
-                    conn.close();
-                }
-            }
-            activeConnections.delete(meeting_uuid);
-        }
+        const { rtms_stream_id } = payload;
+        stopStreaming(rtms_stream_id);
     }
 });
 
@@ -91,20 +77,22 @@ function generateSignature(CLIENT_ID, meetingUuid, streamId, CLIENT_SECRET) {
     return crypto.createHmac('sha256', CLIENT_SECRET).update(message).digest('hex');
 }
 
-// Function to connect to the signaling WebSocket server
 function connectToSignalingWebSocket(meetingUuid, streamId, serverUrl) {
-    console.log(`Connecting to signaling WebSocket for meeting ${meetingUuid}`);
+    console.log(`Connecting to signaling WebSocket for stream ${streamId}`);
 
     const ws = new WebSocket(serverUrl);
 
-    // Store connection for cleanup later
-    if (!activeConnections.has(meetingUuid)) {
-        activeConnections.set(meetingUuid, {});
+    if (!activeConnections.has(streamId)) {
+        activeConnections.set(streamId, { shouldReconnect: true });
     }
-    activeConnections.get(meetingUuid).signaling = ws;
+    const conn = activeConnections.get(streamId);
+    conn.signaling = ws;
+    conn.meetingUuid = meetingUuid;
+    conn.streamId = streamId;
+    conn.serverUrl = serverUrl;
 
     ws.on('open', () => {
-        console.log(`Signaling WebSocket connection opened for meeting ${meetingUuid}`);
+        console.log(`Signaling WebSocket connection opened for stream ${streamId}`);
         const signature = generateSignature(
             CLIENT_ID,
             meetingUuid,
@@ -155,22 +143,29 @@ function connectToSignalingWebSocket(meetingUuid, streamId, serverUrl) {
 
     ws.on('close', () => {
         console.log('Signaling socket closed');
-        if (activeConnections.has(meetingUuid)) {
-            delete activeConnections.get(meetingUuid).signaling;
+        const conn = activeConnections.get(streamId);
+        if (conn) {
+            delete conn.signaling;
+            if (conn.shouldReconnect) {
+                console.log(`🔄 Signaling reconnecting in ${RECONNECT_DELAY}ms...`);
+                setTimeout(() => {
+                    if (conn.shouldReconnect) {
+                        connectToSignalingWebSocket(conn.meetingUuid, streamId, conn.serverUrl);
+                    }
+                }, RECONNECT_DELAY);
+            }
         }
     });
 }
 
-// Function to connect to the media WebSocket server
 function connectToMediaWebSocket(mediaUrl, meetingUuid, streamId, signalingSocket) {
     console.log(`Connecting to media WebSocket at ${mediaUrl}`);
 
     const mediaWs = new WebSocket(mediaUrl, { rejectUnauthorized: false });
 
-    // Store connection for cleanup later
-    if (activeConnections.has(meetingUuid)) {
-        activeConnections.get(meetingUuid).media = mediaWs;
-    }
+    const conn = activeConnections.get(streamId);
+    conn.media = mediaWs;
+    conn.mediaUrl = mediaUrl;
 
 
 
@@ -271,13 +266,40 @@ function connectToMediaWebSocket(mediaUrl, meetingUuid, streamId, signalingSocke
     });
 
     mediaWs.on('close', () => {
-        console.log('Media socket closed');
-        if (activeConnections.has(meetingUuid)) {
-            delete activeConnections.get(meetingUuid).media;
+        console.log('🛑 Media WebSocket closed');
+        const conn = activeConnections.get(streamId);
+        if (conn) {
+            delete conn.media;
+            if (conn.shouldReconnect && conn.signaling?.readyState === WebSocket.OPEN) {
+                console.log(`🔄 Media reconnecting in ${RECONNECT_DELAY}ms...`);
+                setTimeout(() => {
+                    if (conn.shouldReconnect) {
+                        connectToMediaWebSocket(conn.mediaUrl, conn.meetingUuid, streamId, conn.signaling);
+                    }
+                }, RECONNECT_DELAY);
+            } else if (conn.shouldReconnect) {
+                console.log('🔄 Signaling not ready, will reconnect media after signaling reconnects');
+            }
         }
     });
 }
 
+function stopStreaming(streamId) {
+    const conn = activeConnections.get(streamId);
+    if (!conn) return;
+
+    conn.shouldReconnect = false;
+
+    if (conn.media) {
+        conn.media.close();
+    }
+    if (conn.signaling) {
+        conn.signaling.close();
+    }
+
+    activeConnections.delete(streamId);
+    console.log(`🛑 Stopped streaming for stream: ${streamId}`);
+}
 
 // Start the server and listen on the specified port
 app.listen(port, () => {

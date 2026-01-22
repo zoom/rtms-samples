@@ -52,8 +52,8 @@ const WEBHOOK_PATH = process.env.WEBHOOK_PATH || '/webhook';
 // Middleware to parse JSON bodies in incoming requests
 app.use(express.json());
 
-// Map to keep track of active WebSocket connections and audio chunks
 const activeConnections = new Map();
+const RECONNECT_DELAY = 3000;
 
 // Handle POST requests to the webhook endpoint
 app.post(WEBHOOK_PATH, (req, res) => {
@@ -76,19 +76,16 @@ app.post(WEBHOOK_PATH, (req, res) => {
         });
     }
 
-    // Handle RTMS started event
     if (event === 'meeting.rtms_started') {
         console.log('RTMS Started event received');
         const { meeting_uuid, rtms_stream_id, server_urls } = payload;
-        // Initiate connection to the signaling WebSocket server
         connectToSignalingWebSocket(meeting_uuid, rtms_stream_id, server_urls);
     }
 
-    // Handle RTMS stopped event
     if (event === 'meeting.rtms_stopped') {
         console.log('RTMS Stopped event received');
-        const { meeting_uuid } = payload;
-        stopMeetingStreaming(meeting_uuid);
+        const { rtms_stream_id } = payload;
+        stopStreaming(rtms_stream_id);
     }
 });
 
@@ -103,20 +100,22 @@ function generateSignature(CLIENT_ID, meetingUuid, streamId, CLIENT_SECRET) {
     return crypto.createHmac('sha256', CLIENT_SECRET).update(message).digest('hex');
 }
 
-// Function to connect to the signaling WebSocket server
 function connectToSignalingWebSocket(meetingUuid, streamId, serverUrl) {
-    console.log(`Connecting to signaling WebSocket for meeting ${meetingUuid}`);
+    console.log(`Connecting to signaling WebSocket for stream ${streamId}`);
 
     const ws = new WebSocket(serverUrl);
 
-    // Store connection for cleanup later
-    if (!activeConnections.has(meetingUuid)) {
-        activeConnections.set(meetingUuid, {});
+    if (!activeConnections.has(streamId)) {
+        activeConnections.set(streamId, { shouldReconnect: true });
     }
-    activeConnections.get(meetingUuid).signaling = ws;
+    const conn = activeConnections.get(streamId);
+    conn.signaling = ws;
+    conn.meetingUuid = meetingUuid;
+    conn.streamId = streamId;
+    conn.serverUrl = serverUrl;
 
     ws.on('open', () => {
-        console.log(`Signaling WebSocket connection opened for meeting ${meetingUuid}`);
+        console.log(`Signaling WebSocket connection opened for stream ${streamId}`);
         const signature = generateSignature(
             CLIENT_ID,
             meetingUuid,
@@ -167,8 +166,17 @@ function connectToSignalingWebSocket(meetingUuid, streamId, serverUrl) {
 
     ws.on('close', () => {
         console.log('Signaling socket closed');
-        if (activeConnections.has(meetingUuid)) {
-            delete activeConnections.get(meetingUuid).signaling;
+        const conn = activeConnections.get(streamId);
+        if (conn) {
+            delete conn.signaling;
+            if (conn.shouldReconnect) {
+                console.log(`🔄 Signaling reconnecting in ${RECONNECT_DELAY}ms...`);
+                setTimeout(() => {
+                    if (conn.shouldReconnect) {
+                        connectToSignalingWebSocket(conn.meetingUuid, streamId, conn.serverUrl);
+                    }
+                }, RECONNECT_DELAY);
+            }
         }
     });
 }
@@ -176,30 +184,28 @@ function connectToSignalingWebSocket(meetingUuid, streamId, serverUrl) {
 function connectToMediaWebSocket(mediaUrl, meetingUuid, streamId, signalingSocket) {
     console.log(`Connecting to media WebSocket at ${mediaUrl}`);
 
-    // Start IVS streaming
     const { videoStream, audioStream, ffmpeg } = startIVSStream();
 
-    // Store streams in activeConnections map
-    activeConnections.get(meetingUuid).streams = { videoStream, audioStream };
-    activeConnections.get(meetingUuid).ffmpegProcess = ffmpeg;
+    const conn = activeConnections.get(streamId);
+    conn.streams = { videoStream, audioStream };
+    conn.ffmpegProcess = ffmpeg;
+    conn.mediaUrl = mediaUrl;
 
-    // Buffers for synchronization
     let audioBuffer = [];
     let videoBuffer = [];
     let muxTimer;
 
-    // Function to start mux timer after first media is received
     const startMuxTimer = () => {
-        if (muxTimer) return; // Already started
+        if (muxTimer) return;
 
         console.log('📡 First media received - starting mux timer');
 
         let lastVideoTimestamp = null;
-
         let isFirstRun = true;
+
         muxTimer = setInterval(() => {
             const now = Date.now();
-            if (!activeConnections.has(meetingUuid)) return; // Stop if connection cleaned up
+            if (!activeConnections.has(streamId)) return;
             // Sort buffers by timestamp to handle out-of-order packets
 
             videoBuffer.sort((a, b) => a.timestamp - b.timestamp);
@@ -245,16 +251,13 @@ function connectToMediaWebSocket(mediaUrl, meetingUuid, streamId, signalingSocke
             }
             videoToWrite = blackVideoBuffer40ms;
 
-        }, 40); // 40ms intervals for 25fps sync
+        }, 40);
 
-        // Store timer for cleanup
-        activeConnections.get(meetingUuid).muxTimer = muxTimer;
+        activeConnections.get(streamId).muxTimer = muxTimer;
     };
 
     const mediaWs = new WebSocket(mediaUrl, { rejectUnauthorized: false });
-
-    // Store connection for cleanup later
-    activeConnections.get(meetingUuid).media = mediaWs;
+    conn.media = mediaWs;
 
     mediaWs.on('open', () => {
         const signature = generateSignature(CLIENT_ID, meetingUuid, streamId, CLIENT_SECRET);
@@ -305,28 +308,19 @@ function connectToMediaWebSocket(mediaUrl, meetingUuid, streamId, signalingSocke
                 console.log('Responding to Signaling KEEP_ALIVE_REQ:', keepAliveResponse);
                 mediaWs.send(JSON.stringify(keepAliveResponse));
             }
-            // Handle audio data - write immediately
             if (msg.msg_type === 14 && msg.content?.data) {
                 const { data: audioData } = msg.content;
                 const buffer = Buffer.from(audioData, 'base64');
-
-                // Start mux timer on first media
                 startMuxTimer();
-
                 if (audioStream.writable) {
                     audioStream.write(buffer);
                 }
             }
 
-            // Handle video data - buffer with timestamp
             if (msg.msg_type === 15 && msg.content?.data) {
                 const { data: videoData, timestamp } = msg.content;
                 const buffer = Buffer.from(videoData, 'base64');
-
-                // Start mux timer on first media
                 startMuxTimer();
-
-                // Buffer video packet with timestamp
                 videoBuffer.push({ data: buffer, timestamp: timestamp || Date.now() });
             }
         } catch (err) {
@@ -339,47 +333,49 @@ function connectToMediaWebSocket(mediaUrl, meetingUuid, streamId, signalingSocke
     });
 
     mediaWs.on('close', () => {
-        console.log('� Media WebSocket closed');
-        stopStreaming(meetingUuid);
-    });
-
-    function stopStreaming(meetingUuid) {
-        const conn = activeConnections.get(meetingUuid);
-        if (conn?.ffmpegProcess) {
-            console.log('🛑 Stopping FFmpeg process');
-            conn.ffmpegProcess.kill('SIGINT');
-            activeConnections.delete(meetingUuid);
+        console.log('🛑 Media WebSocket closed');
+        const conn = activeConnections.get(streamId);
+        if (conn) {
+            delete conn.media;
+            if (conn.shouldReconnect && conn.signaling?.readyState === WebSocket.OPEN) {
+                console.log(`🔄 Media reconnecting in ${RECONNECT_DELAY}ms...`);
+                setTimeout(() => {
+                    if (conn.shouldReconnect) {
+                        connectToMediaWebSocket(conn.mediaUrl, conn.meetingUuid, streamId, conn.signaling);
+                    }
+                }, RECONNECT_DELAY);
+            } else if (conn.shouldReconnect) {
+                console.log('🔄 Signaling not ready, will reconnect media after signaling reconnects');
+            }
         }
-    }
+    });
 }
 
-// Proper cleanup function for meeting streaming
-function stopMeetingStreaming(meetingUuid) {
-    const conn = activeConnections.get(meetingUuid);
+function stopStreaming(streamId) {
+    const conn = activeConnections.get(streamId);
     if (!conn) return;
 
-    // Close WebSocket first to prevent pipe errors
+    conn.shouldReconnect = false;
+
     if (conn.media) {
-        console.log('🛑 Closing media WebSocket first');
-        conn.media.removeAllListeners('error'); // Ignore errors during shutdown
+        conn.media.removeAllListeners('error');
         conn.media.close();
-        delete conn.media;
+    }
+    if (conn.signaling) {
+        conn.signaling.close();
     }
 
-    // Clear all timers
     if (conn.muxTimer) {
         clearInterval(conn.muxTimer);
-        console.log('🛑 Cleared mux timer');
     }
 
-    // Kill FFmpeg last (pipes will close cleanly)
     if (conn.ffmpegProcess) {
         console.log('🛑 Stopping FFmpeg process');
         conn.ffmpegProcess.kill('SIGINT');
     }
 
-    // Remove from active connections
-    activeConnections.delete(meetingUuid);
+    activeConnections.delete(streamId);
+    console.log(`🛑 Stopped streaming for stream: ${streamId}`);
 }
 
 // Start the server and listen on the specified port

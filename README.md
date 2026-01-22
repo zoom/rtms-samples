@@ -42,15 +42,8 @@ This repository contains sample projects demonstrating how to work with Zoom's R
 │   ├── save_audio_and_video_to_aws_s3_storage_sdk/           # Save to AWS S3 (SDK)
 │   ├── save_audio_and_video_to_azure_blob_storage_js/        # Save to Azure Blob (JS)
 │   └── save_audio_and_video_to_azure_blob_storage_sdk/       # Save to Azure Blob (SDK)
-├── cloud_streaming/
-│   └── stream_to_aws_kinesis_video_stream_js/                # Stream to AWS Kinesis
 ├── event/
 │   └── subscribe_and_print_events_js/                        # Event subscription example
-├── live_streaming/
-│   ├── stream_audio_and_video_to_custom_frontend_js/         # Stream to custom frontend (JS)
-│   ├── stream_audio_and_video_to_custom_frontend_sdk/        # Stream to custom frontend (SDK)
-│   ├── stream_audio_and_video_to_youtube_js/                 # Stream to YouTube (JS)
-│   └── stream_audio_and_video_to_youtube_sdk/                # Stream to YouTube (SDK)
 ├── model_context_protocol/
 │   └── zoom-rtms-mcp-client/                                 # MCP client for RTMS
 ├── recording/
@@ -67,6 +60,13 @@ This repository contains sample projects demonstrating how to work with Zoom's R
 ├── screen_share/
 │   ├── save_screen_share_js/                                 # Save screen share frames (JPEG/PNG/H264)
 │   └── save_screen_share_pdf_js/                             # Save screen share as PDF
+├── streaming/                                                # (Advanced) Real-time streaming samples
+│   ├── stream_audio_and_video_to_custom_frontend_passthru_js/    # Stream to HLS (passthru)
+│   ├── stream_audio_and_video_to_custom_frontend_sdk/            # Stream to custom frontend (SDK)
+│   ├── stream_audio_and_video_to_youtube_greedy_gap_filler_js/   # Stream to YouTube (greedy gap filler)
+│   ├── stream_to_aws_ivs_gap_filler_js/                          # Stream to AWS IVS (gap filler)
+│   ├── stream_to_aws_ivs_jitter_buffer_js/                       # Stream to AWS IVS (jitter buffer)
+│   └── stream_to_aws_kinesis_passthru_js/                        # Stream to AWS Kinesis (passthru)
 ├── transcript/
 │   ├── save_transcript_js/                                   # Save transcripts (VTT/SRT/TXT)
 │   ├── send_transcript_to_claude_js/                         # Send to Claude AI
