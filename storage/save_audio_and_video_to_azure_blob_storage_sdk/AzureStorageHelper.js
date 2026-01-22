@@ -1,4 +1,5 @@
 import { BlobServiceClient } from "@azure/storage-blob";
+import { UUIDHelper } from '../../library/javascript/commonHelpers/filename/UUIDHelper.js';
 import fs from "fs";
 import path from "path";
 import dotenv from "dotenv";
@@ -6,12 +7,23 @@ import dotenv from "dotenv";
 dotenv.config();
 
 const AZURE_STORAGE_CONNECTION_STRING = process.env.AZURE_STORAGE_CONNECTION_STRING;
-const blobServiceClient = BlobServiceClient.fromConnectionString(AZURE_STORAGE_CONNECTION_STRING);
 
 const allowedExtensions = ['.wav', '.mp4', '.vtt', '.srt', '.txt'];
 
-function sanitizeName(name) {
-  return name.replace(/[<>:"/\\|?*=\s]/g, '_');
+function getBlobServiceClient() {
+  if (!AZURE_STORAGE_CONNECTION_STRING) {
+    throw new Error('AZURE_STORAGE_CONNECTION_STRING environment variable is not set. Please configure it in your .env file.');
+  }
+  
+  if (!AZURE_STORAGE_CONNECTION_STRING.includes('AccountName=') || !AZURE_STORAGE_CONNECTION_STRING.includes('AccountKey=')) {
+    throw new Error('AZURE_STORAGE_CONNECTION_STRING appears to be invalid. It should contain AccountName and AccountKey.');
+  }
+
+  try {
+    return BlobServiceClient.fromConnectionString(AZURE_STORAGE_CONNECTION_STRING);
+  } catch (error) {
+    throw new Error(`Failed to create Azure Blob Service Client: ${error.message}. Check your AZURE_STORAGE_CONNECTION_STRING.`);
+  }
 }
 
 function getContentTypeByExtension(filename) {
@@ -26,10 +38,14 @@ function getContentTypeByExtension(filename) {
   }
 }
 
-export async function saveToAzure(meetingUuid) {
-  console.log(`📁 Preparing to upload files for meeting: ${meetingUuid}`);
-  const safeMeetingUuid = sanitizeName(meetingUuid);
-  const folderPath = path.join('recordings', safeMeetingUuid);
+export async function saveToAzure(meetingUuid, streamId) {
+  console.log(`📁 Preparing to upload files for meeting: ${meetingUuid}, stream: ${streamId}`);
+  
+  const blobServiceClient = getBlobServiceClient();
+  
+  const safeMeetingUuid = UUIDHelper.sanitize(meetingUuid);
+  const safeStreamId = UUIDHelper.sanitize(streamId);
+  const folderPath = path.join('recordings', safeMeetingUuid, safeStreamId);
 
   console.log(`📂 Checking local folder: ${folderPath}`);
 
@@ -48,24 +64,38 @@ export async function saveToAzure(meetingUuid) {
     return;
   }
 
-  const safeContainerName = sanitizeName('rtms'); // You can adjust this
-  const containerClient = blobServiceClient.getContainerClient(safeContainerName);
-  const exists = await containerClient.exists();
-  if (!exists) {
-    console.log(`🆕 Container ${safeContainerName} not found. Creating...`);
-    await containerClient.create();
-  } else {
-    console.log(`✅ Container ${safeContainerName} exists.`);
+  const containerName = 'rtms';
+  const containerClient = blobServiceClient.getContainerClient(containerName);
+  
+  try {
+    const exists = await containerClient.exists();
+    if (!exists) {
+      console.log(`🆕 Container ${containerName} not found. Creating...`);
+      await containerClient.create();
+    } else {
+      console.log(`✅ Container ${containerName} exists.`);
+    }
+  } catch (error) {
+    if (error.code === 'ENOTFOUND') {
+      throw new Error(`Cannot connect to Azure Storage. The storage account name in your connection string may be incorrect. Error: ${error.message}`);
+    }
+    if (error.code === 'AuthenticationFailed' || error.statusCode === 403) {
+      throw new Error(`Azure authentication failed. Check your AccountKey in AZURE_STORAGE_CONNECTION_STRING. Error: ${error.message}`);
+    }
+    throw new Error(`Failed to access Azure container: ${error.message}`);
   }
+
+  let successCount = 0;
+  let failCount = 0;
 
   for (const file of files) {
     const localFilePath = path.join(folderPath, file);
     console.log(`📄 Processing file: ${file}`);
 
-    const blobName = `${safeMeetingUuid}/${file}`; // Same logic: meetingUuid as "folder" inside container
+    const blobName = `${safeMeetingUuid}/${safeStreamId}/${file}`;
     const contentType = getContentTypeByExtension(file);
 
-    console.log(`🚀 Uploading ${file} to Azure container ${safeContainerName} as blob: ${blobName}`);
+    console.log(`🚀 Uploading ${file} to Azure container ${containerName} as blob: ${blobName}`);
 
     const blockBlobClient = containerClient.getBlockBlobClient(blobName);
     const uploadStream = fs.createReadStream(localFilePath);
@@ -77,10 +107,16 @@ export async function saveToAzure(meetingUuid) {
     try {
       await blockBlobClient.uploadStream(uploadStream, undefined, undefined, uploadOptions);
       console.log(`✅ Successfully uploaded: ${blobName} (Content-Type: ${contentType})`);
+      successCount++;
     } catch (error) {
-      console.error(`❌ Failed to upload ${file}:`, error);
+      console.error(`❌ Failed to upload ${file}:`, error.message);
+      failCount++;
     }
   }
 
-  console.log(`🏁 Finished uploading all allowed files for meeting ${meetingUuid}`);
+  console.log(`🏁 Finished Azure upload for meeting ${meetingUuid}: ${successCount} succeeded, ${failCount} failed`);
+  
+  if (failCount > 0) {
+    throw new Error(`${failCount} file(s) failed to upload to Azure`);
+  }
 }

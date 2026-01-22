@@ -1,7 +1,7 @@
 import { RTMSManager } from '../../library/javascript/rtmsManager/RTMSManager.js';
 import WebhookManager from '../../library/javascript/webhookManager/WebhookManager.js';
 import WebsocketManager from '../../library/javascript/webSocketManager/WebsocketManager.js';
-import HelperManager from '../../library/javascript/commonHelpers/HelperManager.js';
+import HelperManager, { VideoGapFiller } from '../../library/javascript/commonHelpers/HelperManager.js';
 import dotenv from 'dotenv';
 import path from 'path';
 import { fileURLToPath } from 'url';
@@ -35,9 +35,10 @@ const websocketCredentials = {
 };
 
 const rtmsConfig = {
-  enableRealTimeAudioVideoGapFiller: true,
+  logging: process.env.LOG_LEVEL || 'info',
+  logDir: path.join(__dirname, 'logs'),
   mediaSocketConnectionMode: process.env.MEDIA_SOCKET_CONNECTION_MODE || 'split',
-  mediaTypesFlag: parseInt(process.env.MEDIA_TYPES_FLAG || '3'), // Audio + Video
+  mediaTypesFlag: parseInt(process.env.MEDIA_TYPES_FLAG || '3'),
   credentials: {
     meeting: {
       clientId: process.env.ZOOM_CLIENT_ID,
@@ -59,7 +60,7 @@ const rtmsConfig = {
       channel: MEDIA_PARAMS.AUDIO_CHANNEL_MONO,
       codec: MEDIA_PARAMS.MEDIA_PAYLOAD_TYPE_L16,
       dataOpt: MEDIA_PARAMS.MEDIA_DATA_OPTION_AUDIO_MIXED_STREAM,
-      sendRate: 100,
+      sendRate: 20,
     },
     video: {
       codec: MEDIA_PARAMS.MEDIA_PAYLOAD_TYPE_H264,
@@ -73,14 +74,11 @@ const rtmsConfig = {
 console.log('[Consumer] App Configuration:', appConfig);
 console.log('[Consumer] RTMS Configuration:', RTMSManager.redactSecrets(rtmsConfig));
 
-// 1. Create Express App and HTTP Server
 const app = express();
 const server = http.createServer(app);
 
-// 2. Initialize RTMS Manager (Core Logic)
 await RTMSManager.init(rtmsConfig);
 
-// 3. Initialize Event Source Managers based on config
 if (appConfig.managerType === 'webhook') {
   const webhookManager = new WebhookManager({
     config: {
@@ -117,17 +115,26 @@ if (appConfig.managerType === 'webhook') {
   console.log('[Consumer] Websocket Manager initialized');
 }
 
-// 4. Register media/event handlers
+const meetingState = new Map();
+
 RTMSManager.on('audio', ({ buffer, userId, userName, timestamp, meetingId, streamId, productType }) => {
-  const audioDetails = RTMSManager.getAudioDetails(streamId) || {};
-  const isMixed = audioDetails.data_opt === RTMSManager.MEDIA_PARAMS.MEDIA_DATA_OPTION_AUDIO_MIXED_STREAM;
-  HelperManager.audio.saveRawAudio(buffer, meetingId, userId, timestamp, streamId, isMixed);
+  HelperManager.audio.saveRawAudio(buffer, meetingId, 'mixed', timestamp, streamId, true);
 });
 
 RTMSManager.on('video', ({ buffer, userId, userName, timestamp, meetingId, streamId, productType }) => {
-  const videoDetails = RTMSManager.getVideoDetails(streamId) || {};
-  const isMixed = videoDetails.data_opt === RTMSManager.MEDIA_PARAMS.MEDIA_DATA_OPTION_VIDEO_SINGLE_ACTIVE_STREAM;
-  HelperManager.video.saveRawVideo(buffer, userId, timestamp, meetingId, streamId, isMixed);
+  if (!meetingState.has(meetingId)) {
+    console.log(`[Consumer] First video for meeting ${meetingId} - creating VideoGapFiller`);
+    const videoFiller = new VideoGapFiller({ fps: 25, gapThreshold: 320 });
+    
+    videoFiller.on('data', ({ buffer: videoBuffer, timestamp: ts, isFiller }) => {
+      HelperManager.video.saveRawVideo(videoBuffer, 'mixed', ts, meetingId, streamId, true);
+    });
+    
+    videoFiller.start();
+    meetingState.set(meetingId, { videoFiller, streamId });
+  }
+  
+  meetingState.get(meetingId).videoFiller.push(buffer, timestamp);
 });
 
 RTMSManager.on('transcript', ({ text, userId, userName, timestamp, meetingId, streamId, productType }) => {
@@ -138,17 +145,15 @@ RTMSManager.on('meeting.rtms_stopped', async (payload) => {
   const { meeting_uuid, rtms_stream_id } = payload;
   console.log(`[Consumer] RTMS stopped for meeting ${meeting_uuid}`);
 
-  const audioDetails = RTMSManager.getAudioDetails(rtms_stream_id) || {};
-  const videoDetails = RTMSManager.getVideoDetails(rtms_stream_id) || {};
-  const isAudioMixed = audioDetails.data_opt === RTMSManager.MEDIA_PARAMS.MEDIA_DATA_OPTION_AUDIO_MIXED_STREAM;
-  const isVideoMixed = videoDetails.data_opt === RTMSManager.MEDIA_PARAMS.MEDIA_DATA_OPTION_VIDEO_SINGLE_ACTIVE_STREAM;
+  const state = meetingState.get(meeting_uuid);
+  if (state) {
+    state.videoFiller.stop();
+    meetingState.delete(meeting_uuid);
+  }
 
   setTimeout(async () => {
     await HelperManager.audiovideo.convertMeetingMedia(meeting_uuid, rtms_stream_id);
-
-    if (isAudioMixed && isVideoMixed) {
-      await HelperManager.audiovideo.muxMixedAudioVideo(meeting_uuid, rtms_stream_id);
-    }
+    await HelperManager.audiovideo.muxMixedAudioVideo(meeting_uuid, rtms_stream_id);
 
     console.log(`[Consumer] Local save complete for meeting ${meeting_uuid}`);
 
@@ -174,7 +179,6 @@ RTMSManager.on('session_state_changed', (eventData) => {
   console.log('[Consumer] Session state changed:', eventData);
 });
 
-// 5. Start the Server and RTMS Manager
 await RTMSManager.start();
 
 server.listen(appConfig.port, () => {
@@ -183,6 +187,10 @@ server.listen(appConfig.port, () => {
 
 process.on('SIGINT', async () => {
   console.log('[Consumer] Shutting down...');
+  for (const [meetingId, state] of meetingState) {
+    state.videoFiller.stop();
+  }
+  meetingState.clear();
   server.close();
   await RTMSManager.stop();
   process.exit(0);

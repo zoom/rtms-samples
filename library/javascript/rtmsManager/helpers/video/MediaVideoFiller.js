@@ -10,9 +10,9 @@ export class MediaVideoFiller extends EventEmitter {
         this.streamId = streamId;
         this.userId = userId;
         this.startTime = startTime || Date.now();
-        this.expectedTimestamp = this.startTime;
+        this.expectedTimestamp = null; // Will be set from first packet
+        this.isFirstPacket = true;
 
-        // Calculate frame duration based on FPS (default 25fps -> 40ms)
         const fps = videoDetails.fps || 25;
         this.frameDuration = Math.floor(1000 / fps);
         this.timerInterval = this.frameDuration;
@@ -42,60 +42,70 @@ export class MediaVideoFiller extends EventEmitter {
     }
 
     tick() {
-        // Buffer is kept sorted via insertSorted() - no need to sort every tick
+        if (this.buffer.length === 0) {
+            return;
+        }
+
+        if (this.isFirstPacket) {
+            const firstPacket = this.buffer.shift();
+            this.expectedTimestamp = firstPacket.timestamp;
+            this.isFirstPacket = false;
+            console.log(`[MediaVideoFiller] Synced to first packet timestamp: ${this.expectedTimestamp}ms`);
+            this.emit('data', firstPacket.data, this.userId, firstPacket.timestamp, this.meetingUuid, this.streamId);
+            return;
+        }
+
+        const candidate = this.buffer[0];
+        const timeDiff = candidate.timestamp - this.expectedTimestamp;
         let dataToEmit;
         let timestampToEmit = this.expectedTimestamp;
         let isFiller = false;
 
-        if (this.buffer.length > 0) {
-            const candidate = this.buffer[0];
-            const timeDiff = candidate.timestamp - this.expectedTimestamp;
-
-            // If the candidate is within a reasonable window (e.g., < 3x frameduration for video to handle jitter)
-            if (timeDiff < this.frameDuration*3) {
-                const packet = this.buffer.shift();
-                dataToEmit = packet.data;
-                // Update expected timestamp to the actual packet timestamp to stay in sync with source
-                this.expectedTimestamp = packet.timestamp;
-                timestampToEmit = packet.timestamp;
-            } else if (timeDiff < 0) {
-                // Packet is from the past, drop it to catch up
-                this.buffer.shift();
-                return; // Skip this tick
-            } else {
-                // Gap detected: emit black frame
-                dataToEmit = this.blackFrame;
-                this.expectedTimestamp += this.frameDuration;
-                isFiller = true;
-            }
+        if (Math.abs(timeDiff) < this.frameDuration * 3) {
+            const packet = this.buffer.shift();
+            dataToEmit = packet.data;
+            this.expectedTimestamp = packet.timestamp + this.frameDuration;
+            timestampToEmit = packet.timestamp;
+        } else if (timeDiff < -this.frameDuration * 10) {
+            // Large gap behind - RESYNC to new timestamp instead of dropping
+            const packet = this.buffer.shift();
+            console.log(`[MediaVideoFiller] Resyncing after large gap: ${timeDiff}ms behind, jumping to ${packet.timestamp}ms`);
+            dataToEmit = packet.data;
+            this.expectedTimestamp = packet.timestamp + this.frameDuration;
+            timestampToEmit = packet.timestamp;
+        } else if (timeDiff < 0) {
+            // Small gap behind - drop packet
+            this.buffer.shift();
+            return;
         } else {
-            // No data in buffer: emit black frame
             dataToEmit = this.blackFrame;
             this.expectedTimestamp += this.frameDuration;
             isFiller = true;
         }
 
-        // If it's the first frame or we are filling a gap, we might want to prepend SPS/PPS
-        // For simplicity, we just emit the frame. 
-        // If we want to be more robust, we could prepend this.spsPpsKeyframe to the first filler frame
-
         if (isFiller) {
-            // Only log if the gap is significant (e.g., > 320ms) to avoid spamming
-            const now = Date.now();
-            if (!this.lastFillerLog || now - this.lastFillerLog > 1000) {
-                console.log(`[MediaVideoFiller] 🎥 Filling gap for ${this.userId} at ${timestampToEmit}ms (Buffer size: ${this.buffer.length}, Data size: ${dataToEmit.length})`);
-                this.lastFillerLog = now;
-            }
+            this.logFiller(timestampToEmit, dataToEmit.length);
         } else {
-            // Log real data emission occasionally for debugging
-            const now = Date.now();
-            if (!this.lastRealLog || now - this.lastRealLog > 5000) {
-                console.log(`[MediaVideoFiller] Emitting real video for ${this.userId} at ${timestampToEmit}ms (Data size: ${dataToEmit.length})`);
-                this.lastRealLog = now;
-            }
+            this.logReal(timestampToEmit, dataToEmit.length);
         }
 
         this.emit('data', dataToEmit, this.userId, timestampToEmit, this.meetingUuid, this.streamId);
+    }
+
+    logFiller(timestamp, dataSize) {
+        const now = Date.now();
+        if (!this.lastFillerLog || now - this.lastFillerLog > 1000) {
+            console.log(`[MediaVideoFiller] 🎥 Filling gap for ${this.userId} at ${timestamp}ms (Buffer: ${this.buffer.length}, Size: ${dataSize})`);
+            this.lastFillerLog = now;
+        }
+    }
+
+    logReal(timestamp, dataSize) {
+        const now = Date.now();
+        if (!this.lastRealLog || now - this.lastRealLog > 5000) {
+            console.log(`[MediaVideoFiller] Emitting real video for ${this.userId} at ${timestamp}ms (Size: ${dataSize})`);
+            this.lastRealLog = now;
+        }
     }
 
     processBuffer(data, timestamp) {

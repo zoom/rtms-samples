@@ -7,9 +7,24 @@ import dotenv from "dotenv";
 dotenv.config();
 
 const AZURE_STORAGE_CONNECTION_STRING = process.env.AZURE_STORAGE_CONNECTION_STRING;
-const blobServiceClient = BlobServiceClient.fromConnectionString(AZURE_STORAGE_CONNECTION_STRING);
 
 const allowedExtensions = ['.wav', '.mp4', '.vtt', '.srt', '.txt'];
+
+function getBlobServiceClient() {
+  if (!AZURE_STORAGE_CONNECTION_STRING) {
+    throw new Error('AZURE_STORAGE_CONNECTION_STRING environment variable is not set. Please configure it in your .env file.');
+  }
+  
+  if (!AZURE_STORAGE_CONNECTION_STRING.includes('AccountName=') || !AZURE_STORAGE_CONNECTION_STRING.includes('AccountKey=')) {
+    throw new Error('AZURE_STORAGE_CONNECTION_STRING appears to be invalid. It should contain AccountName and AccountKey.');
+  }
+
+  try {
+    return BlobServiceClient.fromConnectionString(AZURE_STORAGE_CONNECTION_STRING);
+  } catch (error) {
+    throw new Error(`Failed to create Azure Blob Service Client: ${error.message}. Check your AZURE_STORAGE_CONNECTION_STRING.`);
+  }
+}
 
 function getContentTypeByExtension(filename) {
   const ext = path.extname(filename).toLowerCase();
@@ -25,6 +40,9 @@ function getContentTypeByExtension(filename) {
 
 export async function saveToAzure(meetingUuid, streamId) {
   console.log(`📁 Preparing to upload files for meeting: ${meetingUuid}, stream: ${streamId}`);
+  
+  const blobServiceClient = getBlobServiceClient();
+  
   const safeMeetingUuid = UUIDHelper.sanitize(meetingUuid);
   const safeStreamId = UUIDHelper.sanitize(streamId);
   const folderPath = path.join('recordings', safeMeetingUuid, safeStreamId);
@@ -48,12 +66,23 @@ export async function saveToAzure(meetingUuid, streamId) {
 
   const containerName = 'rtms';
   const containerClient = blobServiceClient.getContainerClient(containerName);
-  const exists = await containerClient.exists();
-  if (!exists) {
-    console.log(`🆕 Container ${containerName} not found. Creating...`);
-    await containerClient.create();
-  } else {
-    console.log(`✅ Container ${containerName} exists.`);
+  
+  try {
+    const exists = await containerClient.exists();
+    if (!exists) {
+      console.log(`🆕 Container ${containerName} not found. Creating...`);
+      await containerClient.create();
+    } else {
+      console.log(`✅ Container ${containerName} exists.`);
+    }
+  } catch (error) {
+    if (error.code === 'ENOTFOUND') {
+      throw new Error(`Cannot connect to Azure Storage. The storage account name in your connection string may be incorrect. Error: ${error.message}`);
+    }
+    if (error.code === 'AuthenticationFailed' || error.statusCode === 403) {
+      throw new Error(`Azure authentication failed. Check your AccountKey in AZURE_STORAGE_CONNECTION_STRING. Error: ${error.message}`);
+    }
+    throw new Error(`Failed to access Azure container: ${error.message}`);
   }
 
   let successCount = 0;

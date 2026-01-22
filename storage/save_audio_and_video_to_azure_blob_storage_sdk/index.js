@@ -1,106 +1,89 @@
-
-
-import { saveRawAudio } from './saveRawAudio.js';
-import { saveRawVideo } from './saveRawVideo.js';
-
-import { convertMeetingMedia } from './convertMeetingMedia.js';
-import { muxFirstAudioVideo } from './muxFirstAudioVideo.js';
-
+import HelperManager, { VideoGapFiller } from '../../library/javascript/commonHelpers/HelperManager.js';
 import { saveToAzure } from './AzureStorageHelper.js';
-
-
-
-// Load secrets from .env
 import dotenv from 'dotenv';
-dotenv.config();
-// Import the RTMS SDK
 import rtms from "@zoom/rtms";
 
-let meetingUUID;
+dotenv.config();
 
-// Set up webhook event handler to receive RTMS events from Zoom
+const meetingState = new Map();
+
 rtms.onWebhookEvent(async ({ event, payload }) => {
-  console.log(`Received webhook event: ${event}`);
+    console.log(`Received webhook event: ${event}`);
 
+    if (event === "meeting.rtms_started") {
+        const meetingUuid = payload.meeting_uuid;
+        const streamId = payload.rtms_stream_id;
+        console.log(`[SDK] RTMS started for meeting ${meetingUuid}`);
 
- if (event == "meeting.rtms_started") {
-    console.log(`Received event ${event}, ignoring...`);
-    console.log(payload);
-     meetingUUID=payload.meeting_uuid
-    
-  }
+        const videoFiller = new VideoGapFiller({ fps: 25, gapThreshold: 320 });
+        
+        videoFiller.on('data', ({ buffer, timestamp, isFiller }) => {
+            HelperManager.video.saveRawVideo(buffer, 'mixed', timestamp, meetingUuid, streamId, true);
+        });
+        
+        videoFiller.start();
+        meetingState.set(meetingUuid, { videoFiller, streamId });
+    }
 
-  // Only process webhook events for RTMS start notifications
-  if (event == "meeting.rtms_stopped") {
-    console.log(`Received event ${event}, ignoring...`);
-      await convertMeetingMedia(payload.meeting_uuid);
-      await muxFirstAudioVideo(payload.meeting_uuid);
-      await saveToAzure(payload.meeting_uuid);
-    return;
-  }
-  
-  // Create a client instance for this specific meeting
-  const client = new rtms.Client();
-  
-  
-  // client.setAudioParameters({
+    if (event === "meeting.rtms_stopped") {
+        const meetingUuid = payload.meeting_uuid;
+        const streamId = payload.rtms_stream_id;
+        console.log(`[SDK] RTMS stopped for meeting ${meetingUuid}`);
 
-  //     codec: rtms.AudioCodec.L16,
-  //     /** The sample rate in Hz (e.g., 8000, 16000, 44100) */
-  //     sampleRate:  rtms.AudioSampleRate.SR_16K,
-  //     /** The number of audio channels (1=mono, 2=stereo) */
-  //     channel:  rtms.AudioChannel.MONO,
-  //     /** Additional data options for audio processing */
-  //     dataOpt:  rtms.AudioDataOption.AUDIO_MULTI_STREAMS,
-  //     /** The duration of each audio frame in milliseconds */
-  //     duration: 100,
-  //     /** The size of each audio frame in samples */
-  //     frameSize:640
-    
-
-  // });
-
-
-
-  // Configure HD video (720p H.264 at 30fps)
-  client.setVideoParams({
-    contentType: rtms.VideoContentType.RAW_VIDEO,
-    codec: rtms.VideoCodec.H264,
-    resolution: rtms.VideoResolution.HD,
-    dataOpt: rtms.VideoDataOption.VIDEO_SINGLE_ACTIVE_STREAM,
-    fps:25
-  });
-
-  // Set up video data handler
-  client.onVideoData((data, size, timestamp, metadata) => {
-    //console.log(`Video data: ${size} bytes from ${metadata.userName}`);
-    let buffer = Buffer.from(data, 'base64');
-    
-    saveRawVideo(buffer, metadata.userName, timestamp, meetingUUID);
-  });
-    
-
-  // Set up audio data handler
-  client.onAudioData((data, size, timestamp, metadata) => {
-   // console.log(`Audio data: $  console.log(metadata);
-    if (metadata.userId == null || !meetingUUID) {
-        console.error('Missing metadata: cannot save audio');
-         return;
+        const state = meetingState.get(meetingUuid);
+        if (state) {
+            state.videoFiller.stop();
+            meetingState.delete(meetingUuid);
         }
-    
-    let buffer = Buffer.from(data, 'base64');
-    saveRawAudio(buffer, meetingUUID, metadata.userId);
-  }); 
 
+        setTimeout(async () => {
+            await HelperManager.audiovideo.convertMeetingMedia(meetingUuid, streamId);
+            await HelperManager.audiovideo.muxMixedAudioVideo(meetingUuid, streamId);
 
-  // Set up transcript data handler
-  client.onTranscriptData((data, size, timestamp, metadata) => {
-    console.log(`${metadata.userName}: ${data}`);
-  });
+            console.log(`[SDK] Local save complete for meeting ${meetingUuid}`);
 
-  // Join the meeting using the webhook payload directly
-  client.join(payload);
+            try {
+                await saveToAzure(meetingUuid, streamId);
+                console.log(`[SDK] Azure upload complete for meeting ${meetingUuid}`);
+            } catch (error) {
+                console.error(`[SDK] Azure upload failed for meeting ${meetingUuid}:`, error.message);
+                console.log(`[SDK] Files are still available locally in recordings/`);
+            }
+        }, 2000);
+        return;
+    }
+
+    const client = new rtms.Client();
+    const meetingUuid = payload.meeting_uuid;
+    const streamId = payload.rtms_stream_id;
+
+    client.setVideoParams({
+        contentType: rtms.VideoContentType.RAW_VIDEO,
+        codec: rtms.VideoCodec.H264,
+        resolution: rtms.VideoResolution.HD,
+        dataOpt: rtms.VideoDataOption.VIDEO_SINGLE_ACTIVE_STREAM,
+        fps: 25
+    });
+
+    client.onVideoData((data, size, timestamp, metadata) => {
+        const buffer = Buffer.from(data, 'base64');
+        const ts = Date.now();
+        const state = meetingState.get(meetingUuid);
+        if (state) {
+            state.videoFiller.push(buffer, ts);
+        }
+    });
+
+    client.onAudioData((data, size, timestamp, metadata) => {
+        if (!meetingUuid) return;
+        const buffer = Buffer.from(data, 'base64');
+        const ts = Date.now();
+        HelperManager.audio.saveRawAudio(buffer, meetingUuid, 'mixed', ts, streamId, true);
+    });
+
+    client.onTranscriptData((data, size, timestamp, metadata) => {
+        console.log(`${metadata.userName}: ${data}`);
+    });
+
+    client.join(payload);
 });
-
-
-

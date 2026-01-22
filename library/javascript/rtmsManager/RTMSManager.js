@@ -233,11 +233,13 @@ export class RTMSManager extends EventEmitter {
     // Merge provided options with defaults (handles normalization internally)
     const config = RTMSConfigHelper.merge(options);
 
-    // Configure logging level (default: 'off' for clean output)
+    // Configure logging directory and level
+    if (config.logDir) {
+      FileLogger.setLogDir(config.logDir);
+    }
     if (config.logging && config.logging !== 'off') {
       FileLogger.setLevel(config.logging);
     } else if (!options.logger) {
-      // Default to 'off' unless custom logger provided
       FileLogger.setLevel('off');
     }
 

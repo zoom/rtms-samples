@@ -7,7 +7,8 @@ export class MediaAudioFiller extends EventEmitter {
         this.streamId = streamId;
         this.userId = userId;
         this.startTime = startTime || Date.now();
-        this.expectedTimestamp = this.startTime;
+        this.expectedTimestamp = null; // Will be set from first packet
+        this.isFirstPacket = true;
 
         // Map RTMS sample_rate enum to actual frequency
         const sampleRateMap = {
@@ -38,56 +39,68 @@ export class MediaAudioFiller extends EventEmitter {
     }
 
     tick() {
-        // Buffer is kept sorted via insertSorted() - no need to sort every tick
+        if (this.buffer.length === 0) {
+            return;
+        }
+
+        if (this.isFirstPacket) {
+            const firstPacket = this.buffer.shift();
+            this.expectedTimestamp = firstPacket.timestamp;
+            this.isFirstPacket = false;
+            console.log(`[MediaAudioFiller] Synced to first packet timestamp: ${this.expectedTimestamp}ms`);
+            this.emit('data', firstPacket.data, this.userId, firstPacket.timestamp, this.meetingUuid, this.streamId);
+            return;
+        }
+
+        const candidate = this.buffer[0];
+        const timeDiff = candidate.timestamp - this.expectedTimestamp;
         let dataToEmit;
         let timestampToEmit = this.expectedTimestamp;
         let isFiller = false;
 
-        if (this.buffer.length > 0) {
-            const candidate = this.buffer[0];
-            const timeDiff = candidate.timestamp - this.expectedTimestamp;
-
-            // If the candidate is within a reasonable window (e.g., < 3x of frames duration for audio)
-            if (timeDiff < this.frameDuration*3) {
-                const packet = this.buffer.shift();
-                dataToEmit = packet.data;
-                // Update expected timestamp to the actual packet timestamp to stay in sync with source
-                this.expectedTimestamp = packet.timestamp;
-                timestampToEmit = packet.timestamp;
-            } else if (timeDiff < 0) {
-                // Packet is from the past, drop it to catch up
-                this.buffer.shift();
-                return; // Skip this tick
-            } else {
-                // Gap detected: emit silence
-                dataToEmit = this.generateSilentAudioFrame(this.sampleRate, this.frameDuration);
-                this.expectedTimestamp += this.frameDuration;
-                isFiller = true;
-            }
+        if (Math.abs(timeDiff) < this.frameDuration * 3) {
+            const packet = this.buffer.shift();
+            dataToEmit = packet.data;
+            this.expectedTimestamp = packet.timestamp + this.frameDuration;
+            timestampToEmit = packet.timestamp;
+        } else if (timeDiff < -this.frameDuration * 10) {
+            const packet = this.buffer.shift();
+            console.log(`[MediaAudioFiller] Resyncing after large gap: ${timeDiff}ms behind, jumping to ${packet.timestamp}ms`);
+            dataToEmit = packet.data;
+            this.expectedTimestamp = packet.timestamp + this.frameDuration;
+            timestampToEmit = packet.timestamp;
+        } else if (timeDiff < 0) {
+            this.buffer.shift();
+            return;
         } else {
-            // No data in buffer: emit silence
             dataToEmit = this.generateSilentAudioFrame(this.sampleRate, this.frameDuration);
             this.expectedTimestamp += this.frameDuration;
             isFiller = true;
         }
 
         if (isFiller) {
-            // Only log if the gap is significant to avoid spamming
-            const now = Date.now();
-            if (!this.lastFillerLog || now - this.lastFillerLog > 1000) {
-                console.log(`[MediaAudioFiller] 🔊 Filling gap for ${this.userId} at ${timestampToEmit}ms (Buffer size: ${this.buffer.length}, Data size: ${dataToEmit.length})`);
-                this.lastFillerLog = now;
-            }
+            this.logFiller(timestampToEmit, dataToEmit.length);
         } else {
-            // Log real data emission occasionally for debugging
-            const now = Date.now();
-            if (!this.lastRealLog || now - this.lastRealLog > 5000) {
-                console.log(`[MediaAudioFiller] Emitting real audio for ${this.userId} at ${timestampToEmit}ms (Data size: ${dataToEmit.length})`);
-                this.lastRealLog = now;
-            }
+            this.logReal(timestampToEmit, dataToEmit.length);
         }
 
         this.emit('data', dataToEmit, this.userId, timestampToEmit, this.meetingUuid, this.streamId);
+    }
+
+    logFiller(timestamp, dataSize) {
+        const now = Date.now();
+        if (!this.lastFillerLog || now - this.lastFillerLog > 1000) {
+            console.log(`[MediaAudioFiller] 🔊 Filling gap for ${this.userId} at ${timestamp}ms (Buffer: ${this.buffer.length}, Size: ${dataSize})`);
+            this.lastFillerLog = now;
+        }
+    }
+
+    logReal(timestamp, dataSize) {
+        const now = Date.now();
+        if (!this.lastRealLog || now - this.lastRealLog > 5000) {
+            console.log(`[MediaAudioFiller] Emitting real audio for ${this.userId} at ${timestamp}ms (Size: ${dataSize})`);
+            this.lastRealLog = now;
+        }
     }
 
     generateSilentAudioFrame(sampleRate, durationMs) {

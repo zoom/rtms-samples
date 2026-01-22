@@ -294,6 +294,91 @@ HelperManager.filename.sanitize(...);
 ### Network Helpers (`./commonHelpers/network/networkHelper.js`)
 - **`ServerPinger`**: Utility for pinging Zoom media servers to measure latency and ensure connectivity.
 
+### Gap Filler Utilities (`./commonHelpers/gapfiller/`)
+
+Standalone utilities for handling media gaps during mute or network issues. These are separate from RTMSManager and can be used independently after receiving media events.
+
+#### VideoGapFiller
+Time-based mute detection using wall clock time. Best for streaming scenarios.
+
+```javascript
+import { VideoGapFiller } from './commonHelpers/HelperManager.js';
+
+const videoFiller = new VideoGapFiller({ fps: 25, gapThreshold: 320 });
+
+videoFiller.on('data', ({ buffer, timestamp, isFiller }) => {
+  // Process video (real or filler)
+});
+
+videoFiller.start();
+
+RTMSManager.on('video', ({ buffer, timestamp }) => {
+  videoFiller.push(buffer, timestamp);
+});
+```
+
+| Option | Default | Description |
+|--------|---------|-------------|
+| `fps` | 25 | Frames per second |
+| `gapThreshold` | 320 | Milliseconds before mute detection triggers |
+
+#### VideoJitterBuffer
+Timestamp-based jitter buffer using packet timestamps. Best for recording scenarios where timing precision matters.
+
+```javascript
+import { VideoJitterBuffer } from './commonHelpers/HelperManager.js';
+
+const videoBuffer = new VideoJitterBuffer({ fps: 25, tolerance: 60 });
+
+videoBuffer.on('data', ({ buffer, timestamp, isFiller }) => {
+  // Process video (real or filler)
+});
+
+videoBuffer.start();
+
+RTMSManager.on('video', ({ buffer, timestamp }) => {
+  videoBuffer.push(buffer, timestamp);
+});
+```
+
+| Option | Default | Description |
+|--------|---------|-------------|
+| `fps` | 25 | Frames per second |
+| `tolerance` | 60 | Max timestamp difference (ms) before filling gap |
+
+#### AudioGapFiller
+Time-based audio gap filler. Note: Most use cases don't require audio gap filling since Zoom sends silent buffers during mute.
+
+```javascript
+import { AudioGapFiller } from './commonHelpers/HelperManager.js';
+
+const audioFiller = new AudioGapFiller({ sampleRate: 16000, frameDuration: 20, gapThreshold: 100 });
+
+audioFiller.on('data', ({ buffer, timestamp, isFiller }) => {
+  // Process audio (real or filler)
+});
+
+audioFiller.start();
+
+RTMSManager.on('audio', ({ buffer, timestamp }) => {
+  audioFiller.push(buffer, timestamp);
+});
+```
+
+| Option | Default | Description |
+|--------|---------|-------------|
+| `sampleRate` | 16000 | Audio sample rate in Hz |
+| `frameDuration` | 20 | Frame duration in milliseconds |
+| `gapThreshold` | 100 | Milliseconds before gap filling triggers |
+
+#### Choosing the Right Filler
+
+| Use Case | Recommended | Why |
+|----------|-------------|-----|
+| Live Streaming | `VideoGapFiller` | Wall clock timing matches stream playback |
+| Recording | `VideoJitterBuffer` | Packet timestamps ensure accurate A/V sync |
+| Audio | None (direct save) | Zoom sends silent buffers during mute |
+
 ### Webhook Manager (`./webhookManager/WebhookManager.js`)
 - **`WebhookManager`**: Handles incoming Zoom webhooks, validates signatures, and emits events to the `RTMSManager`.
 

@@ -1,54 +1,51 @@
-import { saveRawAudio } from './saveRawAudio.js';
-import { saveRawVideo } from './saveRawVideo.js';
-import { convertMeetingMedia } from './convertMeetingMedia.js';
-import { muxFirstAudioVideo } from './muxFirstAudioVideo.js';
-
-
-let meetingUuid;
-
-// Load secrets from .env
+import HelperManager, { VideoGapFiller } from '../../library/javascript/commonHelpers/HelperManager.js';
 import dotenv from 'dotenv';
-dotenv.config();
-// Import the RTMS SDK
 import rtms from "@zoom/rtms";
 
-// Set up webhook event handler to receive RTMS events from Zoom
+dotenv.config();
+
+const meetingState = new Map();
+
 rtms.onWebhookEvent(async ({ event, payload }) => {
     console.log(`Received webhook event: ${event}`);
 
-    // Only process webhook events for RTMS start notifications
-    if (event == "meeting.rtms_started") {
-        console.log(`Received event ${event}, ignoring...`);
-        meetingUuid = payload.meeting_uuid;
-    }
-    if (event == "meeting.rtms_stopped") {
-        console.log(`Received event ${event}, ignoring...`);
-        let _meeting_uuid = payload.meeting_uuid;
+    if (event === "meeting.rtms_started") {
+        const meetingUuid = payload.meeting_uuid;
+        const streamId = payload.rtms_stream_id;
+        console.log(`[SDK] RTMS started for meeting ${meetingUuid}`);
 
-        await convertMeetingMedia(_meeting_uuid);
-        await muxFirstAudioVideo(_meeting_uuid);
-      return;
+        const videoFiller = new VideoGapFiller({ fps: 25, gapThreshold: 320 });
+        
+        videoFiller.on('data', ({ buffer, timestamp, isFiller }) => {
+            HelperManager.video.saveRawVideo(buffer, 'mixed', timestamp, meetingUuid, streamId, true);
+        });
+        
+        videoFiller.start();
+        meetingState.set(meetingUuid, { videoFiller, streamId });
     }
-    // Create a client instance for this specific meeting
+
+    if (event === "meeting.rtms_stopped") {
+        const meetingUuid = payload.meeting_uuid;
+        const streamId = payload.rtms_stream_id;
+        console.log(`[SDK] RTMS stopped for meeting ${meetingUuid}`);
+
+        const state = meetingState.get(meetingUuid);
+        if (state) {
+            state.videoFiller.stop();
+            meetingState.delete(meetingUuid);
+        }
+
+        setTimeout(async () => {
+            await HelperManager.audiovideo.convertMeetingMedia(meetingUuid, streamId);
+            await HelperManager.audiovideo.muxMixedAudioVideo(meetingUuid, streamId);
+        }, 2000);
+        return;
+    }
+
     const client = new rtms.Client();
+    const meetingUuid = payload.meeting_uuid;
+    const streamId = payload.rtms_stream_id;
 
-
-    // client.setAudioParameters({
-
-    //     codec: rtms.AudioCodec.L16,
-    //     /** The sample rate in Hz (e.g., 8000, 16000, 44100) */
-    //     sampleRate:  rtms.AudioSampleRate.SR_16K,
-    //     /** The number of audio channels (1=mono, 2=stereo) */
-    //     channel:  rtms.AudioChannel.MONO,
-    //     /** Additional data options for audio processing */
-    //     dataOpt:  rtms.AudioDataOption.AUDIO_MULTI_STREAMS,
-    //     /** The duration of each audio frame in milliseconds */
-    //     duration: 100,
-    //     /** The size of each audio frame in samples */
-    //     frameSize:640
-    // });
-
-    // Configure HD video (720p H.264 at 30fps)
     client.setVideoParams({
         contentType: rtms.VideoContentType.RAW_VIDEO,
         codec: rtms.VideoCodec.H264,
@@ -57,35 +54,25 @@ rtms.onWebhookEvent(async ({ event, payload }) => {
         fps: 25
     });
 
-    // Set up video data handler
     client.onVideoData((data, size, timestamp, metadata) => {
-        //console.log(`Video data: ${size} bytes from ${metadata.userName}`);
-        let epochMilliseconds = Date.now();
-        let buffer = Buffer.from(data, 'base64');
-        saveRawVideo(buffer, metadata.userName, epochMilliseconds, meetingUuid);
-    });
-
-
-    // Set up audio data handler
-    client.onAudioData((data, size, timestamp, metadata) => {
-        //console.log(`Audio data: ${size} bytes from ${metadata.userName}`);
-
-        let epochMilliseconds = Date.now();
-        if (metadata.userId == null || !meetingUuid) {
-            console.error('Missing metadata: cannot save audio');
-            return;
+        const buffer = Buffer.from(data, 'base64');
+        const ts = Date.now();
+        const state = meetingState.get(meetingUuid);
+        if (state) {
+            state.videoFiller.push(buffer, ts);
         }
-        //console.log(meetingUuid+metadata.userId+epochMilliseconds);
-        let buffer = Buffer.from(data, 'base64');
-        saveRawAudio(buffer, meetingUuid, metadata.userId, epochMilliseconds);
     });
 
+    client.onAudioData((data, size, timestamp, metadata) => {
+        if (!meetingUuid) return;
+        const buffer = Buffer.from(data, 'base64');
+        const ts = Date.now();
+        HelperManager.audio.saveRawAudio(buffer, meetingUuid, 'mixed', ts, streamId, true);
+    });
 
-    // Set up transcript data handler
     client.onTranscriptData((data, size, timestamp, metadata) => {
         console.log(`${metadata.userName}: ${data}`);
     });
 
-    // Join the meeting using the webhook payload directly
     client.join(payload);
 });

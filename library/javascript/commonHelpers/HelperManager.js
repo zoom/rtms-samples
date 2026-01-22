@@ -4,8 +4,9 @@ import * as audiovideo from './audiovideo/audiovideoHelper.js';
 import { UUIDHelper } from './filename/UUIDHelper.js';
 import * as network from './network/networkHelper.js';
 import { FileLogger } from '../rtmsManager/utils/FileLogger.js';
+import { AudioGapFiller, VideoGapFiller, VideoJitterBuffer } from './gapfiller/index.js';
 
-export { FileLogger };
+export { FileLogger, AudioGapFiller, VideoGapFiller, VideoJitterBuffer };
 
 export const HelperManager = {
     audio,
@@ -13,6 +14,11 @@ export const HelperManager = {
     audiovideo,
     filename: UUIDHelper,
     network,
+    gapfiller: {
+        AudioGapFiller,
+        VideoGapFiller,
+        VideoJitterBuffer
+    },
     utils: {
         FileLogger
     }

@@ -1,23 +1,7 @@
 import fs from 'fs';
 import path from 'path';
-import { fileURLToPath } from 'url';
 
-const __filename = fileURLToPath(import.meta.url);
-const __dirname = path.dirname(__filename);
-// Path to logs directory
-const LOG_DIR = path.join(__dirname, '../../logs');
-
-if (!fs.existsSync(LOG_DIR)) {
-  fs.mkdirSync(LOG_DIR, { recursive: true });
-}
-
-function getLogFilePath() {
-  const now = new Date();
-  const dateStr = now.toISOString().split('T')[0]; // YYYY-MM-DD
-  const hour = now.getHours().toString().padStart(2, '0');
-  const filename = `rtms_${dateStr}_${hour}.log`;
-  return path.join(LOG_DIR, filename);
-}
+let logDir = null;
 
 /**
  * Log levels: off < error < warn < info < debug
@@ -52,6 +36,23 @@ export class FileLogger {
   static flushInterval = 100; // Flush every 100ms
   static maxBufferSize = 50; // Or when buffer reaches 50 entries
   static isShuttingDown = false;
+
+  static getLogFilePath() {
+    if (!logDir) return null;
+    
+    const now = new Date();
+    const dateStr = now.toISOString().split('T')[0];
+    const hour = now.getHours().toString().padStart(2, '0');
+    const filename = `rtms_${dateStr}_${hour}.log`;
+    return path.join(logDir, filename);
+  }
+
+  static setLogDir(dir) {
+    logDir = dir;
+    if (logDir && !fs.existsSync(logDir)) {
+      fs.mkdirSync(logDir, { recursive: true });
+    }
+  }
 
   static {
     // Setup process exit handler to flush remaining logs
@@ -128,11 +129,13 @@ export class FileLogger {
 
     if (this.logBuffer.length === 0) return;
 
+    const logFilePath = this.getLogFilePath();
+    if (!logFilePath) return;
+
     const logsToWrite = this.logBuffer.join('');
     this.logBuffer = [];
 
-    // Async write
-    fs.appendFile(getLogFilePath(), logsToWrite, (err) => {
+    fs.appendFile(logFilePath, logsToWrite, (err) => {
       if (err) console.error('Failed to write to log file:', err);
     });
   }
@@ -145,12 +148,14 @@ export class FileLogger {
 
     if (this.logBuffer.length === 0) return;
 
+    const logFilePath = this.getLogFilePath();
+    if (!logFilePath) return;
+
     const logsToWrite = this.logBuffer.join('');
     this.logBuffer = [];
 
-    // Synchronous write for critical situations (process exit)
     try {
-      fs.appendFileSync(getLogFilePath(), logsToWrite);
+      fs.appendFileSync(logFilePath, logsToWrite);
     } catch (err) {
       console.error('Failed to write to log file:', err);
     }
