@@ -4,6 +4,8 @@ import { exec } from 'child_process';
 import { promisify } from 'util';
 import { UUIDHelper } from '../filename/UUIDHelper.js';
 
+export { H264StreamAnalyzer } from './H264StreamAnalyzer.js';
+
 const execAsync = promisify(exec);
 
 // Cache for open write streams

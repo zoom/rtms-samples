@@ -5,13 +5,21 @@ import path from 'path';
 import { createCanvas, loadImage, ImageData } from 'canvas';
 
 let model = null;
+let modelLoadingPromise = null;
 
 async function loadModel() {
-  if (!model) {
+  if (model) return model;
+  
+  if (modelLoadingPromise) return modelLoadingPromise;
+  
+  modelLoadingPromise = (async () => {
     console.log('📦 Loading COCO-SSD model...');
     model = await cocoSsd.load();
     console.log('✅ Model loaded.');
-  }
+    return model;
+  })();
+  
+  return modelLoadingPromise;
 }
 
 /**

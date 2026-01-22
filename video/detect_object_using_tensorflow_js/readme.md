@@ -1,98 +1,98 @@
-# Zoom RTMS Video stream object detection project
+# Zoom RTMS Object Detection with TensorFlow
 
-This project demonstrates real-time object detection utilizing Zoom RTMS video stream. The video stream is sampled, and converted to an compatible image format for tensorflow object recognition  The detected object(s) and confidence level are then printed in the console log
+This project demonstrates real-time object detection using Zoom RTMS video streams and TensorFlow.js COCO-SSD model. H.264 video frames are decoded using FFmpeg and analyzed for objects.
 
 ## Prerequisites
 
-Before running the application, ensure you have the following environment variables set in a `.env` file:
-- `ZOOM_SECRET_TOKEN`: Secret token for URL validation
-- `ZOOM_CLIENT_ID`: Zoom client ID
-- `ZOOM_CLIENT_SECRET`: Zoom client secret
+### Environment Variables
 
-### Additional Environment Variables:
-- `PORT`: The port on which the Express server runs (default: 3000)
+Create a `.env` file with the following:
 
-## Implementation Details
+```env
+# Zoom Credentials
+ZOOM_CLIENT_ID=your_client_id
+ZOOM_CLIENT_SECRET=your_client_secret
+ZOOM_SECRET_TOKEN=your_secret_token
 
-The application follows this sequence:
+# Optional
+PORT=3000
+WEBHOOK_PATH=/webhook
+```
 
-1. Starts an Express server on port 3000
-2. Listens for webhook events at `/webhook` endpoint
-3. Handles URL validation challenges from Zoom
-4. When a meeting starts:
-   - Receives `meeting.rtms_started` event
-   - Establishes WebSocket connection to signaling server
-   - Sends handshake with authentication signature
-   - Receives media server URL from signaling server
-   - Establishes WebSocket connection to media server
-   - Sends media handshake with authentication
-   - Begins receiving all media data type (Audio, Video, Deskshare, Transcript, Chat etc...)
-5. During the meeting:  
-   - Maintains WebSocket connections with keep-alive messages
-   - Receives and utilize ffmpeg to decode raw video data chunks
-   - Passes the decoded image to tensorflow for object detection
-   - Saves the image with boundary box overlay
-   - Prints the object detected and confidence level in console log
-   - Handles any connection errors
-6. When a meeting ends:  
-   - Receives `meeting.rtms_stopped` event
-   - Closes all active WebSocket connections
+### Dependencies
+
+- Node.js v18 or higher
+- FFmpeg installed and accessible in PATH
+
+**FFmpeg Installation:**
+- macOS: `brew install ffmpeg`
+- Ubuntu/Debian: `sudo apt-get install ffmpeg`
+- Windows: Download from [FFmpeg website](https://ffmpeg.org/download.html)
+
+## Installation
+
+```bash
+npm install
+```
+
+Note: First run may take longer as TensorFlow downloads the COCO-SSD model.
 
 ## Running the Application
 
-1. Start the server:
-   ```bash
-   node index.js  
-   ```
+```bash
+node index.js
+```
 
-2. Start a Zoom meeting. The application will:  
-   - Receive the `meeting.rtms_started` event
-   - Establish WebSocket connections
-   - Begin capturing video data
-   - Encode the video data for object detection
-   - Save the sampled image with boundary box
-   - Print the detected objects and confidence level in console log
+The server will start on port 3000 (or the port specified in `.env`).
 
-## Project-Specific Features  
+## How It Works
 
-- Real-time video data capture (H264, 720p HD, 25fps)
-- WebSocket connection management for both signaling and media servers
-- H264 conversion to image samples using FFmpeg
-- Saving images with boundary box, in unique meetingUuid folders
-- Keep-alive message handling
-- Error handling for WebSocket connections
-- URL validation handling
+1. **RTMSManager** handles all Zoom RTMS connection management automatically
+2. **WebhookManager** receives Zoom webhook events and forwards them to RTMSManager
+3. **H264FrameDecoder** uses FFmpeg to decode H.264 video into JPEG frames (1 frame per second)
+4. **TensorFlow COCO-SSD** model detects objects in each decoded frame
+5. Detected objects, confidence levels, and timestamps are logged to the console
 
-## Project-Specific Notes 
+## Video Parameters
 
-- The application processes video data in H264 format, 720p HD, and 25 fps
-- Video is converted to image format using FFmpeg
-- Server runs on port 3000 by default, if PORT is not specificed in .env
-- Webhook endpoint is available at `http://localhost:3000/webhook`
-- Requires FFmpeg to be installed and accessible in your PATH
+- **Codec**: H.264 (required for continuous stream decoding)
+- **Resolution**: HD (720p)
+- **FPS**: 25
 
-## Additional Setup Requirements 
+## Output
 
-1. **Node.js** (v14 or higher recommended)
-2. **FFmpeg** installation:
-   - macOS: `brew install ffmpeg`
-   - Ubuntu/Debian: `sudo apt-get install ffmpeg`
-   - Windows: Download from [FFmpeg website](https://ffmpeg.org/download.html)
-3. **ngrok** for exposing your local server to the internet
-4. **Zoom App** configuration with RTMS scopes enabled
+Decoded frames and detection results are saved to:
+```
+recordings/{meeting_uuid}/{user_name}/
+├── frame.jpg              # Latest decoded frame
+├── frame-{timestamp}.jpg  # Original frame
+└── detected-{timestamp}.jpg  # Frame with bounding boxes (when objects detected)
+```
 
-## Troubleshooting 
+## Sample Output
 
-1. **No Image Files and/or object detection logs Generated**:
-   - Verify FFmpeg is installed and accessible in your PATH
-   - Check that the Zoom app has the correct RTMS scopes
-   - Ensure the webhook URL is correctly configured in the Zoom app
+```
+📦 Loading COCO-SSD model...
+✅ Model loaded.
+🔍 [John_Doe] Detected 2 object(s)
+🕒 Timestamp (GMT): 2025-01-22T12:30:45.123Z
+⏱️  Time drift: 150 ms (0.15 seconds)
+#1: person (98.50%)
+#2: laptop (87.30%)
+```
 
-2. **Connection Issues**:
-   - Verify ngrok is running and the tunnel is active
-   - Check that the Zoom app credentials in `.env` are correct
-   - Ensure the webhook endpoint is accessible from the internet
+## Troubleshooting
 
-3. **Performance Quality Issues**:
-   - For object detection, a modern CPU is required. While not required, it is recommended to use a GPU for high performence when performing object detection.
-   - If video quality is poor, check your network connection and Zoom meeting settings
+1. **No detection logs**:
+   - Verify FFmpeg is installed: `ffmpeg -version`
+   - Check recordings folder for decoded frames
+   - Ensure video is enabled in the meeting
+
+2. **Connection issues**:
+   - Verify Zoom credentials in `.env`
+   - Ensure webhook URL is accessible (use ngrok for local development)
+
+3. **Performance issues**:
+   - TensorFlow runs on CPU by default
+   - For better performance, consider using a GPU-enabled environment
+   - First model load may take 10-20 seconds

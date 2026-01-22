@@ -275,9 +275,49 @@ HelperManager.filename.sanitize(...);
 - **`mergeAudioFiles`**: Function to merge multiple audio files into one.
 
 ### Video Helpers (`./commonHelpers/video/videoHelper.js`)
+- **`H264StreamAnalyzer`**: Class for analyzing H.264 video streams (resolution, frame types, FPS, lost frame detection).
 - **`saveRawVideo`**: Function to save raw H.264 video frames to disk.
 - **`convertH264ToMp4`**: Function to convert raw H.264 video to MP4 format.
 - **`createVideoGrid`**: Function to combine multiple video files into a grid layout.
+
+#### H264StreamAnalyzer
+
+Parses H.264 NAL units to extract stream metadata in real-time:
+
+```javascript
+import { H264StreamAnalyzer } from './commonHelpers/video/videoHelper.js';
+
+const analyzer = new H264StreamAnalyzer({
+  logInterval: 1,
+  statsInterval: 100,
+  enableDetailedLogging: false,
+  enableConsoleOutput: true
+});
+
+RTMSManager.on('video', ({ buffer, timestamp }) => {
+  const streamInfo = analyzer.processBuffer(buffer, timestamp);
+  // streamInfo.resolution: { width, height }
+  // streamInfo.fps: calculated FPS
+  // streamInfo.frameTypeStats: { I: n, P: n, B: n }
+  // streamInfo.totalFrames: frame count
+});
+
+RTMSManager.on('meeting.rtms_started', () => analyzer.reset());
+```
+
+| Option | Default | Description |
+|--------|---------|-------------|
+| `logInterval` | 1 | Log every N frames |
+| `statsInterval` | 1 | Show detailed stats every N frames |
+| `enableDetailedLogging` | false | Log NAL unit parsing details |
+| `enableConsoleOutput` | true | Enable console logging |
+
+| Method | Description |
+|--------|-------------|
+| `processFrame(base64Data, timestamp)` | Process base64-encoded H.264 data |
+| `processBuffer(buffer, timestamp)` | Process raw Buffer directly |
+| `getStreamInfo()` | Get current stream metadata |
+| `reset()` | Reset analyzer state |
 
 ### Audio-Video Helpers (`./commonHelpers/audiovideo/audiovideoHelper.js`)
 - **`muxAudioVideo`**: Function to mux audio and video files into a single MP4.

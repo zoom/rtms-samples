@@ -1,4 +1,13 @@
-class H264StreamAnalyzer {
+/**
+ * H.264 Stream Analyzer
+ * 
+ * Analyzes H.264 video streams to extract:
+ * - Resolution (from SPS NAL units)
+ * - Frame types (I, P, B frames)
+ * - FPS calculation
+ * - Frame number tracking and lost frame detection
+ */
+export class H264StreamAnalyzer {
     constructor(options = {}) {
         // Configuration
         this.logInterval = options.logInterval || 1; // Log every N frames
@@ -34,7 +43,7 @@ class H264StreamAnalyzer {
         };
 
         if (this.enableConsoleOutput) {
-            console.log('🎥 H.264 Stream Analyzer initialized');
+            console.log('[H264StreamAnalyzer] Initialized');
         }
     }
 
@@ -311,7 +320,7 @@ class H264StreamAnalyzer {
             };
 
             if (this.enableConsoleOutput && !this.isInitialized) {
-                console.log(`📐 Resolution detected: ${width}x${height}`);
+                console.log(`[H264StreamAnalyzer] Resolution detected: ${width}x${height}`);
                 if (this.enableDetailedLogging) {
                     console.log(`   Profile: ${profileIdc}, Level: ${levelIdc}`);
                     console.log(`   Chroma Format: ${chromaFormatIdc}`);
@@ -325,7 +334,7 @@ class H264StreamAnalyzer {
             return this.sps;
         } catch (error) {
             if (this.enableConsoleOutput) {
-                console.error('❌ Error parsing SPS:', error.message);
+                console.error('[H264StreamAnalyzer] Error parsing SPS:', error.message);
             }
             return null;
         }
@@ -354,37 +363,6 @@ class H264StreamAnalyzer {
                 return 'UNKNOWN';
         }
     }
-
-    // // Parse slice type with better error handling and logging
-    // parseSliceType(buffer, offset) {
-    //     try {
-    //         const reader = this.createBitReader(buffer, offset);
-
-    //         // Parse first_mb_in_slice
-    //         const firstMbInSlice = reader.readUE();
-
-    //         // Parse slice_type
-    //         const sliceType = reader.readUE();
-
-    //         const sliceTypeMap = {
-    //             0: 'P', 1: 'B', 2: 'I', 3: 'P', 4: 'I',
-    //             5: 'P', 6: 'B', 7: 'I', 8: 'P', 9: 'I'
-    //         };
-
-    //         const frameType = sliceTypeMap[sliceType];
-
-    //         if (this.enableDetailedLogging && frameType) {
-    //             console.log(`   Slice parsing: type=${sliceType} -> ${frameType}, first_mb=${firstMbInSlice}`);
-    //         }
-
-    //         return frameType || 'UNKNOWN';
-    //     } catch (error) {
-    //         if (this.enableDetailedLogging) {
-    //             console.log(`   Slice parsing failed: ${error.message}`);
-    //         }
-    //         return 'UNKNOWN';
-    //     }
-    // }
 
     // Parse slice type with B-frame detection
     parseSliceType(buffer, offset) {
@@ -594,9 +572,6 @@ class H264StreamAnalyzer {
         if (!this.enableConsoleOutput) return;
 
         const now = Date.now();
-        // if (now - this.lastLogTime < 1000){
-        //     return; // Throttle logging
-        // } 
 
         this.lastLogTime = now;
 
@@ -612,20 +587,17 @@ class H264StreamAnalyzer {
             `Lost: [${this.lostFrames.slice(-10).join(',')}${this.lostFrames.length > 10 ? '...' : ''}]` : 
             'Lost: []';
             
-        console.log(`🎬 Frame #${this.frameCount} | ${h264FrameStr} | Type: ${frameTypeStr} | ${resolutionStr} | ${fpsStr} | ${lostFramesStr}`);
-        //process.stdout.write(`\r🎬 Frame #${this.frameCount} | ${h264FrameStr} | Type: ${frameTypeStr} | ${resolutionStr} | ${fpsStr} | ${lostFramesStr} | ${oooFramesStr}`);
-
-
+        console.log(`[H264StreamAnalyzer] Frame #${this.frameCount} | ${h264FrameStr} | Type: ${frameTypeStr} | ${resolutionStr} | ${fpsStr} | ${lostFramesStr}`);
     }
 
     // Log statistics
     logStats() {
         if (!this.enableConsoleOutput) return;
 
-        console.log('\n📊 Stream Statistics:');
+        console.log('\n[H264StreamAnalyzer] Stream Statistics:');
         console.log(`   Total Frames: ${this.frameCount}`);
         console.log(`   Resolution: ${this.resolution ? `${this.resolution.width}x${this.resolution.height}` : 'Unknown'}`);
-        console.log(`   FPS: ${this.fps.toFixed(2) || 'Calculating...'}`);
+        console.log(`   FPS: ${this.fps ? this.fps.toFixed(2) : 'Calculating...'}`);
 
 
         if (this.frameTypes.length > 0) {
@@ -640,7 +612,7 @@ class H264StreamAnalyzer {
         console.log('');
     }
 
-    // Main method - this is what you call from index.js
+    // Main method - this is what you call from your app
     processFrame(videoData, timestamp) {
         try {
             // Convert base64 to buffer
@@ -650,7 +622,7 @@ class H264StreamAnalyzer {
             if (!this.streamInfo.isAnalyzing) {
                 this.streamInfo.isAnalyzing = true;
                 if (this.enableConsoleOutput) {
-                    console.log('🚀 Starting H.264 stream analysis...');
+                    console.log('[H264StreamAnalyzer] Starting H.264 stream analysis...');
                 }
             }
 
@@ -692,7 +664,7 @@ class H264StreamAnalyzer {
                             this.analyzeFrameSequence(frameNum);
                             
                             if (this.enableDetailedLogging) {
-                                console.log(`   🎯 Processing frame number: ${frameNum} (Frame count: ${this.frameCount})`);
+                                console.log(`   Processing frame number: ${frameNum} (Frame count: ${this.frameCount})`);
                             }
                         }
                     }
@@ -712,7 +684,7 @@ class H264StreamAnalyzer {
 
                 // Log FPS detection
                 if (currentFPS && !this.streamInfo.fps && this.enableConsoleOutput) {
-                    console.log(`⚡ FPS detected: ${currentFPS}`);
+                    console.log(`[H264StreamAnalyzer] FPS detected: ${currentFPS}`);
                 }
             }
 
@@ -735,10 +707,21 @@ class H264StreamAnalyzer {
 
         } catch (error) {
             if (this.enableConsoleOutput) {
-                console.error('❌ Error processing frame:', error.message);
+                console.error('[H264StreamAnalyzer] Error processing frame:', error.message);
             }
             return this.streamInfo;
         }
+    }
+
+    /**
+     * Process a raw buffer directly (alternative to processFrame which expects base64)
+     * @param {Buffer} buffer - Raw H.264 video buffer
+     * @param {number} timestamp - Timestamp in milliseconds
+     * @returns {object} Stream info object
+     */
+    processBuffer(buffer, timestamp) {
+        const base64Data = buffer.toString('base64');
+        return this.processFrame(base64Data, timestamp);
     }
 
     // Get current stream info (optional - for manual queries)
@@ -777,7 +760,7 @@ class H264StreamAnalyzer {
         };
 
         if (this.enableConsoleOutput) {
-            console.log('🔄 H.264 Stream Analyzer reset');
+            console.log('[H264StreamAnalyzer] Reset');
         }
     }
 }

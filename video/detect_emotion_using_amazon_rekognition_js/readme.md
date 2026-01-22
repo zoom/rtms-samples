@@ -1,98 +1,96 @@
-# Zoom RTMS Video stream object detection project
+# Zoom RTMS Emotion Detection with Amazon Rekognition
 
-This project demonstrates real-time object detection utilizing Zoom RTMS video stream. The video stream is sampled, and converted to an compatible image format for tensorflow object recognition  The detected object(s) and confidence level are then printed in the console log
+This project demonstrates real-time emotion detection using Zoom RTMS video streams and Amazon Rekognition. Video frames are sampled and analyzed for facial emotions, with results printed to the console.
 
 ## Prerequisites
 
-Before running the application, ensure you have the following environment variables set in a `.env` file:
-- `ZOOM_SECRET_TOKEN`: Secret token for URL validation
-- `ZOOM_CLIENT_ID`: Zoom client ID
-- `ZOOM_CLIENT_SECRET`: Zoom client secret
+### Environment Variables
 
-### Additional Environment Variables:
-- `PORT`: The port on which the Express server runs (default: 3000)
+Create a `.env` file with the following:
 
-## Implementation Details
+```env
+# Zoom Credentials
+ZOOM_CLIENT_ID=your_client_id
+ZOOM_CLIENT_SECRET=your_client_secret
+ZOOM_SECRET_TOKEN=your_secret_token
 
-The application follows this sequence:
+# AWS Credentials
+AWS_ACCESS_KEY_ID=your_aws_access_key
+AWS_SECRET_ACCESS_KEY=your_aws_secret_key
+AWS_REGION=us-east-1
 
-1. Starts an Express server on port 3000
-2. Listens for webhook events at `/webhook` endpoint
-3. Handles URL validation challenges from Zoom
-4. When a meeting starts:
-   - Receives `meeting.rtms_started` event
-   - Establishes WebSocket connection to signaling server
-   - Sends handshake with authentication signature
-   - Receives media server URL from signaling server
-   - Establishes WebSocket connection to media server
-   - Sends media handshake with authentication
-   - Begins receiving all media data type (Audio, Video, Deskshare, Transcript, Chat etc...)
-5. During the meeting:  
-   - Maintains WebSocket connections with keep-alive messages
-   - Receives and utilize ffmpeg to decode raw video data chunks
-   - Passes the decoded image to tensorflow for object detection
-   - Saves the image with boundary box overlay
-   - Prints the object detected and confidence level in console log
-   - Handles any connection errors
-6. When a meeting ends:  
-   - Receives `meeting.rtms_stopped` event
-   - Closes all active WebSocket connections
+# Optional
+PORT=3000
+WEBHOOK_PATH=/webhook
+PROCESS_EVERY_N_FRAMES=50
+```
+
+### Dependencies
+
+- Node.js v18 or higher
+- AWS account with Rekognition access
+
+## Installation
+
+```bash
+npm install
+```
 
 ## Running the Application
 
-1. Start the server:
-   ```bash
-   node index.js  
-   ```
+```bash
+node index.js
+```
 
-2. Start a Zoom meeting. The application will:  
-   - Receive the `meeting.rtms_started` event
-   - Establish WebSocket connections
-   - Begin capturing video data
-   - Encode the video data for object detection
-   - Save the sampled image with boundary box
-   - Print the detected objects and confidence level in console log
+The server will start on port 3000 (or the port specified in `.env`).
 
-## Project-Specific Features  
+## How It Works
 
-- Real-time video data capture (H264, 720p HD, 25fps)
-- WebSocket connection management for both signaling and media servers
-- H264 conversion to image samples using FFmpeg
-- Saving images with boundary box, in unique meetingUuid folders
-- Keep-alive message handling
-- Error handling for WebSocket connections
-- URL validation handling
+1. **RTMSManager** handles all Zoom RTMS connection management automatically
+2. **WebhookManager** receives Zoom webhook events and forwards them to RTMSManager
+3. Every Nth video frame (default: 50) is sent to Amazon Rekognition for emotion analysis
+4. Detected emotions and confidence levels are logged to the console
 
-## Project-Specific Notes 
+## Configuration
 
-- The application processes video data in H264 format, 720p HD, and 25 fps
-- Video is converted to image format using FFmpeg
-- Server runs on port 3000 by default, if PORT is not specificed in .env
-- Webhook endpoint is available at `http://localhost:3000/webhook`
-- Requires FFmpeg to be installed and accessible in your PATH
+| Variable | Default | Description |
+|----------|---------|-------------|
+| `PORT` | 3000 | Server port |
+| `WEBHOOK_PATH` | /webhook | Webhook endpoint path |
+| `PROCESS_EVERY_N_FRAMES` | 50 | Process every Nth frame for emotion detection |
 
-## Additional Setup Requirements 
+## Video Parameters
 
-1. **Node.js** (v14 or higher recommended)
-2. **FFmpeg** installation:
-   - macOS: `brew install ffmpeg`
-   - Ubuntu/Debian: `sudo apt-get install ffmpeg`
-   - Windows: Download from [FFmpeg website](https://ffmpeg.org/download.html)
-3. **ngrok** for exposing your local server to the internet
-4. **Zoom App** configuration with RTMS scopes enabled
+- **Codec**: JPEG (optimized for image analysis)
+- **Resolution**: HD (720p)
+- **FPS**: 25
 
-## Troubleshooting 
+## Sample Output
 
-1. **No Image Files and/or object detection logs Generated**:
-   - Verify FFmpeg is installed and accessible in your PATH
-   - Check that the Zoom app has the correct RTMS scopes
-   - Ensure the webhook URL is correctly configured in the Zoom app
+```
+[detect_emotion] Frame 50 - User: John Doe
+[
+  {
+    "BoundingBox": { "Width": 0.25, "Height": 0.35, "Left": 0.3, "Top": 0.2 },
+    "Emotions": [
+      { "Type": "HAPPY", "Confidence": 95.5 },
+      { "Type": "CALM", "Confidence": 4.2 }
+    ]
+  }
+]
+```
 
-2. **Connection Issues**:
-   - Verify ngrok is running and the tunnel is active
-   - Check that the Zoom app credentials in `.env` are correct
-   - Ensure the webhook endpoint is accessible from the internet
+## Troubleshooting
 
-3. **Performance Quality Issues**:
-   - For object detection, a modern CPU is required. While not required, it is recommended to use a GPU for high performence when performing object detection.
-   - If video quality is poor, check your network connection and Zoom meeting settings
+1. **No emotion data**:
+   - Verify AWS credentials are correct
+   - Ensure AWS_REGION is set
+   - Check that faces are visible in the video
+
+2. **Connection issues**:
+   - Verify Zoom credentials in `.env`
+   - Ensure webhook URL is accessible (use ngrok for local development)
+
+3. **AWS errors**:
+   - Verify IAM permissions for Rekognition
+   - Check AWS region supports Rekognition

@@ -65,25 +65,16 @@ This repository contains sample projects demonstrating how to work with Zoom's R
 ├── rtms_control_on_zoom_apps/
 │   └── rtms_control_on_zoom_apps_js/                         # RTMS control in Zoom Apps
 ├── screen_share/
-│   ├── print_screen_share_js/                                # Print screen share data
-│   └── save_screen_share_js/                                 # Save screen share data
+│   ├── save_screen_share_js/                                 # Save screen share frames (JPEG/PNG/H264)
+│   └── save_screen_share_pdf_js/                             # Save screen share as PDF
 ├── transcript/
-│   ├── print_incoming_transcripts_js/                        # Print transcripts (JS)
-│   ├── print_incoming_transcripts_python/                    # Print transcripts (Python)
-│   ├── print_transcripts_sdk/                                # Print transcripts (SDK)
-│   ├── save_transcript_js/                                   # Save transcripts (JS)
-│   ├── save_transcript_sdk/                                  # Save transcripts (SDK)
-│   ├── send_transcript_to_claude_js/                         # Send to Claude (JS)
-│   ├── send_transcript_to_openai_js/                         # Send to OpenAI (JS)
-│   └── send_transcript_to_openrouter_js/                     # Send to OpenRouter (JS)
+│   ├── save_transcript_js/                                   # Save transcripts (VTT/SRT/TXT)
+│   ├── send_transcript_to_claude_js/                         # Send to Claude AI
+│   ├── send_transcript_to_openai_js/                         # Send to OpenAI
+│   └── send_transcript_to_openrouter_js/                     # Send to OpenRouter (Grok)
 └── video/
-    ├── detect_emotion_using_amazon_rekognition_js/           # Emotion detection with Rekognition
-    ├── detect_object_using_tensorflow_js/                    # Object detection with TensorFlow (JS)
-    ├── detect_object_using_tensorflow_sdk/                   # Object detection with TensorFlow (SDK)
-    ├── print_video_js/                                       # Print video data (JS)
-    ├── print_video_sdk/                                      # Print video data (SDK)
-    ├── save_video_js/                                        # Save video data (JS)
-    └── save_video_sdk/                                       # Save video data (SDK)
+    ├── detect_emotion_using_amazon_rekognition_js/           # Emotion detection with AWS Rekognition
+    └── detect_object_using_tensorflow_js/                    # Object detection with TensorFlow COCO-SSD
 ```
 
 ## What is RTMS?
