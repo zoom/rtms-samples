@@ -44,6 +44,12 @@ out/
 *.swp
 *.swo
 
+# AI assistant artifacts
+.claude/
+plan.md
+output.txt
+to-do-*.md
+
 # OS artifacts
 .DS_Store
 Thumbs.db
