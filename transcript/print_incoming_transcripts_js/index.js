@@ -6,8 +6,6 @@ import { fileURLToPath } from 'url';
 import express from 'express';
 import http from 'http';
 
-import { chatWithClaude } from './chatWithClaude.js';
-
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = path.dirname(__filename);
 
@@ -26,7 +24,7 @@ const rtmsConfig = {
     console: true
   },
   mediaSocketConnectionMode: process.env.MEDIA_SOCKET_CONNECTION_MODE || 'unified',
-  mediaTypesFlag: 32,
+  mediaTypesFlag: 32, // Transcript only
   credentials: {
     meeting: {
       clientId: process.env.ZOOM_CLIENT_ID,
@@ -42,14 +40,17 @@ const rtmsConfig = {
   }
 };
 
-console.log('[send_to_claude] App Configuration:', appConfig);
-console.log('[send_to_claude] RTMS Configuration:', RTMSManager.redactSecrets(rtmsConfig));
+console.log('[print_incoming_transcripts] App Configuration:', appConfig);
+console.log('[print_incoming_transcripts] RTMS Configuration:', RTMSManager.redactSecrets(rtmsConfig));
 
+// 1. Create Express App and HTTP Server
 const app = express();
 const server = http.createServer(app);
 
+// 2. Initialize RTMS Manager
 await RTMSManager.init(rtmsConfig);
 
+// 3. Initialize Webhook Manager
 const webhookManager = new WebhookManager({
   config: {
     webhookPath: process.env.WEBHOOK_PATH || '/webhook',
@@ -59,40 +60,40 @@ const webhookManager = new WebhookManager({
 });
 
 webhookManager.on('event', (event, payload) => {
-  console.log('[send_to_claude] Webhook Event:', event);
+  console.log('[print_incoming_transcripts] Webhook Event:', event);
   RTMSManager.handleEvent(event, payload);
 });
 
 webhookManager.setup();
 
-RTMSManager.on('transcript', async ({ text, userId, userName, timestamp, meetingId }) => {
-  console.log(`[TRANSCRIPT] ${userName}: ${text}`);
-  
-  try {
-    const response = await chatWithClaude(text);
-    console.log('[Claude Response]:', response);
-  } catch (err) {
-    console.error('[Claude Error] Failed to get response');
-  }
+// 4. Register transcript handler - just print to console
+RTMSManager.on('transcript', ({ text, userId, userName, timestamp, meetingId }) => {
+  console.log('='.repeat(60));
+  console.log(`[TRANSCRIPT] Meeting: ${meetingId}`);
+  console.log(`[TRANSCRIPT] User: ${userName} (${userId})`);
+  console.log(`[TRANSCRIPT] Time: ${new Date(timestamp).toISOString()}`);
+  console.log(`[TRANSCRIPT] Text: ${text}`);
+  console.log('='.repeat(60));
 });
 
 RTMSManager.on('meeting.rtms_started', (payload) => {
-  console.log('[send_to_claude] RTMS Started:', payload.meeting_uuid);
+  console.log('[print_incoming_transcripts] RTMS Started:', payload.meeting_uuid);
 });
 
 RTMSManager.on('meeting.rtms_stopped', (payload) => {
-  console.log('[send_to_claude] RTMS Stopped:', payload.meeting_uuid);
+  console.log('[print_incoming_transcripts] RTMS Stopped:', payload.meeting_uuid);
 });
 
+// 5. Start the Server and RTMS Manager
 await RTMSManager.start();
 
 server.listen(appConfig.port, () => {
-  console.log(`[send_to_claude] Server listening on port ${appConfig.port}`);
-  console.log(`[send_to_claude] Webhook endpoint: http://localhost:${appConfig.port}${process.env.WEBHOOK_PATH || '/webhook'}`);
+  console.log(`[print_incoming_transcripts] Server listening on port ${appConfig.port}`);
+  console.log(`[print_incoming_transcripts] Webhook endpoint: http://localhost:${appConfig.port}${process.env.WEBHOOK_PATH || '/webhook'}`);
 });
 
 process.on('SIGINT', async () => {
-  console.log('[send_to_claude] Shutting down...');
+  console.log('[print_incoming_transcripts] Shutting down...');
   server.close();
   await RTMSManager.stop();
   process.exit(0);
