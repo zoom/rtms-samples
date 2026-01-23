@@ -1,58 +1,60 @@
-# RTMS Manager - Python Library
-
-Python equivalent of the JavaScript RTMSManager library for Zoom's Real-Time Media Streams (RTMS).
+# RTMSManager - Python
 
 ## Installation
 
 ```bash
-pip install -r requirements.txt
+pip install websockets flask  # or fastapi uvicorn
 ```
 
-## Quick Start
+## Quick Start (Flask)
 
 ```python
+import os
 import asyncio
+from flask import Flask
 from library.python.rtms_manager import RTMSManager, MediaType
 from library.python.webhook_manager import WebhookManager
 
-async def main():
-    # Initialize RTMSManager
+app = Flask(__name__)
+rtms = None
+
+async def init_rtms():
+    global rtms
     rtms = await RTMSManager.init({
         'credentials': {
             'meeting': {
-                'client_id': 'YOUR_CLIENT_ID',
-                'client_secret': 'YOUR_CLIENT_SECRET',
-                'secret_token': 'YOUR_SECRET_TOKEN',
+                'client_id': os.environ['ZOOM_CLIENT_ID'],
+                'client_secret': os.environ['ZOOM_CLIENT_SECRET'],
+                'secret_token': os.environ['ZOOM_SECRET_TOKEN'],
             }
         },
         'media_types': MediaType.AUDIO | MediaType.TRANSCRIPT,
-        'logging': 'info',
+        'logging': 'info'
     })
-
-    # Register event handlers
-    rtms.on('audio', lambda data: print(f"Audio: {len(data['buffer'])} bytes from {data['user_name']}"))
-    rtms.on('transcript', lambda data: print(f"Transcript: {data['user_name']}: {data['text']}"))
-
-    # Setup webhook (Flask example)
-    from flask import Flask
-    app = Flask(__name__)
     
-    webhook = WebhookManager(
-        webhook_path='/webhook',
-        zoom_secret_token='YOUR_SECRET_TOKEN'
-    )
-    webhook.setup_flask(app, rtms)
+    # Handle media events
+    rtms.on('audio', lambda data: print(f"Audio from {data['user_name']}: {len(data['buffer'])} bytes"))
+    rtms.on('transcript', lambda data: print(f"{data['user_name']}: {data['text']}"))
+    rtms.on('error', lambda err: print(f"Error: {err}"))
 
-    # Run
+# Initialize on startup
+asyncio.get_event_loop().run_until_complete(init_rtms())
+
+# Setup webhook with auto-validation
+webhook = WebhookManager(
+    webhook_path='/webhook',
+    zoom_secret_token=os.environ['ZOOM_SECRET_TOKEN']
+)
+webhook.setup_flask(app, rtms)
+
+if __name__ == '__main__':
     app.run(port=3000)
-
-asyncio.run(main())
 ```
 
-## With FastAPI
+## Quick Start (FastAPI)
 
 ```python
-import asyncio
+import os
 from fastapi import FastAPI
 from library.python.rtms_manager import RTMSManager, MediaType
 from library.python.webhook_manager import WebhookManager
@@ -66,19 +68,20 @@ async def startup():
     rtms = await RTMSManager.init({
         'credentials': {
             'meeting': {
-                'client_id': 'YOUR_CLIENT_ID',
-                'client_secret': 'YOUR_CLIENT_SECRET',
-                'secret_token': 'YOUR_SECRET_TOKEN',
+                'client_id': os.environ['ZOOM_CLIENT_ID'],
+                'client_secret': os.environ['ZOOM_CLIENT_SECRET'],
+                'secret_token': os.environ['ZOOM_SECRET_TOKEN'],
             }
         },
         'media_types': MediaType.AUDIO | MediaType.TRANSCRIPT,
     })
-
+    
+    rtms.on('audio', lambda data: print(f"Audio: {len(data['buffer'])} bytes"))
     rtms.on('transcript', lambda data: print(f"{data['user_name']}: {data['text']}"))
-
+    
     webhook = WebhookManager(
         webhook_path='/webhook',
-        zoom_secret_token='YOUR_SECRET_TOKEN'
+        zoom_secret_token=os.environ['ZOOM_SECRET_TOKEN']
     )
     webhook.setup_fastapi(app, rtms)
 
@@ -88,154 +91,73 @@ async def shutdown():
         await rtms.stop()
 ```
 
-## Configuration Options
-
-```python
-await RTMSManager.init({
-    # Credentials (required)
-    'credentials': {
-        'meeting': {
-            'client_id': str,
-            'client_secret': str,
-            'secret_token': str,
-        },
-        'video_sdk': {  # Optional - for Video SDK
-            'client_id': str,
-            'client_secret': str,
-            'secret_token': str,
-        }
-    },
-    
-    # Media types to subscribe (default: MediaType.ALL)
-    'media_types': MediaType.AUDIO | MediaType.VIDEO | MediaType.TRANSCRIPT,
-    
-    # Logging level: 'off', 'error', 'warn', 'info', 'debug'
-    'logging': 'info',
-    
-    # Log directory (optional)
-    'log_dir': '/var/log/rtms',
-    
-    # Use single WebSocket for all media types (default: False)
-    'use_unified_media_socket': False,
-    
-    # Enable gap filling for recordings (default: False)
-    'enable_gap_filling': False,
-})
-```
-
-## Media Type Flags
+## Media Types
 
 ```python
 from library.python.rtms_manager import MediaType
 
-MediaType.AUDIO        # 1 - Audio streams
-MediaType.VIDEO        # 2 - Video streams
-MediaType.SHARESCREEN  # 4 - Screen share
-MediaType.TRANSCRIPT   # 8 - Real-time transcription
-MediaType.CHAT         # 16 - Chat messages
-MediaType.ALL          # 32 - All media types
+MediaType.AUDIO        # 1
+MediaType.VIDEO        # 2
+MediaType.SHARESCREEN  # 4
+MediaType.TRANSCRIPT   # 8
+MediaType.CHAT         # 16
+MediaType.ALL          # 32
+
+# Combine with bitwise OR
+media_types = MediaType.AUDIO | MediaType.TRANSCRIPT  # 9
+```
+
+## Presets
+
+```python
+# Audio only (speech processing)
+await RTMSManager.init({ **RTMSManager.PRESETS['AUDIO_ONLY'], 'credentials': credentials })
+
+# Audio + transcript (captions)
+await RTMSManager.init({ **RTMSManager.PRESETS['TRANSCRIPTION'], 'credentials': credentials })
+
+# Audio + video (recording)
+await RTMSManager.init({ **RTMSManager.PRESETS['VIDEO_RECORDING'], 'credentials': credentials })
+
+# All media types
+await RTMSManager.init({ **RTMSManager.PRESETS['FULL_MEDIA'], 'credentials': credentials })
 ```
 
 ## Events
 
-### Media Events
-
 ```python
-rtms.on('audio', lambda data: ...)
-# data = {
-#     'buffer': bytes,      # Raw audio data
-#     'user_id': str,
-#     'user_name': str,
-#     'timestamp': int,
-#     'meeting_id': str,
-#     'stream_id': str,
-#     'product_type': str,  # 'meeting', 'video_sdk', etc.
-# }
-
-rtms.on('video', lambda data: ...)
+# Media events - data dict contains: buffer/text, user_id, user_name, timestamp, meeting_id, stream_id
+rtms.on('audio', lambda data: ...)      # data['buffer'] = bytes
+rtms.on('video', lambda data: ...)      # data['buffer'] = bytes  
 rtms.on('sharescreen', lambda data: ...)
-rtms.on('transcript', lambda data: ...)  # data['text'] instead of buffer
-rtms.on('chat', lambda data: ...)        # data['text'] instead of buffer
-```
+rtms.on('transcript', lambda data: ...) # data['text'] = str
+rtms.on('chat', lambda data: ...)       # data['text'] = str
 
-### Lifecycle Events
-
-```python
+# Lifecycle events
 rtms.on('meeting.rtms_started', lambda payload: ...)
 rtms.on('meeting.rtms_stopped', lambda payload: ...)
-rtms.on('session.rtms_started', lambda payload: ...)  # Video SDK
-rtms.on('session.rtms_stopped', lambda payload: ...)
-rtms.on('stream_state_changed', lambda msg, meeting_uuid, stream_id, rtms_type: ...)
 rtms.on('error', lambda error: ...)
 ```
 
-## WebhookManager
-
-Handles Zoom webhook events and validates webhook signatures.
+## Configuration
 
 ```python
-from library.python.webhook_manager import WebhookManager
-
-webhook = WebhookManager(
-    webhook_path='/webhook',
-    zoom_secret_token='YOUR_SECRET_TOKEN',
-    video_secret_token='YOUR_VIDEO_SECRET_TOKEN',  # Optional
-)
-
-# Manual event handling
-webhook.on_event(lambda event, payload: rtms.handle_event(event, payload))
-
-# Or auto-setup with Flask/FastAPI
-webhook.setup_flask(app, rtms)
-webhook.setup_fastapi(app, rtms)
+await RTMSManager.init({
+    'credentials': {
+        'meeting': { 'client_id', 'client_secret', 'secret_token' },
+        'video_sdk': { 'client_id', 'client_secret', 'secret_token' },  # Optional
+    },
+    'media_types': MediaType.ALL,
+    'logging': 'info',            # 'off' | 'error' | 'warn' | 'info' | 'debug'
+    'log_dir': '/var/log/rtms',
+    'enable_gap_filling': False,  # Insert silence during network drops (for recording)
+})
 ```
 
-## FrontendWssManager
+## Full Documentation
 
-Broadcasts real-time data to frontend WebSocket clients.
-
-```python
-from library.python.frontend_manager import FrontendWssManager
-
-frontend_wss = FrontendWssManager(wss_path='/ws')
-
-# Broadcast to all connected clients
-frontend_wss.broadcast({'type': 'transcript', 'text': '...'})
-
-# Broadcast to specific meeting
-frontend_wss.broadcast_to_meeting(meeting_uuid, {'type': 'update', ...})
-
-# Broadcast to specific user
-frontend_wss.broadcast_to_user(meeting_uuid, user_id, {'type': 'private', ...})
-```
-
-## Comparison with JavaScript Library
-
-| Feature | JavaScript | Python |
-|---------|------------|--------|
-| Async/Await | ES Modules | asyncio |
-| WebSocket | ws | websockets |
-| HTTP Framework | Express | Flask/FastAPI |
-| Event Emitter | Node.js EventEmitter | Custom implementation |
-| Singleton | Class static property | `__new__` pattern |
-
-## Architecture
-
-```
-library/python/
-├── rtms_manager/
-│   ├── __init__.py
-│   ├── rtms_manager.py      # Main RTMSManager class
-│   ├── signaling_socket.py  # Signaling WebSocket handler
-│   ├── media_socket.py      # Media WebSocket handler
-│   └── utils/
-│       ├── config.py        # Configuration classes
-│       ├── logger.py        # FileLogger
-│       ├── media_params.py  # Media constants
-│       └── signature.py     # HMAC signature generation
-├── webhook_manager/
-│   └── webhook_manager.py   # Flask/FastAPI webhook handler
-├── frontend_manager/
-│   └── frontend_wss_manager.py  # WebSocket broadcast manager
-└── requirements.txt
-```
+See [library/README.md](../README.md) for complete documentation including:
+- Helper classes (WebhookManager, FrontendWssManager)
+- Utilities (FileLogger, RTMSError, signatureHelper)
+- Advanced features (reconnection, state management, gap filling)
+- Architecture overview
