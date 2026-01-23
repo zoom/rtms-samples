@@ -1,350 +1,206 @@
-# Zoom RTMS Media Receiver with AI Assistant (Node.js)
+# AI Chat with Audio Playback
 
-This Node.js application demonstrates how to receive real-time audio, video, screen share, transcript, and chat data from a Zoom meeting using the RTMS (Real-Time Media Streaming) service, enhanced with AI-powered conversational capabilities and text-to-speech functionality.
+Real-time AI chatbot that responds to meeting transcripts with text and audio playback in the browser.
 
-The server connects to Zoom's RTMS infrastructure via WebSocket, handles webhook events, and provides a Zoom App frontend interface for real-time AI assistance during meetings.
+> **Built with [RTMSManager](../../library/README.md)** - Zoom's JavaScript library for real-time media streaming.
 
-## Features
+## Quick Start
 
-- **Real-time Media Streaming**: Receive audio, video, screen share, transcript, and chat from Zoom meetings. Only transcript is being sent to LLM at the moment.
-- **AI-Powered Conversations**: Integration with OpenRouter for LLM responses
-- **Text-to-Speech**: Deepgram integration for audio synthesis and playback
-- **Interactive Frontend**: "Zoom App Frontend" web interface with chat-like UI
-- **Zoom App Integration**: Full Zoom SDK integration for contextual information
-- **Real-time Audio Playback**: Browser-based audio playback of responses
-
-## Prerequisites
-
-- Node.js v18 or higher
-- A Zoom account with RTMS enabled
-- Zoom App credentials (Client ID and Client Secret)
-- Zoom Secret Token for webhook validation
-- Optional: Zoom Server to Server OAuth credentials for S2S API calls
-- Mandatory: OpenRouter API key for AI chat functionality
-- Mandatory: Deepgram API key for text-to-speech
-
-## Dependencies
-
-This project uses the following key dependencies:
-
-- **express**: Web server framework
-- **ws**: WebSocket server and client
-- **dotenv**: Environment variable management
-- **@deepgram/sdk**: Text-to-speech functionality
-- **openai**: OpenRouter API integration for AI chat
-- **uuid**: Unique identifier generation
-- **node-fetch**: HTTP requests
-- **ejs**: Template engine (for future use)
-
-## Frontend Dependencies
-
-The frontend is **self-contained** with no external CDN dependencies:
-- **No external fonts**: Uses system font stack for optimal performance
-- **No external libraries**: Only the required Zoom SDK for functionality
-- **Faster loading**: No external requests except for Zoom SDK
-
-## Setup
-
-1. Install dependencies:
 ```bash
 npm install
-```
-
-2. Create a `.env` file in the root directory with the following content:
-
-### Required Environment Variables
-```env
-# Zoom App Credentials (Required)
-ZOOM_CLIENT_ID=your_client_id
-ZOOM_CLIENT_SECRET=your_client_secret
-ZOOM_SECRET_TOKEN=your_secret_token
-
-# Server Configuration
-PORT=3000
-WEBHOOK_PATH=/webhook
-
-# Operation Mode (webhook or websocket)
-MODE=webhook
-
-# Frontend WebSocket URL (for production deployment)
-WS_URL=wss://yoururl.ngrok.com/ws
-```
-
-### Optional Environment Variables
-```env
-# For WebSocket Mode (alternative to webhooks)
-zoomWSURLForEvents=wss://ws.zoom.us/ws?subscriptionId=your_subscription_id
-
-# Zoom Server-to-Server OAuth (optional)
-ZOOM_S2S_CLIENT_ID=your_s2s_client_id
-ZOOM_S2S_CLIENT_SECRET=your_s2s_client_secret
-ZOOM_ACCOUNT_ID=your_account_id
-
-# AI Services (mandatory)
-OPENROUTER_API_KEY=sk-or-v1-your_openrouter_key
-DEEPGRAM_API_KEY=your_deepgram_api_key
-```
-
-Refer to `.env.example` for a complete reference.
-
-## Operation Modes
-
-### Webhook Mode (Default)
-```env
-MODE=webhook
-```
-- Receives Zoom events via HTTP webhooks
-- Requires public endpoint (use ngrok for development)
-- More reliable for production deployments
-
-### WebSocket Mode
-```env
-MODE=websocket
-zoomWSURLForEvents=wss://ws.zoom.us/ws?subscriptionId=your_subscription_id
-```
-- Receives Zoom events via WebSocket subscription
-- Requires Zoom WebSocket subscription setup
-- Real-time event delivery
-
-## Running the Application
-
-1. Start the server:
-```bash
+cp .env.example .env   # Fill in your credentials
 node index.js
 ```
 
-2. For webhook mode, expose your local server using ngrok:
-```bash
-ngrok http 3000
+Expose with ngrok: `ngrok http 3000`
+
+## What This Sample Does
+
+This sample creates an AI-powered assistant that listens to Zoom meeting transcripts and responds both with text and synthesized speech. When participants speak in the meeting, the transcript is sent to OpenRouter for AI processing, and the response is delivered to a web frontend where it's displayed as text and played back as audio using Deepgram's text-to-speech API.
+
+## Prerequisites
+
+- Node.js v18+
+- Zoom account with RTMS enabled
+- Zoom App configured in Marketplace (with Zoom Apps SDK capabilities)
+- OpenRouter API key (for AI responses)
+- Deepgram API key (for text-to-speech)
+- ngrok for local development
+
+## Environment Variables
+
+| Variable | Required | Description |
+|----------|----------|-------------|
+| `ZOOM_SECRET_TOKEN` | Yes | Secret token from your Zoom app |
+| `ZOOM_CLIENT_ID` | Yes | Client ID from your Zoom app |
+| `ZOOM_CLIENT_SECRET` | Yes | Client secret from your Zoom app |
+| `PORT` | No | Server port (default: 3000) |
+| `WEBHOOK_PATH` | No | Webhook endpoint path (default: /webhook) |
+| `FRONTEND_WSS_URL_TO_CONNECT_TO` | Yes | WebSocket URL for frontend (e.g., wss://yoururl.ngrok.com/ws) |
+| `MODE` | No | Event mode: "webhook" or "websocket" (default: webhook) |
+| `zoomWSURLForEvents` | No | Zoom WebSocket URL (required if MODE=websocket) |
+| `ZOOM_S2S_CLIENT_ID` | No | Server-to-Server OAuth client ID |
+| `ZOOM_S2S_CLIENT_SECRET` | No | Server-to-Server OAuth client secret |
+| `ZOOM_ACCOUNT_ID` | No | Zoom account ID for S2S OAuth |
+| `OPENROUTER_API_KEY` | Yes | API key for OpenRouter |
+| `OPENROUTER_MODEL` | No | AI model to use (default: x-ai/grok-4.1-fast) |
+| `OPENROUTER_SYNTHESIS_MODEL` | No | Model for synthesis (default: anthropic/claude-3-haiku) |
+| `DEEPGRAM_API_KEY` | Yes | API key for Deepgram text-to-speech |
+
+## Code Walkthrough
+
+### 1. Initialize RTMSManager
+
+```javascript
+const rtmsConfig = {
+  logging: 'info',
+  logDir: path.join(__dirname, 'logs'),
+  credentials: {
+    meeting: {
+      clientId: config.clientId,
+      clientSecret: config.clientSecret,
+      zoomSecretToken: config.zoomSecretToken,
+    },
+    websocket: {
+      zoomWSURLForEvents: config.zoomWSURLForEvents,
+      clientId: config.clientId,
+      clientSecret: config.clientSecret,
+    },
+  },
+  mediaParams: {
+    audio: {
+      contentType: MEDIA_PARAMS.MEDIA_CONTENT_TYPE_RTP,
+      sampleRate: MEDIA_PARAMS.AUDIO_SAMPLE_RATE_SR_16K,
+      channel: MEDIA_PARAMS.AUDIO_CHANNEL_MONO,
+      codec: MEDIA_PARAMS.MEDIA_PAYLOAD_TYPE_L16,
+      dataOpt: MEDIA_PARAMS.MEDIA_DATA_OPTION_AUDIO_MIXED_STREAM,
+      sendRate: 100,
+    },
+    transcript: {
+      contentType: MEDIA_PARAMS.MEDIA_CONTENT_TYPE_TEXT,
+      language: MEDIA_PARAMS.LANGUAGE_ID_ENGLISH,
+    },
+  }
+};
+
+await RTMSManager.init(rtmsConfig);
 ```
 
-3. Configure your Zoom App's Event Notification URL:
-```
-https://<your-ngrok-subdomain>.ngrok.io/webhook
-```
+### 2. Set Up Webhook Handler
 
-4. Start a Zoom meeting and initiate RTMS streaming.
+```javascript
+if (config.mode === 'webhook') {
+  const webhookManager = new WebhookManager({
+    config: {
+      webhookPath: config.webhookPath,
+      zoomSecretToken: config.zoomSecretToken,
+    },
+    app: app
+  });
 
-## Project Structure
+  webhookManager.on('event', (event, payload) => {
+    console.log('[Consumer] Webhook Event:', event);
+    RTMSManager.handleEvent(event, payload);
+  });
 
-```
-.
-├── index.js                  # Main entry point, handles webhooks/WebSocket, RTMS lifecycle
-├── config.js                 # Environment configuration loader
-├── signalingSocket.js        # RTMS signaling WebSocket handler
-├── mediaSocket.js            # RTMS media WebSocket handler
-├── mediaMessageHandler.js    # Processes RTMS media messages (audio, video, etc.)
-├── frontendWss.js            # WebSocket server for frontend clients
-├── deepgramService.js        # Text-to-speech service using Deepgram
-├── chatWithOpenrouter.js     # AI chat integration via OpenRouter
-├── s2sZoomApiClient.js       # Zoom Server-to-Server API client
-├── public/
-│   ├── index.html            # Zoom App Frontend - Main interface (self-contained)
-│   └── audio-client.js       # Audio WebSocket client for real-time communication
-├── utils/
-│   ├── rtmsEventLookup.js    # RTMS event type definitions
-│   └── signature.js          # Webhook signature validation
-├── logs/                     # Application logs directory
-├── recordings/               # Media files storage directory
-├── .env                      # Environment variables (create from .env.example)
-└── package.json
-```
-
-## Architecture Overview
-
-```
-┌─────────────────┐    ┌───────────────────┐    ┌─────────────────┐
-│   Zoom Meeting  │──> │   RTMS Events     │───>│   index.js      │
-│                 │    │(Webhook/WebSocket)│    │                 │
-└─────────────────┘    └───────────────────┘    └────────┬────────┘
-                                                         │
-                       ┌─────────────────────────────────┼─────────────────┐
-                       │                                 ▼                 │
-                       │        ┌──────────────────────────────────────┐   │
-                       │        │         config.js                    │   │
-                       │        └──────────────────────────────────────┘   │
-                       │                                 │                 │
-                       │                                 ▼                 │
-                       │        ┌──────────────────────────────────────┐   │
-                       │        │      signalingSocket.js              │   │
-                       │        └─────────────┬────────────────────────┘   │
-                       │                      │                            │
-                       │                      ▼                            │
-                       │        ┌──────────────────────────────────────┐   │
-                       │        │       mediaSocket.js                 │   │
-                       │        └─────────────┬────────────────────────┘   │
-                       │                      │                            │
-                       │                      ▼                            │
-                       │        ┌──────────────────────────────────────┐   │
-                       │        │    mediaMessageHandler.js            │   │
-                       │        └─────────────┬────────────────────────┘   │
-                       │                      │                            │
-                       │                      ▼                            │
-                       │        ┌──────────────────────────────────────┐   │
-                       │        │      frontendWss.js                  │   │
-                       │        └─────────────┬────────────────────────┘   │
-                       │                      │                            │
-                       │                      ▼                            │
-                       │        ┌──────────────────────────────────────┐   │
-                       │        │     Zoom App Frontend                │   │
-                       │        │    (public/index.html)               │   │
-                       │        └──────────────────────────────────────┘   │
-                       └───────────────────────────────────────────────────┘
-
-┌─────────────────┐    ┌──────────────────┐    ┌─────────────────┐
-│  OpenRouter AI  │<───│chatWithOpenrouter│<───│  User Messages  │
-│                 │    │      .js         │    │                 │
-└─────────────────┘    └──────────────────┘    └─────────────────┘
-
-┌─────────────────┐    ┌──────────────────┐    ┌─────────────────┐
-│   Deepgram TTS  │<───│  deepgramService │<───│  AI Responses   │
-│                 │    │      .js         │    │                 │
-└─────────────────┘    └──────────────────┘    └─────────────────┘
-```
-
-## Zoom App Frontend Interface
-
-The application provides a modern web Zoom App Frontend interface accessible at:
-```
-http://localhost:3000/
-```
-
-### Key Features:
-
-- **Real-time Chat Interface**: Chat-like UI 
-- **Zoom SDK Integration**: Full access to meeting context and user information
-- **Audio Playback**: Real-time playback of AI-generated speech responses
-
-### Zoom SDK Capabilities:
-
-The interface uses the Zoom App SDK with the following capabilities:
-- `getSupportedJsApis` - Check available SDK functions
-- `getRunningContext` - Get current Zoom context
-- `getMeetingContext` - Access meeting information
-- `getUserContext` - Get user details
-- `getMeetingUUID` - Retrieve unique meeting identifier
-- `getAppContext` - Get app-specific context
-- `startRTMS`/`stopRTMS` - Control RTMS streaming
-- `onRTMSStatusChange` - Monitor RTMS status
-
-## WebSocket Communication
-
-### Frontend WebSocket (Browser ↔ Server)
-```
-ws://localhost:3000/ws
-```
-
-#### Message Types:
-
-| Type | Direction | Purpose |
-|------|-----------|---------|
-| `client_ready` | Client → Server | Initialize connection with meeting context |
-| `ready` | Server → Client | Confirm server is ready |
-| `text` | Bidirectional | Text messages and AI responses |
-| `html` | Server → Client | Rich content (notes, tables) |
-| `audio` | Bidirectional | Base64-encoded PCM audio data |
-| `end` | Client → Server | End audio recording session |
-
-### RTMS WebSocket (Server ↔ Zoom)
-Handles real-time media streaming with message types:
-- **msg_type 14**: Audio data
-- **msg_type 15**: Video data  
-- **msg_type 16**: Screen share
-- **msg_type 17**: Transcript data
-- **msg_type 18**: Chat messages
-
-## AI Integration
-
-### OpenRouter Chat
-- Supports multiple AI models (Claude, Llama, etc.)
-- Contextual conversation synthesis
-- Configurable response length and style
-- Error handling and fallback responses
-
-### Deepgram Text-to-Speech
-- High-quality voice synthesis
-- Multiple voice models available
-- Real-time audio streaming
-- Base64 encoding for web delivery
-
-## Security Considerations
-
-### Production Deployment
-- Use HTTPS for all endpoints
-- Validate Zoom webhook signatures
-- Implement proper CORS policies
-- Secure API keys in environment variables
-
-### Content Security Policy
-```nginx
-add_header Content-Security-Policy "default-src 'self'; script-src 'self' https://appssdk.zoom.us; style-src 'self' 'unsafe-inline'; font-src 'self';" always;
-```
-
-### WebSocket Proxy (Nginx)
-```nginx
-location /ws {
-    proxy_pass http://localhost:3000;
-    proxy_http_version 1.1;
-    proxy_set_header Upgrade $http_upgrade;
-    proxy_set_header Connection "upgrade";
-    proxy_set_header Host $host;
+  webhookManager.setup();
 }
 ```
 
-## Zoom Marketplace Configuration
+### 3. Set Up Frontend WebSocket
 
-For Zoom App deployment:
+```javascript
+import { setupFrontendWss, broadcastToFrontendClients, sharedServices } from './frontendWss.js';
 
-### Required Settings:
-- **Domain Allowlist**: Include required external domains:
-  - `appssdk.zoom.us` (Zoom SDK - required for functionality)
+sharedServices.textToSpeech = textToSpeechBase64;
+setupFrontendWss(server);
+```
 
+### 4. Handle Transcript Events with AI and Audio
 
-### SDK Capabilities:
-Enable all required Zoom SDK APIs in your app configuration.
+```javascript
+RTMSManager.on('transcript', async ({ text, userId, userName, timestamp, meetingId, streamId, productType }) => {
+  console.log('Transcript received:', text);
+  
+  try {
+    const aiResponse = await chatWithOpenRouter(text);
+    console.log('AI Response:', aiResponse);
 
-### Event Subscriptions:
-- `meeting.rtms_started`
-- `meeting.rtms_stopped`
+    broadcastToFrontendClients({
+      type: 'text',
+      data: aiResponse,
+      metadata: {
+        source: 'transcript_response',
+        originalText: text,
+        userName: userName,
+        timestamp: Date.now()
+      }
+    });
 
-## Development
+    if (sharedServices.textToSpeech) {
+      const base64Audio = await sharedServices.textToSpeech(aiResponse);
+      broadcastToFrontendClients({
+        type: 'audio',
+        data: base64Audio,
+        metadata: {
+          source: 'transcript_response',
+          originalText: text,
+          aiResponse: aiResponse,
+          timestamp: Date.now()
+        }
+      });
+    }
+  } catch (error) {
+    console.error('Error processing transcript:', error);
+  }
+});
+```
 
-### Local Development
-1. Use ngrok for webhook testing
-2. Set up environment variables
-3. Configure Zoom App with ngrok URL
-4. Test with actual Zoom meetings
+### 5. Start the Server
 
-### Debugging
-- Check browser console for frontend errors
-- Monitor server logs for WebSocket connections
-- Verify RTMS event delivery
-- Test AI service integrations separately
+```javascript
+await RTMSManager.start();
+
+server.listen(config.port, () => {
+  console.log(`Server running at http://localhost:${config.port}`);
+  console.log(`Webhook available at http://localhost:${config.port}${config.webhookPath}`);
+  console.log(`Frontend WebSocket available at ws://localhost:${config.port}/ws`);
+});
+```
+
+## Key Files
+
+| File | Purpose |
+|------|---------|
+| `index.js` | Main entry point - initializes RTMSManager, webhook, and WebSocket server |
+| `config.js` | Configuration loader for environment variables |
+| `frontendWss.js` | Frontend WebSocket server for browser communication |
+| `chatWithOpenrouter.js` | OpenRouter AI chat integration |
+| `deepgramService.js` | Deepgram text-to-speech service |
+| `public/index.ejs` | Frontend UI template |
+| `public/audio-client.js` | Browser-side audio playback handler |
+
+## How It Works
+
+1. User joins a Zoom meeting with RTMS enabled
+2. Zoom sends RTMS events to the webhook endpoint
+3. RTMSManager processes the events and connects to the media stream
+4. Transcripts are received and sent to OpenRouter for AI processing
+5. AI response is broadcast to connected frontend clients as text
+6. Response is converted to audio using Deepgram TTS
+7. Audio is sent to frontend clients as base64 and played in the browser
 
 ## Troubleshooting
 
-### Common Issues:
+| Issue | Solution |
+|-------|----------|
+| No audio playback | Verify DEEPGRAM_API_KEY is set correctly |
+| WebSocket not connecting | Check FRONTEND_WSS_URL_TO_CONNECT_TO matches your ngrok URL |
+| No AI responses | Verify OPENROUTER_API_KEY and model availability |
+| Webhook not receiving events | Ensure ngrok is running and URL is registered in Zoom Marketplace |
 
-1. **WebSocket Connection Failed**
-   - Check firewall settings
-   - Verify ngrok tunnel is active
-   - Confirm WebSocket URL in frontend
+## See Also
 
-2. **RTMS Not Starting**
-   - Ensure RTMS is enabled for your Zoom account
-   - Verify webhook/WebSocket event delivery
-   - Check Zoom App permissions
-
-3. **AI Services Not Working**
-   - Verify API keys are correct
-   - Check service quotas and billing
-   - Monitor API response errors
-
-4. **Audio Playback Issues**
-   - Ensure browser supports Web Audio API
-   - Check CORS headers for audio data
-   - Verify Deepgram audio format
-
-## License
-
-This project is provided as a sample implementation for educational and development purposes.
+- [RTMSManager Library Docs](../../library/README.md) - Full API reference
+- [Zoom App Setup Guide](../../ZOOM_APP_SETUP.md) - Configure your Zoom app
+- [Troubleshooting Guide](../../TROUBLESHOOTING.md) - Common issues
