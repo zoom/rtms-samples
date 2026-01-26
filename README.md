@@ -1,6 +1,6 @@
 # Zoom RTMS Samples Repository
 
-This repository contains sample projects demonstrating how to work with Zoom's Realtime Media Streams (RTMS) in JavaScript, Python, and SDK implementations.
+This repository contains sample projects demonstrating how to work with Zoom's Realtime Media Streams (RTMS) in JavaScript, Python, Go, Java, C++, .NET, and SDK implementations.
 
 ## What is RTMS?
 
@@ -11,6 +11,8 @@ Zoom Realtime Media Streams (RTMS) allows developers to access realtime media da
 - **Screen shares** - JPEG/PNG/H.264 frames
 - **Chat messages** - In-meeting chat
 
+> **Note**: RTMS is built on standard WebSocket technology. You do **not** need the SDK or library to access RTMS streams—you can connect directly using any WebSocket client in any language. The [`library/`](./library/) and SDK are provided for convenience, offering helper classes, reconnection managers, and event handling. Feel free to use them as-is, modify them, or implement your own logic for advanced use cases. See [RTMS_CONNECTION_FLOW.md](./RTMS_CONNECTION_FLOW.md) for the raw protocol details.
+
 ## Quick Start
 
 ```javascript
@@ -20,7 +22,7 @@ import express from 'express';
 
 const app = express();
 
-// 1. Configure RTMS
+// Initialize
 await RTMSManager.init({
   credentials: {
     meeting: {
@@ -28,14 +30,10 @@ await RTMSManager.init({
       clientSecret: process.env.ZOOM_CLIENT_SECRET,
       zoomSecretToken: process.env.ZOOM_SECRET_TOKEN,
     }
-  },
-  mediaParams: {
-    audio: { codec: 'L16', sampleRate: 16000 },
-    transcript: { language: 'en' }
   }
 });
 
-// 2. Setup webhook to receive Zoom events
+// Setup webhook
 const webhookManager = new WebhookManager({
   config: { webhookPath: '/', zoomSecretToken: process.env.ZOOM_SECRET_TOKEN },
   app
@@ -43,90 +41,16 @@ const webhookManager = new WebhookManager({
 webhookManager.on('event', (event, payload) => RTMSManager.handleEvent(event, payload));
 webhookManager.setup();
 
-// 3. Handle real-time media
-RTMSManager.on('audio', ({ buffer, userId, userName, timestamp }) => {
-  console.log(`Audio from ${userName}: ${buffer.length} bytes`);
-});
+// Handle media
+RTMSManager.on('audio', ({ buffer, userName }) => console.log(`Audio from ${userName}`));
+RTMSManager.on('transcript', ({ text, userName }) => console.log(`${userName}: ${text}`));
 
-RTMSManager.on('transcript', ({ text, userName }) => {
-  console.log(`${userName}: ${text}`);
-});
-
-// 4. Start
+// Start
 await RTMSManager.start();
 app.listen(3000);
 ```
 
-## Featured Use Cases
-
-### Real-time Note-Taking with NLP
-[`zoom_apps/ai_industry_specific_notetaker_js/`](./zoom_apps/ai_industry_specific_notetaker_js/)
-
-Build a meeting assistant that extracts entities, detects action items, classifies topics, and generates summaries in real-time.
-
-```
-Zoom Meeting → RTMS Webhook → WebSocket → Transcript → NLP Pipeline → Frontend
-```
-
-```javascript
-RTMSManager.on('transcript', async ({ text, userName }) => {
-  // Named Entity Recognition
-  const entities = await detectEntities(text);
-  
-  // Action item detection (regex-based)
-  const actions = detectActionItems(text);
-  
-  // Topic classification via LLM
-  const topic = await classifyTopic(text);
-  
-  // Periodic summarization
-  if (transcriptHistory.length % 5 === 0) {
-    summary = await summarize(transcriptHistory.join(' '));
-  }
-  
-  // Broadcast to connected frontends
-  frontendWss.broadcast({ text, entities, actions, topic, summary, user: userName });
-});
-```
-
-**Features:**
-- Real-time entity extraction (people, organizations, dates)
-- Action item detection ("we need to", "let's", "follow up")
-- Topic classification (Finance, Legal, Tech, HR)
-- Rolling meeting summaries
-- WebSocket broadcast to frontend dashboard
-
-### AI-Powered Applications
-| Sample | Description |
-|--------|-------------|
-| [`ai_industry_specific_notetaker_js`](./zoom_apps/ai_industry_specific_notetaker_js/) | NLP pipeline: NER, action items, topics, summaries |
-| [`ai_transcript_analysis_js`](./zoom_apps/ai_transcript_analysis_js/) | Real-time transcript analysis |
-| [`ai_rag_customer_support_js`](./zoom_apps/ai_rag_customer_support_js/) | Customer service AI with RAG |
-| [`ai_chat_with_audio_playback_js`](./zoom_apps/ai_chat_with_audio_playback_js/) | LLM chatbot with neural audio playback |
-| [`ai_dnd_game_js`](./zoom_apps/ai_dnd_game_js/) | D&D game powered by transcripts |
-
-### Multi-Provider Transcription
-| Sample | Description |
-|--------|-------------|
-| [`send_audio_to_deepgram_transcribe_service_js`](./audio/send_audio_to_deepgram_transcribe_service_js/) | Deepgram real-time transcription |
-| [`send_audio_to_assemblyai_transcribe_service_js`](./audio/send_audio_to_assemblyai_transcribe_service_js/) | AssemblyAI transcription |
-| [`send_audio_to_aws_transcribe_service_js`](./audio/send_audio_to_aws_transcribe_service_js/) | AWS Transcribe integration |
-| [`send_audio_to_azure_speech_to_text_service_js`](./audio/send_audio_to_azure_speech_to_text_service_js/) | Azure Speech-to-Text |
-
-### Cloud Storage
-| Sample | Description |
-|--------|-------------|
-| [`save_audio_and_video_to_aws_s3_storage_js`](./storage/save_audio_and_video_to_aws_s3_storage_js/) | Save recordings to AWS S3 |
-| [`save_audio_and_video_to_azure_blob_storage_js`](./storage/save_audio_and_video_to_azure_blob_storage_js/) | Save recordings to Azure Blob |
-| [`save_audio_and_video_to_local_storage_js`](./storage/save_audio_and_video_to_local_storage_js/) | Save recordings locally |
-
-### Live Streaming
-| Sample | Strategy | Description |
-|--------|----------|-------------|
-| [`stream_to_aws_ivs_gap_filler_js`](./streaming/stream_to_aws_ivs_gap_filler_js/) | Gap Filler | Stream to AWS IVS with mute detection |
-| [`stream_to_aws_ivs_jitter_buffer_js`](./streaming/stream_to_aws_ivs_jitter_buffer_js/) | Jitter Buffer | Stream to AWS IVS with packet reordering |
-| [`stream_audio_and_video_to_youtube_greedy_gap_filler_js`](./streaming/stream_audio_and_video_to_youtube_greedy_gap_filler_js/) | Greedy Gap Filler | Stream to YouTube Live |
-| [`stream_audio_and_video_to_custom_frontend_passthru_js`](./streaming/stream_audio_and_video_to_custom_frontend_passthru_js/) | Passthru | Stream to custom HLS frontend |
+→ **Full examples**: [`boilerplate/`](./boilerplate/) | **Library docs**: [`library/javascript/README.md`](./library/javascript/README.md)
 
 ## Repository Structure
 
@@ -140,26 +64,25 @@ RTMSManager.on('transcript', async ({ text, userName }) => {
 │   ├── send_audio_to_azure_speech_to_text_service_js/
 │   ├── send_audio_to_azure_speech_to_text_service_sdk/
 │   ├── send_audio_to_deepgram_transcribe_service_js/
-│   └── send_audio_to_deepgram_transcribe_service_sdk/
+│   ├── send_audio_to_deepgram_transcribe_service_sdk/
+│   └── send_audio_to_whisper_local_transcribe_service_js/
 ├── boilerplate/                    # Starter templates for various languages
 │   ├── working_cplusplus_wss/
 │   ├── working_dotnetcore/
 │   ├── working_go/
+│   ├── working_java/
 │   ├── working_js/
+│   ├── working_js_template/
 │   ├── working_python/
 │   ├── working_python_wss/
 │   └── working_sdk/
-├── library/                        # Shared JavaScript library (RTMSManager)
-│   └── javascript/
-│       ├── rtmsManager/            # Core RTMS connection management
-│       ├── webhookManager/         # Zoom webhook handling
-│       ├── webSocketManager/       # Zoom WebSocket event handling
-│       └── commonHelpers/          # Audio/video processing utilities
+├── library/                        # Shared libraries
+│   ├── javascript/                 # RTMSManager, WebhookManager, helpers
+│   └── python/                     # Python RTMS utilities
 ├── rtms_api/                       # Manual RTMS start/stop control
 │   ├── manual_start_stop_using_js/
 │   └── manual_start_stop_using_python/
 ├── rtms_mcp_client/                # Model Context Protocol integration
-│   └── zoom-rtms-mcp-client/
 ├── screen_share/                   # Screen share capture samples
 │   ├── save_screen_share_js/
 │   └── save_screen_share_pdf_js/
@@ -172,6 +95,7 @@ RTMSManager.on('transcript', async ({ text, userName }) => {
 │   └── save_audio_and_video_to_local_storage_sdk/
 ├── streaming/                      # Live streaming samples
 │   ├── stream_audio_and_video_to_custom_frontend_passthru_js/
+│   ├── stream_audio_and_video_to_custom_frontend_sdk/
 │   ├── stream_audio_and_video_to_youtube_greedy_gap_filler_js/
 │   ├── stream_to_aws_ivs_gap_filler_js/
 │   ├── stream_to_aws_ivs_jitter_buffer_js/
@@ -185,6 +109,10 @@ RTMSManager.on('transcript', async ({ text, userName }) => {
 ├── video/                          # Video analysis samples
 │   ├── detect_emotion_using_amazon_rekognition_js/
 │   └── detect_object_using_tensorflow_js/
+├── video-sdk/                      # Video SDK integration samples
+│   ├── vsdk_working_java/
+│   ├── vsdk_working_js/
+│   └── vsdk_working_python/
 └── zoom_apps/                      # Complete Zoom App examples
     ├── ai_chat_with_audio_playback_js/
     ├── ai_dnd_game_js/
@@ -195,494 +123,48 @@ RTMSManager.on('transcript', async ({ text, userName }) => {
     └── start_stop_rtms_control_js/
 ```
 
-## Production Architecture
+## Sample Categories
 
-### Scaling for High-Volume Concurrent Meetings
+| Category | Description | Count |
+|----------|-------------|-------|
+| [`audio/`](./audio/) | Transcription services (AWS, Azure, Deepgram, AssemblyAI, Whisper) | 10 |
+| [`boilerplate/`](./boilerplate/) | Starter templates (JS, Python, Go, Java, C++, .NET, SDK) | 11 |
+| [`streaming/`](./streaming/) | Live streaming (AWS IVS, Kinesis, YouTube, custom) | 6 |
+| [`storage/`](./storage/) | Cloud & local storage (S3, Azure Blob, local) | 6 |
+| [`transcript/`](./transcript/) | Transcript processing & LLM integration | 5 |
+| [`zoom_apps/`](./zoom_apps/) | Complete Zoom App examples (AI, RAG, games) | 7 |
+| [`video/`](./video/) | Video analysis (TensorFlow, Rekognition) | 2 |
+| [`video-sdk/`](./video-sdk/) | Video SDK integration | 3 |
+| [`screen_share/`](./screen_share/) | Screen capture & PDF export | 2 |
+| [`rtms_api/`](./rtms_api/) | Manual RTMS session control | 2 |
+| [`rtms_mcp_client/`](./rtms_mcp_client/) | Model Context Protocol client | 1 |
+| [`library/`](./library/) | Shared utilities (RTMSManager, helpers) | 2 |
 
-```
-┌─────────────────────────────────────────────────────────────────────────────┐
-│                           Load Balancer (nginx/ALB)                         │
-└─────────────────────────────────────────────────────────────────────────────┘
-                                      │
-              ┌───────────────────────┼───────────────────────┐
-              ▼                       ▼                       ▼
-     ┌─────────────────┐     ┌─────────────────┐     ┌─────────────────┐
-     │  RTMS Worker 1  │     │  RTMS Worker 2  │     │  RTMS Worker N  │
-     │  (RTMSManager)  │     │  (RTMSManager)  │     │  (RTMSManager)  │
-     └────────┬────────┘     └────────┬────────┘     └────────┬────────┘
-              │                       │                       │
-              └───────────────────────┼───────────────────────┘
-                                      ▼
-                    ┌─────────────────────────────────┐
-                    │     Message Queue (Redis/SQS)   │
-                    │   - Meeting assignments         │
-                    │   - Transcription jobs          │
-                    │   - Processing results          │
-                    └─────────────────────────────────┘
-                                      │
-              ┌───────────────────────┼───────────────────────┐
-              ▼                       ▼                       ▼
-     ┌─────────────────┐     ┌─────────────────┐     ┌─────────────────┐
-     │  Transcription  │     │  Transcription  │     │  Transcription  │
-     │  Service Pool   │     │  Service Pool   │     │  Service Pool   │
-     │  (Deepgram)     │     │  (AssemblyAI)   │     │  (AWS/Fallback) │
-     └─────────────────┘     └─────────────────┘     └─────────────────┘
-```
+### About the Library & SDK
 
-### Multi-Provider Transcription with Fallback
+RTMS streams are delivered over standard WebSocket connections—**no SDK or library is required**. The [`library/`](./library/) and SDK are provided purely for convenience:
 
-```javascript
-// Cascading fallback pattern for transcription services
-const transcriptionProviders = [
-  { name: 'deepgram', client: deepgramClient, priority: 1, rateLimit: 100 },
-  { name: 'assemblyai', client: assemblyClient, priority: 2, rateLimit: 50 },
-  { name: 'aws', client: awsTranscribeClient, priority: 3, rateLimit: 200 },
-];
+- **Helper classes** for audio/video processing
+- **Reconnection managers** for handling network interruptions
+- **Event routing** and connection lifecycle management
 
-class TranscriptionManager {
-  constructor(providers) {
-    this.providers = providers.sort((a, b) => a.priority - b.priority);
-    this.circuitBreakers = new Map();
-    
-    // Initialize circuit breakers for each provider
-    for (const provider of providers) {
-      this.circuitBreakers.set(provider.name, new CircuitBreaker({
-        failureThreshold: 5,
-        resetTimeout: 30000,
-      }));
-    }
-  }
+For advanced use cases requiring performance optimization or unique customization, you can modify the library code or implement your own WebSocket handling directly. See [RTMS_CONNECTION_FLOW.md](./RTMS_CONNECTION_FLOW.md) for the complete protocol specification.
 
-  async transcribe(audioBuffer, meetingId) {
-    for (const provider of this.providers) {
-      const breaker = this.circuitBreakers.get(provider.name);
-      
-      if (breaker.isOpen()) {
-        console.log(`[${provider.name}] Circuit open, skipping`);
-        continue;
-      }
+## Documentation
 
-      try {
-        const result = await breaker.call(() => 
-          provider.client.transcribe(audioBuffer)
-        );
-        return { provider: provider.name, transcript: result };
-      } catch (error) {
-        console.error(`[${provider.name}] Failed: ${error.message}`);
-        // Continue to next provider
-      }
-    }
-    
-    throw new Error('All transcription providers failed');
-  }
-}
-
-// Usage with RTMSManager
-const transcriptionManager = new TranscriptionManager(transcriptionProviders);
-
-RTMSManager.on('audio', async ({ buffer, meetingId }) => {
-  try {
-    const result = await transcriptionManager.transcribe(buffer, meetingId);
-    console.log(`Transcribed via ${result.provider}: ${result.transcript}`);
-  } catch (error) {
-    // All providers failed - queue for retry or alert
-    await deadLetterQueue.push({ buffer, meetingId, error: error.message });
-  }
-});
-```
-
-### Circuit Breaker Pattern
-
-```javascript
-class CircuitBreaker {
-  constructor({ failureThreshold = 5, resetTimeout = 30000 }) {
-    this.failureThreshold = failureThreshold;
-    this.resetTimeout = resetTimeout;
-    this.failures = 0;
-    this.state = 'CLOSED'; // CLOSED, OPEN, HALF_OPEN
-    this.lastFailureTime = null;
-  }
-
-  isOpen() {
-    if (this.state === 'OPEN') {
-      // Check if we should try again
-      if (Date.now() - this.lastFailureTime >= this.resetTimeout) {
-        this.state = 'HALF_OPEN';
-        return false;
-      }
-      return true;
-    }
-    return false;
-  }
-
-  async call(fn) {
-    if (this.isOpen()) {
-      throw new Error('Circuit breaker is open');
-    }
-
-    try {
-      const result = await fn();
-      this.onSuccess();
-      return result;
-    } catch (error) {
-      this.onFailure();
-      throw error;
-    }
-  }
-
-  onSuccess() {
-    this.failures = 0;
-    this.state = 'CLOSED';
-  }
-
-  onFailure() {
-    this.failures++;
-    this.lastFailureTime = Date.now();
-    if (this.failures >= this.failureThreshold) {
-      this.state = 'OPEN';
-    }
-  }
-}
-```
-
-### Concurrent Meeting Management
-
-```javascript
-class MeetingPoolManager {
-  constructor({ maxConcurrentMeetings = 100, queueTimeout = 30000 }) {
-    this.maxConcurrent = maxConcurrentMeetings;
-    this.activeMeetings = new Map();
-    this.waitingQueue = [];
-  }
-
-  async acquireSlot(meetingId) {
-    if (this.activeMeetings.size < this.maxConcurrent) {
-      this.activeMeetings.set(meetingId, { startTime: Date.now() });
-      return true;
-    }
-
-    // Queue the meeting
-    return new Promise((resolve, reject) => {
-      const timeout = setTimeout(() => {
-        this.waitingQueue = this.waitingQueue.filter(w => w.meetingId !== meetingId);
-        reject(new Error(`Meeting ${meetingId} queue timeout`));
-      }, this.queueTimeout);
-
-      this.waitingQueue.push({ meetingId, resolve, reject, timeout });
-    });
-  }
-
-  releaseSlot(meetingId) {
-    this.activeMeetings.delete(meetingId);
-    
-    // Process waiting queue
-    if (this.waitingQueue.length > 0) {
-      const next = this.waitingQueue.shift();
-      clearTimeout(next.timeout);
-      this.activeMeetings.set(next.meetingId, { startTime: Date.now() });
-      next.resolve(true);
-    }
-  }
-
-  getStats() {
-    return {
-      active: this.activeMeetings.size,
-      queued: this.waitingQueue.length,
-      maxConcurrent: this.maxConcurrent,
-    };
-  }
-}
-
-// Integration with RTMSManager
-const meetingPool = new MeetingPoolManager({ maxConcurrentMeetings: 100 });
-
-RTMSManager.on('meeting.rtms_started', async (payload) => {
-  try {
-    await meetingPool.acquireSlot(payload.meeting_uuid);
-    console.log(`Meeting ${payload.meeting_uuid} started. Pool: ${JSON.stringify(meetingPool.getStats())}`);
-  } catch (error) {
-    console.error(`Meeting ${payload.meeting_uuid} rejected: ${error.message}`);
-    // Optionally notify or handle overflow
-  }
-});
-
-RTMSManager.on('meeting.rtms_stopped', (payload) => {
-  meetingPool.releaseSlot(payload.meeting_uuid);
-});
-```
-
-### Error Handling Strategy
-
-```javascript
-// Error classification for appropriate handling
-class RTMSErrorHandler {
-  static classify(error) {
-    const errorPatterns = {
-      RETRYABLE: [
-        /ECONNRESET/,
-        /ETIMEDOUT/,
-        /socket hang up/,
-        /503/,
-        /429/, // Rate limited
-      ],
-      FATAL: [
-        /401/, // Auth failed
-        /403/, // Forbidden
-        /Invalid signature/,
-      ],
-      RECOVERABLE: [
-        /ENOTFOUND/,
-        /WebSocket closed/,
-      ],
-    };
-
-    for (const [type, patterns] of Object.entries(errorPatterns)) {
-      if (patterns.some(p => p.test(error.message))) {
-        return type;
-      }
-    }
-    return 'UNKNOWN';
-  }
-
-  static async handle(error, context) {
-    const type = this.classify(error);
-    
-    switch (type) {
-      case 'RETRYABLE':
-        // Exponential backoff retry
-        await this.retryWithBackoff(context.retry, context.maxRetries || 3);
-        break;
-      
-      case 'FATAL':
-        // Log, alert, don't retry
-        console.error(`Fatal error for meeting ${context.meetingId}: ${error.message}`);
-        await alerting.critical('RTMS Fatal Error', { error, context });
-        break;
-      
-      case 'RECOVERABLE':
-        // Attempt reconnection
-        console.warn(`Recoverable error, reconnecting: ${error.message}`);
-        await RTMSManager.reconnect(context.meetingId);
-        break;
-      
-      default:
-        console.error(`Unknown error: ${error.message}`);
-        await alerting.warning('RTMS Unknown Error', { error, context });
-    }
-  }
-
-  static async retryWithBackoff(fn, maxRetries, baseDelay = 1000) {
-    for (let i = 0; i < maxRetries; i++) {
-      try {
-        return await fn();
-      } catch (error) {
-        if (i === maxRetries - 1) throw error;
-        const delay = baseDelay * Math.pow(2, i) + Math.random() * 1000;
-        await new Promise(r => setTimeout(r, delay));
-      }
-    }
-  }
-}
-```
-
-### Health Monitoring & Metrics
-
-```javascript
-// Health check endpoint for load balancers
-app.get('/health', (req, res) => {
-  const health = {
-    status: 'ok',
-    timestamp: new Date().toISOString(),
-    uptime: process.uptime(),
-    meetings: {
-      active: RTMSManager.getActiveStreams().length,
-      poolStats: meetingPool.getStats(),
-    },
-    memory: process.memoryUsage(),
-    transcription: {
-      circuitBreakers: Object.fromEntries(
-        transcriptionManager.providers.map(p => [
-          p.name,
-          transcriptionManager.circuitBreakers.get(p.name).state
-        ])
-      ),
-    },
-  };
-
-  const isHealthy = health.meetings.active < meetingPool.maxConcurrent * 0.9;
-  res.status(isHealthy ? 200 : 503).json(health);
-});
-
-// Prometheus-style metrics endpoint
-app.get('/metrics', (req, res) => {
-  const metrics = [
-    `rtms_active_meetings ${RTMSManager.getActiveStreams().length}`,
-    `rtms_queued_meetings ${meetingPool.getStats().queued}`,
-    `rtms_memory_heap_used ${process.memoryUsage().heapUsed}`,
-    `rtms_uptime_seconds ${process.uptime()}`,
-  ];
-  res.set('Content-Type', 'text/plain');
-  res.send(metrics.join('\n'));
-});
-```
-
-### Graceful Shutdown
-
-```javascript
-async function gracefulShutdown(signal) {
-  console.log(`Received ${signal}. Starting graceful shutdown...`);
-  
-  // 1. Stop accepting new meetings
-  server.close();
-  
-  // 2. Wait for active meetings to complete (with timeout)
-  const shutdownTimeout = 30000;
-  const activeStreams = RTMSManager.getActiveStreams();
-  
-  if (activeStreams.length > 0) {
-    console.log(`Waiting for ${activeStreams.length} active meetings...`);
-    
-    await Promise.race([
-      Promise.all(activeStreams.map(s => RTMSManager.stopStream(s.streamId))),
-      new Promise(r => setTimeout(r, shutdownTimeout)),
-    ]);
-  }
-  
-  // 3. Cleanup resources
-  await RTMSManager.stop();
-  
-  console.log('Graceful shutdown complete');
-  process.exit(0);
-}
-
-process.on('SIGTERM', () => gracefulShutdown('SIGTERM'));
-process.on('SIGINT', () => gracefulShutdown('SIGINT'));
-```
-
-## Architecture
-
-### RTMS Connection Flow
-
-```
-┌─────────────────┐     ┌──────────────────┐     ┌─────────────────┐
-│   Zoom Meeting  │────▶│  Webhook Event   │────▶│   Your Server   │
-│                 │     │ meeting.rtms_    │     │                 │
-│                 │     │ started          │     │                 │
-└─────────────────┘     └──────────────────┘     └────────┬────────┘
-                                                          │
-                        ┌──────────────────┐              │
-                        │ Signaling WSS    │◀─────────────┘
-                        │ (Handshake)      │
-                        └────────┬─────────┘
-                                 │
-                        ┌────────▼─────────┐
-                        │  Media WSS       │
-                        │ (Audio/Video/    │
-                        │  Transcript)     │
-                        └────────┬─────────┘
-                                 │
-                        ┌────────▼─────────┐
-                        │  Your Processing │
-                        │  (NLP, Storage,  │
-                        │   Streaming)     │
-                        └──────────────────┘
-```
-
-### Implementation Approaches
-
-#### 1. RTMSManager (Recommended)
-The `RTMSManager` library handles connection management, reconnection, and event routing automatically:
-
-```javascript
-import { RTMSManager } from './library/javascript/rtmsManager/RTMSManager.js';
-
-await RTMSManager.init(config);
-RTMSManager.on('audio', handleAudio);
-RTMSManager.on('video', handleVideo);
-RTMSManager.on('transcript', handleTranscript);
-await RTMSManager.start();
-```
-
-#### 2. SDK-Based
-The RTMS SDK provides a simplified interface with built-in error handling:
-- Automatic connection management
-- Built-in reconnection logic
-- Cross-platform compatibility
-
-#### 3. Native WebSocket
-For maximum control, implement WebSocket connections directly:
-- Manual handshake and authentication
-- Custom reconnection strategies
-- Direct binary data processing
-
-## Creating an App in the Zoom Marketplace
-
-1. **Sign in**: Go to https://marketplace.zoom.us/ with your RTMS-enabled account
-
-2. **Create App**: Develop → Build App → General App → User-Managed
-
-3. **Configure Event Subscriptions**:
-   - Features → Access → Enable Event Subscription
-   - Add Events → Search "rtms" → Select RTMS endpoints
-
-4. **Configure Scopes**:
-   - Scopes → Add Scopes → Search "rtms"
-   - Add scopes for both "Meetings" and "Rtms"
-
-5. **Get Credentials**:
-   - Client ID
-   - Client Secret
-   - Webhook verification token (Secret Token)
-
-## Media Parameters
-
-### Audio
-| Parameter | Options |
-|-----------|---------|
-| Sample Rate | 8kHz, 16kHz, 24kHz, 32kHz, 48kHz |
-| Codec | L16 (PCM), OPUS |
-| Channels | Mono, Stereo |
-| Data Option | Mixed stream, Individual streams |
-
-### Video
-| Parameter | Options |
-|-----------|---------|
-| Codec | H.264, VP8 |
-| Resolution | SD (640x360), HD (1280x720), FHD (1920x1080) |
-| FPS | 1-30 |
-| Data Option | Single active speaker, All participants |
-
-### Transcript
-| Parameter | Options |
-|-----------|---------|
-| Language | English, Spanish, French, German, etc. |
-| Content Type | Text |
-
-## Troubleshooting
-
-### Connection Issues
-- Verify ngrok/tunnel is running and accessible
-- Check Zoom OAuth credentials in `.env`
-- Ensure webhook URL is correctly configured in Zoom Marketplace
-
-### No Audio/Video Data
-- Verify RTMS is enabled for your app (Zoom web settings)
-- Check that your app has correct RTMS scopes
-- Ensure you're handling the `meeting.rtms_started` webhook event
-
-### FFmpeg Conversion Issues
-- RTMS audio: L16 PCM at 16kHz/24kHz, mono
-- FFmpeg params: `-f s16le -ar 16000 -ac 1`
-- Ensure FFmpeg is installed and in PATH
-
-### SDK Installation
-```bash
-npm install github:zoom/rtms
-```
-Ensure you have the correct token for fetching prebuilt binaries.
+| Document | Description |
+|----------|-------------|
+| [USE_CASES.md](./USE_CASES.md) | Featured samples & code examples |
+| [ARCHITECTURE.md](./ARCHITECTURE.md) | Connection flow & implementation approaches |
+| [RTMS_CONNECTION_FLOW.md](./RTMS_CONNECTION_FLOW.md) | Raw WebSocket protocol & message types |
+| [PRODUCTION.md](./PRODUCTION.md) | Scaling, error handling, monitoring patterns |
+| [ZOOM_APP_SETUP.md](./ZOOM_APP_SETUP.md) | Zoom Marketplace app creation guide |
+| [MEDIA_PARAMETERS.md](./MEDIA_PARAMETERS.md) | Audio/video/transcript configuration specs |
+| [TROUBLESHOOTING.md](./TROUBLESHOOTING.md) | Common issues & fixes |
+| [CONTRIBUTING.md](./CONTRIBUTING.md) | Contribution guidelines |
 
 ## License
 
 MIT License - Copyright (c) 2025 Zoom Video Communications, Inc.
 
-See [LICENSE](./LICENSE) for full text.
+See [LICENSE.md](./LICENSE.md) for full text.

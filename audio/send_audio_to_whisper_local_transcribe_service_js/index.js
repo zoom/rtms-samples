@@ -7,7 +7,7 @@ import { fileURLToPath } from 'url';
 import express from 'express';
 import http from 'http';
 
-import { azureSpeechToTextStream } from "./azureSpeechToText.js";
+import { sendAudioChunk, initWhisperTranscription, closeWhisperTranscription } from './whisper.js';
 
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = path.dirname(__filename);
@@ -23,7 +23,7 @@ const appConfig = {
 
 const rtmsConfig = {
   mediaSocketConnectionMode: process.env.MEDIA_SOCKET_CONNECTION_MODE || 'split',
-  mediaTypesFlag: 1, // Audio only
+  mediaTypesFlag: 1,
   credentials: {
     meeting: {
       clientId: process.env.ZOOM_CLIENT_ID,
@@ -53,19 +53,18 @@ const rtmsConfig = {
   }
 };
 
-console.log('[Azure Speech] App Configuration:', appConfig);
-console.log('[Consumer] RTMS Configuration:', RTMSManager.redactSecrets(rtmsConfig));
+console.log('[Whisper] App Configuration:', appConfig);
+console.log('[Whisper] RTMS Configuration:', RTMSManager.redactSecrets(rtmsConfig));
 
-// 1. Create Express App and HTTP Server
+await initWhisperTranscription();
+
 const app = express();
 const server = http.createServer(app);
 
 app.use(express.json());
 
-// 2. Initialize RTMS Manager (Core Logic)
 await RTMSManager.init(rtmsConfig);
 
-// 3. Initialize Event Source Managers based on config
 if (appConfig.managerType === 'webhook') {
   const webhookManager = new WebhookManager({
     config: {
@@ -76,12 +75,12 @@ if (appConfig.managerType === 'webhook') {
   });
 
   webhookManager.on('event', (event, payload) => {
-    console.log('[Azure Speech] Webhook Event:', event);
+    console.log('[Whisper] Webhook Event:', event);
     RTMSManager.handleEvent(event, payload);
   });
 
   webhookManager.setup();
-  console.log('[Azure Speech] Webhook Manager initialized');
+  console.log('[Whisper] Webhook Manager initialized');
 
 } else if (appConfig.managerType === 'websocket') {
   const websocketManager = new WebsocketManager({
@@ -93,33 +92,39 @@ if (appConfig.managerType === 'webhook') {
   });
 
   websocketManager.on('event', (event, payload) => {
-    console.log('[Azure Speech] Websocket Event:', event);
+    console.log('[Whisper] Websocket Event:', event);
     RTMSManager.handleEvent(event, payload);
   });
 
   await websocketManager.start();
-  console.log('[Azure Speech] Websocket Manager initialized');
+  console.log('[Whisper] Websocket Manager initialized');
 }
 
-// 4. Register media/event handlers
-RTMSManager.on('audio', (event) => {
-  azureSpeechToTextStream(event.buffer);
+RTMSManager.on('audio', (audioEvent) => {
+  const { buffer, userId, userName } = audioEvent;
+  //console.log(`[Whisper] Audio received: ${buffer?.length} bytes from ${userName || userId}`);
+  sendAudioChunk(buffer);
 });
 
 RTMSManager.on('error', (error) => {
-  console.error('[Azure Speech] RTMS Error:', error.message);
+  console.error('[Whisper] RTMS Error:', error.message);
 });
 
-// 5. Start the Server and RTMS Manager
 await RTMSManager.start();
 
 server.listen(appConfig.port, () => {
-  console.log(`[Azure Speech] Server listening on port ${appConfig.port}`);
+  console.log(`[Whisper] Server listening on port ${appConfig.port}`);
 });
 
 process.on('SIGINT', async () => {
-  console.log('[Azure Speech] Shutting down...');
+  console.log('[Whisper] Shutting down...');
+  await closeWhisperTranscription();
   server.close();
   await RTMSManager.stop();
   process.exit(0);
+});
+
+process.on('uncaughtException', (err) => {
+  console.error('[Whisper] Uncaught exception:', err);
+  process.exit(1);
 });

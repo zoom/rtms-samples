@@ -1,0 +1,18 @@
+{
+  "name": "rtms-whisper-local-sample",
+  "version": "1.0.0",
+  "type": "module",
+  "description": "RTMS sample using local OpenAI Whisper model for real-time transcription",
+  "main": "index.js",
+  "scripts": {
+    "start": "node index.js",
+    "setup-python": "pip install -r requirements.txt"
+  },
+  "dependencies": {
+    "dotenv": "^16.4.1",
+    "express": "^4.21.2",
+    "rtms-manager": "file:../../library/javascript/rtmsManager",
+    "ws": "^8.16.0"
+  },
+  "license": "MIT"
+}

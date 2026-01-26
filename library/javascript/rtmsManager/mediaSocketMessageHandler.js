@@ -15,7 +15,9 @@ import { FileLogger } from './utils/FileLogger.js';
 import { RTMSError } from './utils/RTMSError.js';
 
 
-export async function handleMediaMessage(data, {
+const keepAliveResponse = { msg_type: 13, timestamp: 0 };
+
+export function handleMediaMessage(data, {
   conn,
   mediaWs,
   signalingSocket,
@@ -58,10 +60,8 @@ export async function handleMediaMessage(data, {
         if (mediaType && conn.media[mediaType]) {
           conn.media[mediaType].lastKeepAlive = Date.now();
         }
-        mediaWs.send(JSON.stringify({
-          msg_type: 13,
-          timestamp: msg.timestamp
-        }));
+        keepAliveResponse.timestamp = msg.timestamp;
+        mediaWs.send(JSON.stringify(keepAliveResponse));
         break;
 
       case 14: // AUDIO
@@ -103,7 +103,7 @@ export async function handleMediaMessage(data, {
           const { user_id, user_name, data: shareData, timestamp } = msg.content;
           const buffer = Buffer.from(shareData, 'base64');
           
-          await processSharescreen({
+          processSharescreen({
             buffer,
             userId: user_id,
             userName: user_name,
@@ -119,7 +119,7 @@ export async function handleMediaMessage(data, {
         if (msg.content?.data) {
           const { user_id, user_name, data: transcriptData, timestamp, start_time, end_time, language, attribute } = msg.content;
           
-          await processTranscript({
+          processTranscript({
             text: transcriptData,
             userId: user_id,
             userName: user_name,
@@ -139,7 +139,7 @@ export async function handleMediaMessage(data, {
         if (msg.content?.data) {
           const { user_id, user_name, data: chatData, timestamp } = msg.content;
           
-          await processChat({
+          processChat({
             text: chatData,
             userId: user_id,
             userName: user_name,

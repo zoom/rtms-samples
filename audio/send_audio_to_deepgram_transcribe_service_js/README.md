@@ -93,8 +93,8 @@ webhookManager.setup();
 startDeepgramTranscription();
 
 // Register audio handler
-RTMSManager.on('audio', (buffer, userId, userName, timestamp, meetingUuid, streamId, rtmsType) => {
-  sendAudioChunk(buffer);
+RTMSManager.on('audio', (event) => {
+  sendAudioChunk(event.buffer);
 });
 ```
 

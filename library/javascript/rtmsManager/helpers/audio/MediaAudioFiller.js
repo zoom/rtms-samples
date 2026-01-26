@@ -28,6 +28,10 @@ export class MediaAudioFiller extends EventEmitter {
         this.timer = null;
         this.isStopped = false;
 
+        // Pre-allocate silence buffer for this instance's frame duration (performance optimization)
+        const silentSamples = (this.sampleRate * this.frameDuration) / 1000;
+        this._silentFrame = Buffer.alloc(silentSamples * 2, 0);
+
         this.startTimer();
     }
 
@@ -104,13 +108,20 @@ export class MediaAudioFiller extends EventEmitter {
     }
 
     generateSilentAudioFrame(sampleRate, durationMs) {
+        if (durationMs === this.frameDuration && sampleRate === this.sampleRate) {
+            return Buffer.from(this._silentFrame);
+        }
         const samples = (sampleRate * durationMs) / 1000;
-        return Buffer.alloc(samples * 2, 0); // 16-bit PCM silence
+        return Buffer.alloc(samples * 2, 0);
     }
 
     processBuffer(data, timestamp) {
-        // Insert into sorted position using binary search for O(log n) performance
-        this.insertSorted({ data, timestamp });
+        const last = this.buffer[this.buffer.length - 1];
+        if (!last || timestamp >= last.timestamp) {
+            this.buffer.push({ data, timestamp });
+        } else {
+            this.insertSorted({ data, timestamp });
+        }
     }
 
     insertSorted(item) {

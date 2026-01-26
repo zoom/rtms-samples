@@ -1,6 +1,6 @@
 /**
  * Process audio data and emit event object
- * @param {Object} eventData - Audio event data
+ * @param {Object} eventData - Audio event data (DO NOT MUTATE - object is reused for performance)
  * @param {Buffer} eventData.buffer - Audio buffer
  * @param {string} eventData.userId - User ID
  * @param {string} eventData.userName - User name
@@ -15,16 +15,8 @@ export function processAudio(eventData, emit, audioFiller = null) {
   if (audioFiller) {
     audioFiller.processBuffer(eventData.buffer, eventData.timestamp);
   } else {
-    // Emit event object with all fields
-    emit('audio', {
-      type: 'audio',
-      buffer: eventData.buffer,
-      userId: eventData.userId,
-      userName: eventData.userName,
-      timestamp: eventData.timestamp,
-      meetingId: eventData.meetingId,
-      streamId: eventData.streamId,
-      productType: eventData.productType
-    });
+    // Reuse eventData object to reduce GC pressure (avoid creating duplicate object)
+    eventData.type = 'audio';
+    emit('audio', eventData);
   }
 }

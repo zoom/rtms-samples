@@ -95,8 +95,8 @@ webhookManager.setup();
 ```javascript
 import { feedAudioData } from "./awsTranscribeToText.js";
 
-RTMSManager.on('audio', (buffer, userId, userName, timestamp, meetingUuid, streamId, rtmsType) => {
-  feedAudioData(buffer);
+RTMSManager.on('audio', (event) => {
+  feedAudioData(event.buffer);
 });
 ```
 

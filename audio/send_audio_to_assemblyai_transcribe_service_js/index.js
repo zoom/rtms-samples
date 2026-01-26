@@ -7,7 +7,7 @@ import { fileURLToPath } from 'url';
 import express from 'express';
 import http from 'http';
 
-import { initializeAudioCollection, cleanupMeeting } from './assemblyai.js';
+import { initializeAudioCollection, cleanupMeeting, sendAudioChunk } from './assemblyai.js';
 
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = path.dirname(__filename);
@@ -22,7 +22,7 @@ const appConfig = {
 };
 
 const rtmsConfig = {
-  mediaSocketConnectionMode: process.env.MEDIA_SOCKET_CONNECTION_MODE || 'unified',
+  mediaSocketConnectionMode: process.env.MEDIA_SOCKET_CONNECTION_MODE || 'split',
   mediaTypesFlag: 1, // Audio only
   credentials: {
     meeting: {
@@ -120,7 +120,8 @@ if (appConfig.managerType === 'webhook') {
 }
 
 // 5. Register media/event handlers
-RTMSManager.on('audio', (buffer, userId, userName, timestamp, meetingUuid, streamId, rtmsType) => {
+RTMSManager.on('audio', (event) => {
+  sendAudioChunk(event.buffer, event.meetingId, event.userId);
 });
 
 RTMSManager.on('error', (error) => {

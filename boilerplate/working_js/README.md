@@ -163,19 +163,19 @@ if (appConfig.managerType === 'webhook') {
 ### 4. Register Media Event Handlers
 
 ```javascript
-RTMSManager.on('audio', (buffer, userId, userName, timestamp, meetingUuid, streamId, rtmsType) => {
+RTMSManager.on('audio', ({ buffer, userId, userName, timestamp, meetingId, streamId, productType }) => {
   // Process audio data here
 });
 
-RTMSManager.on('video', (buffer, userId, userName, timestamp, meetingUuid, streamId, rtmsType) => {
+RTMSManager.on('video', ({ buffer, userId, userName, timestamp, meetingId, streamId, productType }) => {
   // Process video data here
 });
 
-RTMSManager.on('transcript', (text, userId, userName, timestamp, meetingUuid, streamId, rtmsType, start_time, end_time, language, attribute) => {
+RTMSManager.on('transcript', ({ text, userId, userName, timestamp, meetingId, streamId, productType, startTime, endTime, language, attribute }) => {
   console.log('[Consumer] Transcript:', { text, userName, language });
   
   // Broadcast to frontend clients
-  frontendWssManager.broadcastToMeeting(meetingUuid, {
+  frontendWssManager.broadcastToMeeting(meetingId, {
     type: 'transcript',
     text,
     userName,
@@ -184,10 +184,10 @@ RTMSManager.on('transcript', (text, userId, userName, timestamp, meetingUuid, st
   });
 });
 
-RTMSManager.on('chat', (text, userId, userName, timestamp, meetingUuid, streamId, rtmsType) => {
+RTMSManager.on('chat', ({ text, userId, userName, timestamp, meetingId, streamId, productType }) => {
   console.log(`[Consumer] Chat from ${userName}: ${text}`);
   
-  frontendWssManager.broadcastToMeeting(meetingUuid, {
+  frontendWssManager.broadcastToMeeting(meetingId, {
     type: 'chat',
     text,
     userName,

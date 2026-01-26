@@ -1,6 +1,6 @@
 /**
  * Process video data and emit event object
- * @param {Object} eventData - Video event data
+ * @param {Object} eventData - Video event data (DO NOT MUTATE - object is reused for performance)
  * @param {Buffer} eventData.buffer - Video buffer (H264/JPG frames)
  * @param {string} eventData.userId - User ID
  * @param {string} eventData.userName - User name
@@ -15,16 +15,8 @@ export function processVideo(eventData, emit, videoFiller = null) {
   if (videoFiller) {
     videoFiller.processBuffer(eventData.buffer, eventData.timestamp);
   } else {
-    // Emit event object with all fields
-    emit('video', {
-      type: 'video',
-      buffer: eventData.buffer,
-      userId: eventData.userId,
-      userName: eventData.userName,
-      timestamp: eventData.timestamp,
-      meetingId: eventData.meetingId,
-      streamId: eventData.streamId,
-      productType: eventData.productType
-    });
+    // Reuse eventData object to reduce GC pressure (avoid creating duplicate object)
+    eventData.type = 'video';
+    emit('video', eventData);
   }
 }

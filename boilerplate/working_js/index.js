@@ -39,7 +39,7 @@ const rtmsConfig = {
     logDir: path.join(__dirname, 'logs'),
     console: true
   },
-  mediaSocketConnectionMode: process.env.MEDIA_SOCKET_CONNECTION_MODE || 'unified',
+  mediaSocketConnectionMode: process.env.MEDIA_SOCKET_CONNECTION_MODE || 'split',
   mediaTypesFlag: parseInt(process.env.MEDIA_TYPES_FLAG || '32'),
   credentials: {
     meeting: {
@@ -155,34 +155,34 @@ if (appConfig.managerType === 'webhook') {
 }
 
 // 6. Register media/event handlers
-RTMSManager.on('audio', (buffer, userId, userName, timestamp, meetingUuid, streamId, rtmsType) => {
+RTMSManager.on('audio', ({ buffer, userId, userName, timestamp, meetingId, streamId, productType }) => {
   // Process audio data here
 });
 
-RTMSManager.on('video', (buffer, userId, userName, timestamp, meetingUuid, streamId, rtmsType) => {
+RTMSManager.on('video', ({ buffer, userId, userName, timestamp, meetingId, streamId, productType }) => {
   // Process video data here
 });
 
-RTMSManager.on('sharescreen', (buffer, userId, userName, timestamp, meetingUuid, streamId, rtmsType) => {
+RTMSManager.on('sharescreen', ({ buffer, userId, userName, timestamp, meetingId, streamId, productType }) => {
   // Process screen share data here
 });
 
-RTMSManager.on('transcript', (text, userId, userName, timestamp, meetingUuid, streamId, rtmsType, start_time, end_time, language, attribute) => {
+RTMSManager.on('transcript', ({ text, userId, userName, timestamp, meetingId, streamId, productType, startTime, endTime, language, attribute }) => {
   console.log('[Consumer] Transcript:', { 
     text, 
     userId, 
     userName, 
     timestamp, 
-    meetingUuid, 
+    meetingId, 
     streamId, 
-    rtmsType, 
-    start_time, 
-    end_time, 
+    productType, 
+    startTime, 
+    endTime, 
     language, 
     attribute 
   });
   
-  frontendWssManager.broadcastToMeeting(meetingUuid, {
+  frontendWssManager.broadcastToMeeting(meetingId, {
     type: 'transcript',
     text,
     userName,
@@ -191,11 +191,11 @@ RTMSManager.on('transcript', (text, userId, userName, timestamp, meetingUuid, st
   });
 });
 
-RTMSManager.on('chat', (text, userId, userName, timestamp, meetingUuid, streamId, rtmsType) => {
-  console.log(`[Consumer] Chat (${rtmsType}) from ${userName}: ${text}`);
+RTMSManager.on('chat', ({ text, userId, userName, timestamp, meetingId, streamId, productType }) => {
+  console.log(`[Consumer] Chat (${productType}) from ${userName}: ${text}`);
   
   // Broadcast chat to frontend clients in the same meeting
-  frontendWssManager.broadcastToMeeting(meetingUuid, {
+  frontendWssManager.broadcastToMeeting(meetingId, {
     type: 'chat',
     text,
     userName,
@@ -204,15 +204,15 @@ RTMSManager.on('chat', (text, userId, userName, timestamp, meetingUuid, streamId
 });
 
 // Other events (optional logging)
-RTMSManager.on('event', (eventData, meetingUuid, streamId, rtmsType) => {
+RTMSManager.on('event', (eventData, meetingId, streamId, rtmsType) => {
   console.log('[Consumer] Event:', eventData, rtmsType);
 });
 
-RTMSManager.on('stream_state_changed', (msg, meetingUuid, streamId, rtmsType) => {
+RTMSManager.on('stream_state_changed', (msg, meetingId, streamId, rtmsType) => {
   console.log('[Consumer] Stream state changed:', msg, rtmsType);
 });
 
-RTMSManager.on('session_state_changed', (msg, meetingUuid, streamId, rtmsType) => {
+RTMSManager.on('session_state_changed', (msg, meetingId, streamId, rtmsType) => {
   console.log('[Consumer] Session state changed:', msg, rtmsType);
 });
 

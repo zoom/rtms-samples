@@ -74,7 +74,7 @@ await RTMSManager.init(rtmsConfig);
 ### 2. Set Up Webhook Handler with Meeting Lifecycle
 
 ```javascript
-import { initializeAudioCollection, cleanupMeeting } from './assemblyai.js';
+import { initializeAudioCollection, cleanupMeeting, sendAudioChunk } from './assemblyai.js';
 
 const webhookManager = new WebhookManager({
   config: {
@@ -104,8 +104,8 @@ webhookManager.setup();
 ### 3. Handle Audio Events
 
 ```javascript
-RTMSManager.on('audio', (buffer, userId, userName, timestamp, meetingUuid, streamId, rtmsType) => {
-  // Audio is handled via initializeAudioCollection per meeting
+RTMSManager.on('audio', (event) => {
+  sendAudioChunk(event.buffer, event.meetingId, event.userId);
 });
 ```
 

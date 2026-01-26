@@ -93,8 +93,8 @@ webhookManager.setup();
 ```javascript
 import { azureSpeechToTextStream } from "./azureSpeechToText.js";
 
-RTMSManager.on('audio', (buffer, userId, userName, timestamp, meetingUuid, streamId, rtmsType) => {
-  azureSpeechToTextStream(buffer);
+RTMSManager.on('audio', (event) => {
+  azureSpeechToTextStream(event.buffer);
 });
 ```
 

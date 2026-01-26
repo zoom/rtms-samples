@@ -1,0 +1,11 @@
+# OpenAI Whisper - Local speech-to-text model
+# Install with: pip install -r requirements.txt
+#
+# Note: This will also install PyTorch as a dependency.
+# For CPU-only systems, the installation may take a while.
+#
+# Prerequisites:
+# - Python 3.8 or higher
+# - FFmpeg (for audio processing)
+
+openai-whisper

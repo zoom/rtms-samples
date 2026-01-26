@@ -23,7 +23,7 @@ const appConfig = {
 };
 
 const rtmsConfig = {
-  mediaSocketConnectionMode: process.env.MEDIA_SOCKET_CONNECTION_MODE || 'unified',
+  mediaSocketConnectionMode: process.env.MEDIA_SOCKET_CONNECTION_MODE || 'split',
   mediaTypesFlag: 1, // Audio only
   credentials: {
     meeting: {
@@ -103,8 +103,8 @@ if (appConfig.managerType === 'webhook') {
 }
 
 // 4. Register media/event handlers
-RTMSManager.on('audio', (buffer, userId, userName, timestamp, meetingUuid, streamId, rtmsType) => {
-  feedAudioData(buffer);
+RTMSManager.on('audio', (event) => {
+  feedAudioData(event.buffer);
 });
 
 RTMSManager.on('error', (error) => {
