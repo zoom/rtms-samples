@@ -12,7 +12,7 @@ The Zoom RTMS server goes down. A replacement server spins up and sends a **new 
 
 ### Scenario 2: Signal Connection Down
 
-Your app's signaling WebSocket drops (network issue, keep-alive timeout, etc.). Since signaling controls the session, the RTMS server interrupts **both** signaling and media connections and sends a **`meeting.rtms_interrupted`** webhook.
+Your app's signaling WebSocket drops (network issue, keep-alive timeout, etc.). Since signaling controls the session, the RTMS server interrupts **both** signaling and media connections and sends a **`meeting.rtms_interrupted`** webhook. For this to work, your app must be subscribed to that webhook event.
 
 **What to do:** Reconnect both signaling and media. The server waits ~60 seconds before giving up.
 
