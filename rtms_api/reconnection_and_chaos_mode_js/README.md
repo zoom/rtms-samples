@@ -2,10 +2,6 @@
 
 This sample demonstrates how to handle RTMS connection failures and reconnect using raw WebSockets. It covers all three reconnection scenarios defined in the [Zoom RTMS docs](https://developers.zoom.us/docs/rtms/meetings/work-with-streams/#failover-and-reconnection) and includes a "chaos mode" that deliberately causes disconnections so you can observe the reconnection flow.
 
-## Why Reconnection Matters
-
-RTMS connections can drop for several reasons — server-side failures, network issues, or your app failing to respond to keep-alive pings. If your app doesn't handle these gracefully, you'll lose meeting data. This sample shows exactly how to detect each type of failure and recover.
-
 ## The Three Reconnection Scenarios
 
 ### Scenario 1: RTMS Server Failure
