@@ -20,8 +20,10 @@ import java.net.http.WebSocket;
 import java.nio.ByteBuffer;
 import java.nio.charset.StandardCharsets;
 import java.util.Base64;
+import java.util.Collections;
 import java.util.List;
 import java.util.Map;
+import java.util.Set;
 import java.util.concurrent.CompletableFuture;
 import java.util.concurrent.CompletionStage;
 import java.util.concurrent.ConcurrentHashMap;
@@ -35,6 +37,7 @@ public class RtmsService {
     private final ObjectMapper objectMapper;
     private final ZoomConfig zoomConfig;
     private final Map<String, RtmsConnection> activeConnections = new ConcurrentHashMap<>();
+    private final Set<String> signalingHandshakeLocks = Collections.newSetFromMap(new ConcurrentHashMap<>());
     private final HttpClient httpClient = HttpClient.newHttpClient();
 
     public void handleWebhookEvent(WebhookEvent webhookEvent) {
@@ -63,6 +66,16 @@ public class RtmsService {
         String meetingUuid = (String) payload.get("meeting_uuid");
         String rtmsStreamId = (String) payload.get("rtms_stream_id");
         String serverUrls = (String) payload.get("server_urls");
+
+        if (rtmsStreamId == null || rtmsStreamId.isEmpty()) {
+            log.warn("Missing rtms_stream_id in meeting.rtms_started payload, ignoring event");
+            return;
+        }
+
+        if (!signalingHandshakeLocks.add(rtmsStreamId)) {
+            log.warn("Duplicate signaling handshake blocked for stream {}", rtmsStreamId);
+            return;
+        }
 
         log.info("Starting RTMS for meeting {} with stream {}", meetingUuid, rtmsStreamId);
 
@@ -111,7 +124,11 @@ public class RtmsService {
 
     private void handleRtmsStopped(Map<String, Object> payload) {
         String meetingUuid = (String) payload.get("meeting_uuid");
+        String rtmsStreamId = (String) payload.get("rtms_stream_id");
         log.info("Stopping RTMS for meeting {}", meetingUuid);
+        if (rtmsStreamId != null) {
+            signalingHandshakeLocks.remove(rtmsStreamId);
+        }
 
         RtmsConnection connection = activeConnections.get(meetingUuid);
         if (connection != null) {
@@ -319,6 +336,7 @@ public class RtmsService {
     }
 
     private void handleSignalingHandshakeResponse(RtmsConnection conn, JsonNode msg) {
+        signalingHandshakeLocks.remove(conn.getStreamId());
         log.info("[Signaling] Processing handshake response (case 2) for {}", conn.getSessionId());
         log.info("[Signaling] Handshake response: {}", msg.toString());
 
@@ -722,6 +740,7 @@ public class RtmsService {
         public CompletionStage<?> onClose(WebSocket webSocket, int statusCode, String reason) {
             log.info("Signaling Java WebSocket closed for session {}: {} - {}", connection.getSessionId(), statusCode,
                     reason);
+            signalingHandshakeLocks.remove(connection.getStreamId());
             connection.getSignaling().setState(RtmsConnection.SignalingConnection.SignalingState.DISCONNECTED);
 
             if (!connection.isShouldReconnect()) {
@@ -749,6 +768,7 @@ public class RtmsService {
             log.error("Signaling Java WebSocket error for session {}: {}", connection.getSessionId(),
                     error.getMessage());
             log.error("Java WebSocket failure details:", error);
+            signalingHandshakeLocks.remove(connection.getStreamId());
             connection.getSignaling().setState(RtmsConnection.SignalingConnection.SignalingState.DISCONNECTED);
         }
 

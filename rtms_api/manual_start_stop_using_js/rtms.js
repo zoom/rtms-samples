@@ -9,6 +9,7 @@ dotenv.config();
 
 const app = express();
 app.use(express.json()); // Parse incoming JSON payloads
+const signalingLocksByStreamId = new Set();
 
 // Webhook endpoint configuration
 const WEBHOOK_PATH = process.env.WEBHOOK_PATH || '/webhook';
@@ -106,6 +107,12 @@ async function startRTMS(meetingId, accessToken) {
 
 // Step 5: WebSocket 1 - Connect to Signaling WebSocket
 function connectToSignalingWebSocket(meetingUuid, streamId, serverUrls) {
+  if (signalingLocksByStreamId.has(streamId)) {
+    console.warn(`Duplicate signaling handshake blocked for stream ${streamId}`);
+    return;
+  }
+
+  signalingLocksByStreamId.add(streamId);
   console.log(`Connecting to signaling WebSocket: ${serverUrls}`);
   const signalingWs = new WebSocket(serverUrls);
 
@@ -125,6 +132,10 @@ function connectToSignalingWebSocket(meetingUuid, streamId, serverUrls) {
     const msg = JSON.parse(data);
     console.log('Signaling message:', msg);
 
+    if (msg.msg_type === 2) {
+      signalingLocksByStreamId.delete(streamId);
+    }
+
     // If handshake is successful, proceed to media connection
     if (msg.msg_type === 2 && msg.status_code === 0) {
       const mediaUrl = msg.media_server.server_urls.transcript;
@@ -142,11 +153,13 @@ function connectToSignalingWebSocket(meetingUuid, streamId, serverUrls) {
 
   // Log signaling errors
   signalingWs.on('error', (error) => {
+    signalingLocksByStreamId.delete(streamId);
     console.error('Signaling WebSocket error:', error);
   });
 
   // Log signaling WebSocket closure
   signalingWs.on('close', () => {
+    signalingLocksByStreamId.delete(streamId);
     console.log('Signaling WebSocket closed');
   });
 }
@@ -256,4 +269,3 @@ function scheduleRTMSStop(meetingId, accessToken) {
 
 // Step 7: Start Express server on port 3000
 app.listen(3000, () => console.log('Server running on port 3000'));
-

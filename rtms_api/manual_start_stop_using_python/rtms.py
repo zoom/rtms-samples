@@ -7,11 +7,14 @@ import hmac
 import hashlib
 from flask import Flask, request, jsonify
 from dotenv import load_dotenv
+import threading
 
 # Load environment variables from .env
 load_dotenv()
 
 app = Flask(__name__)
+stream_lock_guard = threading.Lock()
+signaling_handshakes_in_flight = set()
 
 # Webhook endpoint configuration
 WEBHOOK_PATH = os.getenv("WEBHOOK_PATH", "/webhook")
@@ -53,6 +56,11 @@ def webhook():
         meeting_uuid = payload.get('meeting_uuid')
         rtms_stream_id = payload.get('rtms_stream_id')
         server_urls = payload.get('server_urls')
+        with stream_lock_guard:
+            if rtms_stream_id in signaling_handshakes_in_flight:
+                print(f'Duplicate signaling handshake blocked for stream {rtms_stream_id}')
+                return jsonify({'status': 'duplicate_ignored'}), 200
+            signaling_handshakes_in_flight.add(rtms_stream_id)
         asyncio.run(connect_to_signaling_websocket(meeting_uuid, rtms_stream_id, server_urls))
 
     # When meeting RTMS stops, log the stop event
@@ -166,6 +174,8 @@ async def connect_to_signaling_websocket(meeting_uuid, stream_id, server_urls):
     except Exception as error:
         print(f'Signaling WebSocket error: {error}')
     finally:
+        with stream_lock_guard:
+            signaling_handshakes_in_flight.discard(stream_id)
         print('Signaling WebSocket closed')
 
 # Step 6: WebSocket 2 - Connect to Media WebSocket

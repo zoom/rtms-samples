@@ -31,6 +31,8 @@ app.use(express.json());
 
 const activeConnections = new Map();
 const RECONNECT_DELAY = 3000;
+const MAX_DUPLICATE_SIGNAL_RETRIES = Number(process.env.MAX_DUPLICATE_SIGNAL_RETRIES || 3);
+const INITIAL_DUPLICATE_SIGNAL_RETRY_DELAY_MS = Number(process.env.INITIAL_DUPLICATE_SIGNAL_RETRY_DELAY_MS || 1500);
 
 // Handle POST requests to the webhook endpoint
 app.post(WEBHOOK_PATH, (req, res) => {
@@ -80,6 +82,23 @@ function generateSignature(CLIENT_ID, meetingUuid, streamId, CLIENT_SECRET) {
 function connectToSignalingWebSocket(meetingUuid, streamId, serverUrl) {
     console.log(`Connecting to signaling WebSocket for stream ${streamId}`);
 
+    const existingConn = activeConnections.get(streamId);
+    if (existingConn && existingConn.signaling) {
+        const existingState = existingConn.signaling.readyState;
+        if (existingState === WebSocket.CONNECTING || existingState === WebSocket.OPEN) {
+            console.warn(`[Signaling] Already connected/connecting for stream ${streamId}. Skipping duplicate connect.`);
+            return;
+        }
+    }
+    if (existingConn && existingConn._signalingHandshakeInFlight) {
+        console.warn(`[Signaling] Handshake already in flight for stream ${streamId}. Skipping duplicate connect.`);
+        return;
+    }
+    if (existingConn && existingConn._signalingReconnectTimer) {
+        clearTimeout(existingConn._signalingReconnectTimer);
+        existingConn._signalingReconnectTimer = null;
+    }
+
     const ws = new WebSocket(serverUrl);
 
     if (!activeConnections.has(streamId)) {
@@ -90,6 +109,7 @@ function connectToSignalingWebSocket(meetingUuid, streamId, serverUrl) {
     conn.meetingUuid = meetingUuid;
     conn.streamId = streamId;
     conn.serverUrl = serverUrl;
+    if (typeof conn._duplicateSignalRetryCount !== 'number') conn._duplicateSignalRetryCount = 0;
 
     ws.on('open', () => {
         console.log(`Signaling WebSocket connection opened for stream ${streamId}`);
@@ -109,6 +129,7 @@ function connectToSignalingWebSocket(meetingUuid, streamId, serverUrl) {
             sequence: Math.floor(Math.random() * 1e9),
             signature,
         };
+        conn._signalingHandshakeInFlight = true;
         ws.send(JSON.stringify(handshake));
         console.log('Sent handshake to signaling server');
     });
@@ -119,10 +140,35 @@ function connectToSignalingWebSocket(meetingUuid, streamId, serverUrl) {
 
         // Handle successful handshake response
         if (msg.msg_type === 2 && msg.status_code === 0) { // SIGNALING_HAND_SHAKE_RESP
+            conn._signalingHandshakeInFlight = false;
+            conn._duplicateSignalRetryCount = 0;
+            if (conn._duplicateSignalRetryTimer) {
+                clearTimeout(conn._duplicateSignalRetryTimer);
+                conn._duplicateSignalRetryTimer = null;
+            }
             const mediaUrl = msg.media_server?.server_urls?.all;
             if (mediaUrl) {
-                // Connect to the media WebSocket server using the media URL
                 connectToMediaWebSocket(mediaUrl, meetingUuid, streamId, ws);
+            }
+        } else if (msg.msg_type === 2) {
+            conn._signalingHandshakeInFlight = false;
+            if (
+                msg.status_code === 17 &&
+                String(msg.reason || '').toLowerCase().includes('duplicate signal request') &&
+                conn.shouldReconnect
+            ) {
+                if (conn._duplicateSignalRetryCount < MAX_DUPLICATE_SIGNAL_RETRIES) {
+                    const delay = INITIAL_DUPLICATE_SIGNAL_RETRY_DELAY_MS * (2 ** conn._duplicateSignalRetryCount);
+                    conn._duplicateSignalRetryCount += 1;
+                    if (conn._duplicateSignalRetryTimer) clearTimeout(conn._duplicateSignalRetryTimer);
+                    conn._duplicateSignalRetryTimer = setTimeout(() => {
+                        conn._duplicateSignalRetryTimer = null;
+                        connectToSignalingWebSocket(conn.meetingUuid, streamId, conn.serverUrl);
+                    }, delay);
+                    console.warn(`[Signaling] Duplicate signal request for stream ${streamId}, retrying in ${delay}ms`);
+                } else {
+                    console.error(`[Signaling] Duplicate signal retries exhausted for stream ${streamId}`);
+                }
             }
         }
 
@@ -138,6 +184,8 @@ function connectToSignalingWebSocket(meetingUuid, streamId, serverUrl) {
     });
 
     ws.on('error', (err) => {
+        const conn = activeConnections.get(streamId);
+        if (conn) conn._signalingHandshakeInFlight = false;
         console.error('Signaling socket error:', err);
     });
 
@@ -145,10 +193,12 @@ function connectToSignalingWebSocket(meetingUuid, streamId, serverUrl) {
         console.log('Signaling socket closed');
         const conn = activeConnections.get(streamId);
         if (conn) {
+            conn._signalingHandshakeInFlight = false;
             delete conn.signaling;
             if (conn.shouldReconnect) {
                 console.log(`🔄 Signaling reconnecting in ${RECONNECT_DELAY}ms...`);
-                setTimeout(() => {
+                conn._signalingReconnectTimer = setTimeout(() => {
+                    conn._signalingReconnectTimer = null;
                     if (conn.shouldReconnect) {
                         connectToSignalingWebSocket(conn.meetingUuid, streamId, conn.serverUrl);
                     }
@@ -238,8 +288,8 @@ function connectToMediaWebSocket(mediaUrl, meetingUuid, streamId, signalingSocke
                 let buffer = Buffer.from(audioData, 'base64');
                 let timestamp = Date.now();  // Use server timestamp
                 const metadata = { user_id, user_name, timestamp };
-                //console.log(buffer);
-                sendAudioBuffer(buffer);
+                console.log(buffer);
+                //sendAudioBuffer(buffer);
               
             }
             // Handle video data
@@ -248,8 +298,8 @@ function connectToMediaWebSocket(mediaUrl, meetingUuid, streamId, signalingSocke
                  let buffer = Buffer.from(videoData,'base64');
                 let timestamp = Date.now();  // Use server timestamp
                 const metadata = { user_id, user_name, timestamp };
-                 //console.log(buffer);
-                sendVideoBuffer(buffer);
+                 console.log(buffer);
+                //sendVideoBuffer(buffer);
                 
             }
             // Handle transcript data
@@ -307,5 +357,5 @@ app.listen(port, () => {
     console.log(`Webhook endpoint available at http://localhost:${port}${WEBHOOK_PATH}`);
 
     //this is for putmedia producer
-    startStream();
+    //startStream();
 });

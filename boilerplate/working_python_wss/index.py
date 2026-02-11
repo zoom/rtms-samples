@@ -27,6 +27,15 @@ logger = logging.getLogger(__name__)
 
 app = Flask(__name__)
 active_connections = {}
+stream_locks_guard = threading.Lock()
+stream_locks = {}
+signaling_handshakes_in_flight = set()
+
+def get_stream_lock(stream_id):
+    with stream_locks_guard:
+        if stream_id not in stream_locks:
+            stream_locks[stream_id] = threading.Lock()
+        return stream_locks[stream_id]
 
 def generate_signature(client_id, meeting_uuid, stream_id, client_secret):
     message = f"{client_id},{meeting_uuid},{stream_id}"
@@ -113,6 +122,20 @@ def connect_to_media_ws(media_url, meeting_uuid, stream_id, signaling_socket):
 def connect_to_signaling_ws(meeting_uuid, stream_id, server_url):
     logger.info(f"Connecting to signaling WebSocket for meeting {meeting_uuid}")
 
+    stream_lock = get_stream_lock(stream_id)
+
+    with stream_lock:
+        if stream_id in signaling_handshakes_in_flight:
+            logger.warning(f"[Signaling] Handshake already in flight for stream {stream_id}. Skipping duplicate connect.")
+            return
+
+        for conn_data in list(active_connections.values()):
+            if conn_data.get("stream_id") == stream_id and conn_data.get("signaling"):
+                logger.warning(f"[Signaling] Connection already exists for stream {stream_id}. Skipping duplicate connect.")
+                return
+
+        signaling_handshakes_in_flight.add(stream_id)
+
     def on_open(ws):
         signature = generate_signature(CLIENT_ID, meeting_uuid, stream_id, CLIENT_SECRET)
         handshake = {
@@ -130,9 +153,14 @@ def connect_to_signaling_ws(meeting_uuid, stream_id, server_url):
         try:
             msg = json.loads(message)
             if msg.get("msg_type") == 2 and msg.get("status_code") == 0:
+                with stream_lock:
+                    signaling_handshakes_in_flight.discard(stream_id)
                 media_url = msg.get("media_server", {}).get("server_urls", {}).get("all")
                 if media_url:
                     connect_to_media_ws(media_url, meeting_uuid, stream_id, ws)
+            elif msg.get("msg_type") == 2:
+                with stream_lock:
+                    signaling_handshakes_in_flight.discard(stream_id)
             elif msg.get("msg_type") == 12:
                 ws.send(json.dumps({
                     "msg_type": 13,
@@ -143,10 +171,14 @@ def connect_to_signaling_ws(meeting_uuid, stream_id, server_url):
             logger.error(f"Error processing signaling message: {e}")
 
     def on_error(ws, error):
+        with stream_lock:
+            signaling_handshakes_in_flight.discard(stream_id)
         logger.error(f"Signaling socket error: {error}")
 
     def on_close(ws, close_status_code, close_msg):
         logger.info("Signaling socket closed")
+        with stream_lock:
+            signaling_handshakes_in_flight.discard(stream_id)
         if meeting_uuid in active_connections:
             active_connections[meeting_uuid].pop("signaling", None)
 
@@ -155,7 +187,7 @@ def connect_to_signaling_ws(meeting_uuid, stream_id, server_url):
                                 on_message=on_message,
                                 on_error=on_error,
                                 on_close=on_close)
-    active_connections[meeting_uuid] = {"signaling": ws}
+    active_connections[meeting_uuid] = {"signaling": ws, "stream_id": stream_id}
     threading.Thread(target=ws.run_forever, daemon=True).start()
 
 def get_zoom_access_token():
@@ -250,6 +282,10 @@ def start_zoom_event_websocket():
                     elif event == "meeting.rtms_stopped":
                         meeting_uuid = payload.get("meeting_uuid")
                         if meeting_uuid in active_connections:
+                            stream_id = active_connections[meeting_uuid].get("stream_id")
+                            if stream_id:
+                                with get_stream_lock(stream_id):
+                                    signaling_handshakes_in_flight.discard(stream_id)
                             logger.info(f"🛑 Closing signaling for {meeting_uuid}")
                             for conn in active_connections[meeting_uuid].values():
                                 try:

@@ -27,6 +27,7 @@ Console.WriteLine($"DEBUG - PORT: {port}");
 Console.WriteLine($"DEBUG - WEBHOOK_PATH: {webhookPath}");
 
 var activeConnections = new ConcurrentDictionary<string, ConcurrentDictionary<string, ClientWebSocket>>();
+var signalingInFlight = new ConcurrentDictionary<string, byte>();
 
 app.MapPost(webhookPath, async (HttpRequest request, HttpResponse response, ILogger<Program> logger) =>
 {
@@ -57,6 +58,20 @@ app.MapPost(webhookPath, async (HttpRequest request, HttpResponse response, ILog
         var meetingUuid = payload.GetProperty("meeting_uuid").GetString();
         var streamId = payload.GetProperty("rtms_stream_id").GetString();
         var serverUrl = payload.GetProperty("server_urls").GetString();
+        if (string.IsNullOrWhiteSpace(streamId))
+        {
+            logger.LogWarning("Missing rtms_stream_id in meeting.rtms_started payload");
+            response.StatusCode = 200;
+            await response.CompleteAsync();
+            return;
+        }
+        if (!signalingInFlight.TryAdd(streamId!, 0))
+        {
+            logger.LogWarning("Duplicate signaling handshake blocked for stream {streamId}", streamId);
+            response.StatusCode = 200;
+            await response.CompleteAsync();
+            return;
+        }
         Console.WriteLine($"DEBUG - Starting signaling WebSocket for meeting {meetingUuid}, stream {streamId}, server: {serverUrl}");
         _ = ConnectToSignalingWebSocket(meetingUuid, streamId, serverUrl, logger);
     }
@@ -65,6 +80,11 @@ app.MapPost(webhookPath, async (HttpRequest request, HttpResponse response, ILog
     if (eventType == "meeting.rtms_stopped")
     {
         var meetingUuid = payload.GetProperty("meeting_uuid").GetString();
+        var streamId = payload.TryGetProperty("rtms_stream_id", out var sidEl) ? sidEl.GetString() : null;
+        if (!string.IsNullOrEmpty(streamId))
+        {
+            signalingInFlight.TryRemove(streamId, out _);
+        }
         if (activeConnections.TryRemove(meetingUuid, out var connDict))
         {
             foreach (var conn in connDict.Values)
@@ -125,11 +145,16 @@ async Task ConnectToSignalingWebSocket(string meetingUuid, string streamId, stri
             switch (msgType)
             {
                 case 2 when msg.GetProperty("status_code").GetInt32() == 0:
+                    signalingInFlight.TryRemove(streamId, out _);
                     var mediaUrl = msg.GetProperty("media_server").GetProperty("server_urls").GetProperty("all").GetString();
                     if (mediaUrl != null)
                     {
                         await ConnectToMediaWebSocket(mediaUrl, meetingUuid, streamId, ws, logger);
                     }
+                    break;
+                case 2:
+                    signalingInFlight.TryRemove(streamId, out _);
+                    logger.LogWarning("Signaling handshake failed for stream {streamId}: {msg}", streamId, messageStr);
                     break;
 
                 case 12:
@@ -139,6 +164,7 @@ async Task ConnectToSignalingWebSocket(string meetingUuid, string streamId, stri
                     break;
             }
         }
+        signalingInFlight.TryRemove(streamId, out _);
     });
 }
 

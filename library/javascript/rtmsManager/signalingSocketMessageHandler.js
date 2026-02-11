@@ -28,6 +28,7 @@ export function handleSignalingMessage(data, meetingUuid, streamId, signalingWs,
   switch (msg.msg_type) {
     case 2: // SIGNALING_HAND_SHAKE_RESP
       FileLogger.log(`[Signaling] [${conn.rtmsType},${meetingUuid},${streamId}] Handshake response for ${conn.rtmsType} ${meetingUuid}`);
+      conn._signalingHandshakeInFlight = false;
       
       if (msg.status_code === 0) {
         const mediaUrl = msg.media_server?.server_urls?.all;
@@ -103,6 +104,11 @@ export function handleSignalingMessage(data, meetingUuid, streamId, signalingWs,
           streamId
         });
         FileLogger.error(`[Signaling] [${conn.rtmsType},${meetingUuid},${streamId}] ${error.toShortString()}`);
+
+        if (['auth', 'security', 'request', 'meeting', 'stream'].includes(error.category)) {
+          conn.shouldReconnect = false;
+          FileLogger.warn(`[Signaling] [${conn.rtmsType},${meetingUuid},${streamId}] Disabling reconnect for non-retryable status ${msg.status_code}`);
+        }
         
         // Emit error event for application handling
         emit('error', error);

@@ -30,11 +30,28 @@ export class RTMSMessageHandler {
     this.serverUrls = serverUrls;
     this.clientId = clientId;
     this.clientSecret = clientSecret;
-    this.emit = emit;
+    this.emit = (eventName, ...args) => {
+      if (eventName === 'error') {
+        try {
+          return emit(eventName, ...args);
+        } catch (eventError) {
+          const sourceError = args[0];
+          const errorText = sourceError && typeof sourceError.toShortString === 'function'
+            ? sourceError.toShortString()
+            : (sourceError?.message || String(sourceError || eventError));
+          FileLogger.error(`[RTMSManager] Unhandled error event (no error listener): ${errorText}`);
+          return false;
+        }
+      }
+
+      return emit(eventName, ...args);
+    };
     this.mediaTypesFlag = mediaTypesFlag;
     this.config = config;
     this.shouldReconnect = true;
     this.signaling = { socket: null, state: 'connecting', lastKeepAlive: null };
+    this._signalingReconnectTimer = null;
+    this._signalingHandshakeInFlight = false;
     
     // Split mode only - each media type gets its own socket
     this.media = {};
@@ -132,6 +149,11 @@ export class RTMSMessageHandler {
     FileLogger.log(`[Handler:${this.streamId.slice(-8)}] Stopping for ${this.rtmsType} ${this.rtmsId}`);
     this.shouldReconnect = false;
     this._lastPacketTimestamp = Date.now();
+
+    if (this._signalingReconnectTimer) {
+      clearTimeout(this._signalingReconnectTimer);
+      this._signalingReconnectTimer = null;
+    }
 
     if (this.audioFiller) {
       this.audioFiller.stop(this._lastPacketTimestamp);

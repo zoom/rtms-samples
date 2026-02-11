@@ -11,12 +11,15 @@ import (
 	"math/rand"
 	"net/http"
 	"os"
+	"sync"
 
 	"github.com/gorilla/websocket"
 	"github.com/joho/godotenv"
 )
 
 var activeConnections = make(map[string]map[string]*websocket.Conn)
+var activeConnectionsMu sync.Mutex
+var signalingInFlight = make(map[string]bool)
 
 type ZoomWebhookPayload struct {
 	Event   string                 `json:"event"`
@@ -37,19 +40,21 @@ func connectToMediaWebSocket(mediaURL, meetingUUID, streamID, clientID, clientSe
 		log.Printf("Error connecting to media WS: %v", err)
 		return
 	}
-	if _, ok := activeConnections[meetingUUID]; !ok {
-		activeConnections[meetingUUID] = make(map[string]*websocket.Conn)
+	activeConnectionsMu.Lock()
+	if _, ok := activeConnections[streamID]; !ok {
+		activeConnections[streamID] = make(map[string]*websocket.Conn)
 	}
-	activeConnections[meetingUUID]["media"] = ws
+	activeConnections[streamID]["media"] = ws
+	activeConnectionsMu.Unlock()
 
 	signature := generateSignature(clientID, meetingUUID, streamID, clientSecret)
 	handshake := map[string]interface{}{
-		"msg_type":          3,
-		"protocol_version":  1,
-		"meeting_uuid":      meetingUUID,
-		"rtms_stream_id":    streamID,
-		"signature":         signature,
-		"media_type":        32,
+		"msg_type":           3,
+		"protocol_version":   1,
+		"meeting_uuid":       meetingUUID,
+		"rtms_stream_id":     streamID,
+		"signature":          signature,
+		"media_type":         32,
 		"payload_encryption": false,
 		"media_params": map[string]interface{}{
 			"audio": map[string]interface{}{
@@ -61,7 +66,7 @@ func connectToMediaWebSocket(mediaURL, meetingUUID, streamID, clientID, clientSe
 				"send_rate":    100,
 			},
 			"video": map[string]interface{}{
-				"codec":     7,
+				"codec":      7,
 				"resolution": 2,
 				"fps":        25,
 			},
@@ -69,88 +74,121 @@ func connectToMediaWebSocket(mediaURL, meetingUUID, streamID, clientID, clientSe
 	}
 	ws.WriteJSON(handshake)
 
-go func() {
-	defer ws.Close()
-	for {
-		_, msg, err := ws.ReadMessage()
-		if err != nil {
-			log.Printf("Media WS read error: %v", err)
-			break
-		}
-
-		//log.Printf("Received message from media WebSocket: %s", msg)
-
-		var parsed map[string]interface{}
-		if err := json.Unmarshal(msg, &parsed); err != nil {
-			log.Printf("Failed to parse message: %v", err)
-			continue
-		}
-
-		msgTypeFloat, ok := parsed["msg_type"].(float64)
-		if !ok {
-			log.Println("Invalid or missing msg_type")
-			continue
-		}
-		msgType := int(msgTypeFloat)
-
-		switch msgType {
-		case 4:
-			if statusCode, ok := parsed["status_code"].(float64); ok && int(statusCode) == 0 {
-				signalingConn.WriteJSON(map[string]interface{}{
-					"msg_type":       7,
-					"rtms_stream_id": streamID,
-				})
-				log.Println("Media handshake successful, sent start streaming request")
+	go func() {
+		defer ws.Close()
+		for {
+			_, msg, err := ws.ReadMessage()
+			if err != nil {
+				log.Printf("Media WS read error: %v", err)
+				break
 			}
-		case 12:
-			timestamp := parsed["timestamp"]
-			ws.WriteJSON(map[string]interface{}{
-				"msg_type":  13,
-				"timestamp": timestamp,
-			})
-			log.Println("Responded to Media KEEP_ALIVE_REQ")
-		case 14:
-			log.Println("Received AUDIO data:")
-			//jsonMsg, _ := json.MarshalIndent(parsed, "", "  ")
-			//log.Println(string(jsonMsg))
-		case 15:
-			log.Println("Received VIDEO data:")
-			//jsonMsg, _ := json.MarshalIndent(parsed, "", "  ")
-			//log.Println(string(jsonMsg))
-		case 17:
-			log.Println("Received TRANSCRIPT data:")
-			//jsonMsg, _ := json.MarshalIndent(parsed, "", "  ")
-			//log.Println(string(jsonMsg))
-		default:
-			log.Printf("Unhandled msg_type: %d", msgType)
+
+			//log.Printf("Received message from media WebSocket: %s", msg)
+
+			var parsed map[string]interface{}
+			if err := json.Unmarshal(msg, &parsed); err != nil {
+				log.Printf("Failed to parse message: %v", err)
+				continue
+			}
+
+			msgTypeFloat, ok := parsed["msg_type"].(float64)
+			if !ok {
+				log.Println("Invalid or missing msg_type")
+				continue
+			}
+			msgType := int(msgTypeFloat)
+
+			switch msgType {
+			case 4:
+				if statusCode, ok := parsed["status_code"].(float64); ok && int(statusCode) == 0 {
+					signalingConn.WriteJSON(map[string]interface{}{
+						"msg_type":       7,
+						"rtms_stream_id": streamID,
+					})
+					log.Println("Media handshake successful, sent start streaming request")
+				}
+			case 12:
+				timestamp := parsed["timestamp"]
+				ws.WriteJSON(map[string]interface{}{
+					"msg_type":  13,
+					"timestamp": timestamp,
+				})
+				log.Println("Responded to Media KEEP_ALIVE_REQ")
+			case 14:
+				log.Println("Received AUDIO data:")
+				//jsonMsg, _ := json.MarshalIndent(parsed, "", "  ")
+				//log.Println(string(jsonMsg))
+			case 15:
+				log.Println("Received VIDEO data:")
+				//jsonMsg, _ := json.MarshalIndent(parsed, "", "  ")
+				//log.Println(string(jsonMsg))
+			case 17:
+				log.Println("Received TRANSCRIPT data:")
+				//jsonMsg, _ := json.MarshalIndent(parsed, "", "  ")
+				//log.Println(string(jsonMsg))
+			default:
+				log.Printf("Unhandled msg_type: %d", msgType)
+			}
 		}
-	}
-}()
+	}()
 
 }
 
 func connectToSignalingWebSocket(serverURL, meetingUUID, streamID, clientID, clientSecret string) {
+	activeConnectionsMu.Lock()
+	if signalingInFlight[streamID] {
+		activeConnectionsMu.Unlock()
+		log.Printf("Duplicate signaling handshake blocked for stream %s", streamID)
+		return
+	}
+	if conns, ok := activeConnections[streamID]; ok && conns["signaling"] != nil {
+		activeConnectionsMu.Unlock()
+		log.Printf("Active signaling socket already exists for stream %s", streamID)
+		return
+	}
+	signalingInFlight[streamID] = true
+	activeConnectionsMu.Unlock()
+
 	log.Printf("Connecting to signaling WebSocket at %s", serverURL)
 	ws, _, err := websocket.DefaultDialer.Dial(serverURL, nil)
 	if err != nil {
+		activeConnectionsMu.Lock()
+		delete(signalingInFlight, streamID)
+		activeConnectionsMu.Unlock()
 		log.Printf("Error connecting to signaling WS: %v", err)
 		return
 	}
-	activeConnections[meetingUUID] = map[string]*websocket.Conn{"signaling": ws}
+	activeConnectionsMu.Lock()
+	if _, ok := activeConnections[streamID]; !ok {
+		activeConnections[streamID] = make(map[string]*websocket.Conn)
+	}
+	activeConnections[streamID]["signaling"] = ws
+	activeConnectionsMu.Unlock()
 
 	signature := generateSignature(clientID, meetingUUID, streamID, clientSecret)
 	handshake := map[string]interface{}{
-		"msg_type":        1,
+		"msg_type":         1,
 		"protocol_version": 1,
-		"meeting_uuid":    meetingUUID,
-		"rtms_stream_id":  streamID,
-		"sequence":        rand.Intn(1e9),
-		"signature":       signature,
+		"meeting_uuid":     meetingUUID,
+		"rtms_stream_id":   streamID,
+		"sequence":         rand.Intn(1e9),
+		"signature":        signature,
 	}
 	ws.WriteJSON(handshake)
 
 	go func() {
 		defer ws.Close()
+		defer func() {
+			activeConnectionsMu.Lock()
+			delete(signalingInFlight, streamID)
+			if conns, ok := activeConnections[streamID]; ok {
+				delete(conns, "signaling")
+				if len(conns) == 0 {
+					delete(activeConnections, streamID)
+				}
+			}
+			activeConnectionsMu.Unlock()
+		}()
 		for {
 			_, msg, err := ws.ReadMessage()
 			if err != nil {
@@ -163,9 +201,14 @@ func connectToSignalingWebSocket(serverURL, meetingUUID, streamID, clientID, cli
 
 			switch int(parsed["msg_type"].(float64)) {
 			case 2:
+				activeConnectionsMu.Lock()
+				delete(signalingInFlight, streamID)
+				activeConnectionsMu.Unlock()
 				if parsed["status_code"].(float64) == 0 {
 					mediaURL := parsed["media_server"].(map[string]interface{})["server_urls"].(map[string]interface{})["all"].(string)
 					connectToMediaWebSocket(mediaURL, meetingUUID, streamID, clientID, clientSecret, ws)
+				} else {
+					log.Printf("Signaling handshake failed for stream %s: status=%v reason=%v", streamID, parsed["status_code"], parsed["reason"])
 				}
 			case 12:
 				ws.WriteJSON(map[string]interface{}{
@@ -209,13 +252,17 @@ func webhookHandler(clientID, clientSecret, zoomToken string) http.HandlerFunc {
 		}
 
 		if event == "meeting.rtms_stopped" {
-			meetingUUID := data["meeting_uuid"].(string)
-			if conns, ok := activeConnections[meetingUUID]; ok {
+			streamID := data["rtms_stream_id"].(string)
+			activeConnectionsMu.Lock()
+			delete(signalingInFlight, streamID)
+			conns, ok := activeConnections[streamID]
+			if ok {
 				for _, conn := range conns {
 					conn.Close()
 				}
-				delete(activeConnections, meetingUUID)
+				delete(activeConnections, streamID)
 			}
+			activeConnectionsMu.Unlock()
 		}
 
 		w.WriteHeader(http.StatusOK)

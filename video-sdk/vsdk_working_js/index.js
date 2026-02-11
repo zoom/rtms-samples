@@ -560,6 +560,8 @@ function connectToMediaWebSocket(
   });
 }
 
+const signalingLocksByStreamId = new Set();
+
 // Connect to signaling WebSocket
 function connectToSignalingWebSocket(
   sessionID,
@@ -587,22 +589,42 @@ function connectToSignalingWebSocket(
       console.error(`[Signaling] sessionID not found in activeConnections map`);
     }
 
-    return;
-  }
+     return;
+   }
 
-  let signalingWs;
-  try {
-    console.log(`[Signaling] Creating WebSocket instance for ${serverUrls}`);
+   if (signalingLocksByStreamId.has(streamId)) {
+     console.warn(`[Signaling] ⚠️ Duplicate handshake blocked for stream ${streamId}.`);
+     return;
+   }
 
-    const wsOptions = {
-      rejectUnauthorized: false
-    };
+   for (const existingConn of activeConnections.values()) {
+     if (existingConn.streamId !== streamId) continue;
+     if (
+       existingConn.signaling?.socket &&
+       (existingConn.signaling.socket.readyState === WebSocket.OPEN ||
+        existingConn.signaling.socket.readyState === WebSocket.CONNECTING)
+     ) {
+       console.warn(`[Signaling] ⚠️ Existing signaling socket already active for stream ${streamId}.`);
+       return;
+     }
+   }
 
-    console.log(`Signaling WebSocket SSL verification disabled`);
+   signalingLocksByStreamId.add(streamId);
 
-    signalingWs = new WebSocket(serverUrls, [], wsOptions);
+   let signalingWs;
+   try {
+     console.log(`[Signaling] Creating WebSocket instance for ${serverUrls}`);
+
+     const wsOptions = {
+       rejectUnauthorized: false
+     };
+
+     console.log(`Signaling WebSocket SSL verification disabled`);
+
+     signalingWs = new WebSocket(serverUrls, [], wsOptions);
     console.log(`[Signaling] WebSocket instance created successfully, SSL verification disabled`);
   } catch (err) {
+    signalingLocksByStreamId.delete(streamId);
     console.error(`[Signaling] ❌ Failed to create WebSocket instance: ${err.message}`);
     return;
   }
@@ -678,6 +700,7 @@ function connectToSignalingWebSocket(
     switch (msg.msg_type) {
 
       case 2: // SIGNALING_HAND_SHAKE_RESP
+        signalingLocksByStreamId.delete(streamId);
         console.log(`[Signaling] Processing handshake response (case 2) for ${sessionID}`);
         console.log(`[Signaling] Handshake response:`, JSON.stringify(msg, null, 2));
         if (msg.status_code === 0) {
@@ -841,31 +864,33 @@ function connectToSignalingWebSocket(
     }
   });
 
-  signalingWs.on('close', (code, reason) => {
-    console.log(`[Signaling] WebSocket closed for ${sessionID}, code: ${code}, reason: ${reason}`);
+   signalingWs.on('close', (code, reason) => {
+     signalingLocksByStreamId.delete(streamId);
+     console.log(`[Signaling] WebSocket closed for ${sessionID}, code: ${code}, reason: ${reason}`);
 
-    const conn = activeConnections.get(sessionID);
-    if (conn) {
-      conn.signaling.state = 'closed';
-      console.log(`[Signaling] Connection state updated to 'closed' for ${sessionID}`);
+     const conn = activeConnections.get(sessionID);
+     if (conn) {
+       conn.signaling.state = 'closed';
+       console.log(`[Signaling] Connection state updated to 'closed' for ${sessionID}`);
 
-      if (conn.shouldReconnect) {
-        console.log(`[Signaling] Will reconnect for ${sessionID} in 3s...`);
-        setTimeout(() => {
-          if (conn.shouldReconnect) {
-            console.log(`[Signaling] Starting reconnection for ${sessionID}`);
-            connectToSignalingWebSocket(
-              sessionID,
-              streamId,
-              conn.serverUrls,
-              activeConnections,
-              clientId,
-              clientSecret
-            );
-          } else {
-            console.log(`[Signaling] Reconnection cancelled for ${sessionID}`);
-          }
-        }, 3000);
+       if (conn.shouldReconnect) {
+         console.log(`[Signaling] Will reconnect for ${sessionID} in 3s...`);
+         conn._signalingReconnectTimer = setTimeout(() => {
+           conn._signalingReconnectTimer = null;
+           if (conn.shouldReconnect) {
+             console.log(`[Signaling] Starting reconnection for ${sessionID}`);
+             connectToSignalingWebSocket(
+               sessionID,
+               streamId,
+               conn.serverUrls,
+               activeConnections,
+               clientId,
+               clientSecret
+             );
+           } else {
+             console.log(`[Signaling] Reconnection cancelled for ${sessionID}`);
+           }
+         }, 3000);
       } else {
         console.log(`[Signaling] Not reconnecting — RTMS was stopped for ${sessionID}.`);
       }
@@ -875,6 +900,7 @@ function connectToSignalingWebSocket(
   });
 
   signalingWs.on('error', (err) => {
+    signalingLocksByStreamId.delete(streamId);
     console.error(`[Signaling] WebSocket error for ${sessionID}: ${err.message}`);
     console.error(`[Signaling] Error details:`, err);
     if (conn) {

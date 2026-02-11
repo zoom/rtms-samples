@@ -52,6 +52,12 @@ export function handleMediaMessage(data, {
             streamId
           });
           FileLogger.error(`[Media] [${conn.rtmsType},${meetingUuid},${streamId}] ${error.toShortString()}`);
+
+          if (['auth', 'security', 'request', 'meeting', 'stream'].includes(error.category)) {
+            conn.shouldReconnect = false;
+            FileLogger.warn(`[Media] [${conn.rtmsType},${meetingUuid},${streamId}] Disabling reconnect for non-retryable status ${msg.status_code}`);
+          }
+
           emit('error', error);
         }
         break;

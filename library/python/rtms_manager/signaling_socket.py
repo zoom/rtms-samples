@@ -29,6 +29,22 @@ async def connect_to_signaling_websocket(
         conn['should_reconnect'] = False
         return None
 
+    # Guard: Close any existing signaling socket before creating a new one
+    existing_socket = conn.get('signaling', {}).get('socket')
+    if existing_socket and existing_socket.open:
+        FileLogger.warn(f"[Signaling] [{rtms_type},{meeting_uuid},{stream_id}] Closing existing socket before reconnecting")
+        try:
+            await existing_socket.close()
+        except Exception:
+            pass
+        conn['signaling']['socket'] = None
+    
+    # Cancel any pending reconnect task
+    reconnect_task = conn.get('_signaling_reconnect_task')
+    if reconnect_task:
+        reconnect_task.cancel()
+        conn.pop('_signaling_reconnect_task', None)
+
     try:
         ws = await websockets.connect(server_url)
     except Exception as e:
@@ -130,13 +146,16 @@ async def _handle_signaling_messages(
 
         if conn.get('should_reconnect', False):
             FileLogger.log(f"[Signaling] [{rtms_type},{meeting_uuid},{stream_id}] Reconnecting in 3s...")
-            await asyncio.sleep(3)
-            if conn.get('should_reconnect', False):
-                await connect_to_signaling_websocket(
-                    meeting_uuid, stream_id, conn['server_url'], conn,
-                    client_id, client_secret, emit, conn['media_types_flag'],
-                    on_media_url_received
-                )
+            async def _reconnect():
+                await asyncio.sleep(3)
+                conn.pop('_signaling_reconnect_task', None)
+                if conn.get('should_reconnect', False):
+                    await connect_to_signaling_websocket(
+                        meeting_uuid, stream_id, conn['server_url'], conn,
+                        client_id, client_secret, emit, conn['media_types_flag'],
+                        on_media_url_received
+                    )
+            conn['_signaling_reconnect_task'] = asyncio.create_task(_reconnect())
 
     except Exception as e:
         FileLogger.error(f"[Signaling] [{rtms_type},{meeting_uuid},{stream_id}] Error: {e}")

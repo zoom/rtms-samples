@@ -31,8 +31,15 @@ type ConnectionGroup = {
 };
 
 const activeConnections = new Map<string, ConnectionGroup>();
+const signalingLocksByStreamId = new Set<string>();
+const duplicateSignalRetryCounts = new Map<string, number>();
+const duplicateSignalRetryTimers = new Map<string, NodeJS.Timeout>();
+const streamIdToMeetingId = new Map<string, string>();
 let mcpClient: Client | null = null;
 let isConnected = false;
+
+const MAX_DUPLICATE_SIGNAL_RETRIES = Number(process.env.MAX_DUPLICATE_SIGNAL_RETRIES || 3);
+const INITIAL_DUPLICATE_SIGNAL_RETRY_DELAY_MS = Number(process.env.INITIAL_DUPLICATE_SIGNAL_RETRY_DELAY_MS || 1500);
 
 async function initMcpClient() {
   try {
@@ -69,11 +76,20 @@ const webhookHandler: RequestHandler = async (
 
     if (event === 'meeting.rtms_started') {
       const { meeting_uuid, rtms_stream_id, server_urls } = payload;
+      streamIdToMeetingId.set(rtms_stream_id, meeting_uuid);
       connectToSignalingWebSocket(meeting_uuid, rtms_stream_id, server_urls);
     }
 
     if (event === 'meeting.rtms_stopped') {
-      const { meeting_uuid } = payload;
+      const { meeting_uuid, rtms_stream_id } = payload;
+      signalingLocksByStreamId.delete(rtms_stream_id);
+      const timer = duplicateSignalRetryTimers.get(rtms_stream_id);
+      if (timer) {
+        clearTimeout(timer);
+        duplicateSignalRetryTimers.delete(rtms_stream_id);
+      }
+      duplicateSignalRetryCounts.delete(rtms_stream_id);
+      streamIdToMeetingId.delete(rtms_stream_id);
       const connections = activeConnections.get(meeting_uuid);
       if (connections) {
         Object.values(connections).forEach((conn) => conn?.close?.());
@@ -94,6 +110,12 @@ function generateSignature(clientId: string, meetingUuid: string, streamId: stri
 }
 
 function connectToSignalingWebSocket(meetingUuid: string, streamId: string, serverUrl: string) {
+  if (signalingLocksByStreamId.has(streamId)) {
+    console.warn(`[Signaling] Duplicate handshake blocked for stream ${streamId}`);
+    return;
+  }
+  signalingLocksByStreamId.add(streamId);
+
   const ws = new WebSocket(serverUrl);
 
   if (!activeConnections.has(meetingUuid)) {
@@ -108,17 +130,49 @@ function connectToSignalingWebSocket(meetingUuid: string, streamId: string, serv
 
   ws.on('message', (data) => {
     const msg = JSON.parse(data.toString());
-    if (msg.msg_type === 2 && msg.status_code === 0) {
-      const mediaUrl = msg.media_server?.server_urls?.all;
-      if (mediaUrl) connectToMediaWebSocket(mediaUrl, meetingUuid, streamId, ws);
+    if (msg.msg_type === 2) {
+      signalingLocksByStreamId.delete(streamId);
+      if (msg.status_code === 0) {
+        duplicateSignalRetryCounts.delete(streamId);
+        const timer = duplicateSignalRetryTimers.get(streamId);
+        if (timer) {
+          clearTimeout(timer);
+          duplicateSignalRetryTimers.delete(streamId);
+        }
+        const mediaUrl = msg.media_server?.server_urls?.all;
+        if (mediaUrl) connectToMediaWebSocket(mediaUrl, meetingUuid, streamId, ws);
+      } else if (msg.status_code === 17 && String(msg.reason || '').toLowerCase().includes('duplicate signal request')) {
+        const retryCount = duplicateSignalRetryCounts.get(streamId) ?? 0;
+        if (retryCount < MAX_DUPLICATE_SIGNAL_RETRIES) {
+          const delay = INITIAL_DUPLICATE_SIGNAL_RETRY_DELAY_MS * (2 ** retryCount);
+          duplicateSignalRetryCounts.set(streamId, retryCount + 1);
+          const existingTimer = duplicateSignalRetryTimers.get(streamId);
+          if (existingTimer) clearTimeout(existingTimer);
+          const timer = setTimeout(() => {
+            duplicateSignalRetryTimers.delete(streamId);
+            const meetingId = streamIdToMeetingId.get(streamId) || meetingUuid;
+            connectToSignalingWebSocket(meetingId, streamId, serverUrl);
+          }, delay);
+          duplicateSignalRetryTimers.set(streamId, timer);
+          console.warn(`[Signaling] Duplicate signal request for stream ${streamId}, retrying in ${delay}ms`);
+        } else {
+          console.error(`[Signaling] Duplicate signal retries exhausted for stream ${streamId}`);
+        }
+      } else {
+        console.error(`[Signaling] Handshake failed for stream ${streamId}:`, msg);
+      }
     }
     if (msg.msg_type === 12) {
       ws.send(JSON.stringify({ msg_type: 13, timestamp: msg.timestamp }));
     }
   });
 
-  ws.on('error', console.error);
+  ws.on('error', (err) => {
+    signalingLocksByStreamId.delete(streamId);
+    console.error(err);
+  });
   ws.on('close', () => {
+    signalingLocksByStreamId.delete(streamId);
     if (activeConnections.has(meetingUuid)) delete activeConnections.get(meetingUuid)!.signaling;
   });
 }

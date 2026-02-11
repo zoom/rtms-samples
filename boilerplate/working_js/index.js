@@ -45,12 +45,12 @@ const rtmsConfig = {
     meeting: {
       clientId: process.env.ZOOM_CLIENT_ID,
       clientSecret: process.env.ZOOM_CLIENT_SECRET,
-      zoomSecretToken: process.env.ZOOM_SECRET_TOKEN,
+      secretToken: process.env.ZOOM_SECRET_TOKEN,
     },
-    video: {
-      videoClientId: process.env.VIDEO_CLIENT_ID,
-      videoClientSecret: process.env.VIDEO_CLIENT_SECRET,
-      videoSecretToken: process.env.VIDEO_SECRET_TOKEN,
+    videoSdk: {
+      clientId: process.env.VIDEO_CLIENT_ID,
+      clientSecret: process.env.VIDEO_CLIENT_SECRET,
+      secretToken: process.env.VIDEO_SECRET_TOKEN,
     },
     s2s: s2sCredentials,
     websocket: websocketCredentials
@@ -95,6 +95,11 @@ const server = http.createServer(app);
 // 2. Initialize RTMS Manager (Core Logic)
 await RTMSManager.init(rtmsConfig);
 
+// Handle RTMS errors to prevent unhandled 'error' event crashes
+RTMSManager.instance.on('error', (err) => {
+  console.error('[Consumer] RTMS Error:', err.toString ? err.toString() : err);
+});
+
 // 3. Initialize Frontend Manager (Static Files & Views)
 const frontendManager = new FrontendManager({
   config: { 
@@ -122,8 +127,8 @@ if (appConfig.managerType === 'webhook') {
   const webhookManager = new WebhookManager({
     config: {
       webhookPath: process.env.WEBHOOK_PATH || '/',
-      zoomSecretToken: rtmsConfig.credentials.meeting.zoomSecretToken,
-      videoSecretToken: rtmsConfig.credentials.video.videoSecretToken
+      zoomSecretToken: rtmsConfig.credentials.meeting.secretToken,
+      videoSecretToken: rtmsConfig.credentials.videoSdk.secretToken
     },
     app: app
   });

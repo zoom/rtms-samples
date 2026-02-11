@@ -319,6 +319,13 @@ export class RTMSManager extends EventEmitter {
     this.streamHistory = new Map();
     this.streamHistoryAccessOrder = []; // Track access order for LRU eviction
 
+    this.on('error', (error) => {
+      const errorText = error && typeof error.toShortString === 'function'
+        ? error.toShortString()
+        : (error?.message || String(error));
+      this.logger.error(`[RTMSManager] ${errorText}`);
+    });
+
     // Internal handlers for RTMS lifecycle events
     // Supports: meeting, webinar, videoSdk (session), contactCenter, phone
     this.on('meeting.rtms_started', (payload) => {
