@@ -5,6 +5,7 @@ from dataclasses import dataclass, field
 from .utils.logger import FileLogger
 from .utils.config import RTMSConfig, RTMSConfigHelper, Credentials
 from .utils.media_params import MediaType, RTMS_MEDIA_PARAMS
+from .utils.rtms_entity import get_preferred_media_url, get_rtms_id_from_payload, normalize_rtms_type
 from .signaling_socket import connect_to_signaling_websocket
 from .media_socket import connect_to_media_websocket, TYPE_FLAGS
 
@@ -140,6 +141,10 @@ class RTMSManager:
         self.on('session.rtms_stopped', self._on_session_stopped)
         self.on('webinar.rtms_started', self._on_webinar_started)
         self.on('webinar.rtms_stopped', self._on_webinar_stopped)
+        self.on('contact_center.voice_rtms_started', self._on_contact_center_started)
+        self.on('contact_center.voice_rtms_stopped', self._on_contact_center_stopped)
+        self.on('phone.rtms_started', self._on_phone_started)
+        self.on('phone.rtms_stopped', self._on_phone_stopped)
 
     def _on_meeting_started(self, payload: Dict[str, Any]):
         meeting_uuid = payload.get('meeting_uuid')
@@ -152,7 +157,6 @@ class RTMSManager:
     def _on_meeting_stopped(self, payload: Dict[str, Any]):
         stream_id = payload.get('rtms_stream_id')
         asyncio.create_task(self._on_stream_stop(stream_id))
-        self.emit('meeting.rtms_stopped', payload)
 
     def _on_session_started(self, payload: Dict[str, Any]):
         session_id = payload.get('session_id')
@@ -178,6 +182,30 @@ class RTMSManager:
         stream_id = payload.get('rtms_stream_id')
         asyncio.create_task(self._on_stream_stop(stream_id))
 
+    def _on_contact_center_started(self, payload: Dict[str, Any]):
+        engagement_id = get_rtms_id_from_payload('contact_center', payload)
+        stream_id = payload.get('rtms_stream_id')
+        server_urls = payload.get('server_urls')
+        event_ts = payload.get('event_ts')
+        creds = RTMSConfigHelper.get_credentials_for_product('contact_center', self._config)
+        asyncio.create_task(self._on_stream_start(engagement_id, 'contact_center', stream_id, server_urls, creds, event_ts))
+
+    def _on_contact_center_stopped(self, payload: Dict[str, Any]):
+        stream_id = payload.get('rtms_stream_id')
+        asyncio.create_task(self._on_stream_stop(stream_id))
+
+    def _on_phone_started(self, payload: Dict[str, Any]):
+        call_id = get_rtms_id_from_payload('phone', payload)
+        stream_id = payload.get('rtms_stream_id')
+        server_urls = payload.get('server_urls')
+        event_ts = payload.get('event_ts')
+        creds = RTMSConfigHelper.get_credentials_for_product('phone', self._config)
+        asyncio.create_task(self._on_stream_start(call_id, 'phone', stream_id, server_urls, creds, event_ts))
+
+    def _on_phone_stopped(self, payload: Dict[str, Any]):
+        stream_id = payload.get('rtms_stream_id')
+        asyncio.create_task(self._on_stream_stop(stream_id))
+
     async def _on_stream_start(
         self, 
         rtms_id: str, 
@@ -192,6 +220,25 @@ class RTMSManager:
             return
 
         FileLogger.info(f'[RTMSManager] Starting {rtms_type} {rtms_id} stream {stream_id}')
+
+        normalized_rtms_type = normalize_rtms_type(rtms_type)
+
+        transcript_params = {
+            'content_type': self._config.media_params.transcript.content_type,
+        }
+        if normalized_rtms_type == 'contact_center':
+            transcript_params['src_language'] = (
+                self._config.media_params.transcript.src_language
+                if self._config.media_params.transcript.src_language is not None
+                else self._config.media_params.transcript.language
+            )
+            transcript_params['enable_lid'] = (
+                self._config.media_params.transcript.enable_lid
+                if self._config.media_params.transcript.enable_lid is not None
+                else True
+            )
+        else:
+            transcript_params['language'] = self._config.media_params.transcript.language
 
         media_params = {
             'audio': {
@@ -216,10 +263,7 @@ class RTMSManager:
                 'fps': self._config.media_params.deskshare.fps,
             },
             'chat': {'content_type': self._config.media_params.chat.content_type},
-            'transcript': {
-                'content_type': self._config.media_params.transcript.content_type,
-                'language': self._config.media_params.transcript.language,
-            },
+            'transcript': transcript_params,
         }
 
         conn = StreamConnection(
@@ -251,7 +295,7 @@ class RTMSManager:
                     if type_name == 'all':
                         continue
                     if effective_flags & flag:
-                        type_url = media_server.get('server_urls', {}).get(type_name, media_url)
+                        type_url = get_preferred_media_url(rtms_type, media_server.get('server_urls', {}), type_name) or media_url
                         await connect_to_media_websocket(
                             type_url, rtms_id, stream_id, conn_dict,
                             creds.client_id, creds.client_secret,

@@ -83,6 +83,7 @@ export class RTMSMessageHandler {
         this.emit('audio', {
           type: 'audio',
           buffer: chunk,
+          rtmsId: mid,
           userId: uid,
           userName: 'Mixed Audio',
           timestamp: ts,
@@ -96,6 +97,7 @@ export class RTMSMessageHandler {
         this.emit('video', {
           type: 'video',
           buffer: chunk,
+          rtmsId: mid,
           userId: uid,
           userName: 'Mixed Video',
           timestamp: ts,

@@ -7,6 +7,7 @@ from websockets.client import WebSocketClientProtocol
 
 from .utils.signature import generate_rtms_signature
 from .utils.logger import FileLogger
+from .utils.rtms_entity import build_rtms_entity_payload, get_preferred_media_url
 
 
 async def connect_to_signaling_websocket(
@@ -25,7 +26,7 @@ async def connect_to_signaling_websocket(
 
     if not server_url or not server_url.startswith('ws'):
         FileLogger.error(f"[Signaling] [{rtms_type},{meeting_uuid},{stream_id}] Invalid server URL: {server_url}")
-        emit('error', {'message': 'Invalid server URL', 'meeting_id': meeting_uuid, 'stream_id': stream_id})
+        emit('error', {'message': 'Invalid server URL', 'meeting_id': meeting_uuid, 'rtms_id': meeting_uuid, 'stream_id': stream_id})
         conn['should_reconnect'] = False
         return None
 
@@ -49,7 +50,7 @@ async def connect_to_signaling_websocket(
         ws = await websockets.connect(server_url)
     except Exception as e:
         FileLogger.error(f"[Signaling] [{rtms_type},{meeting_uuid},{stream_id}] Connection failed: {e}")
-        emit('error', {'message': str(e), 'meeting_id': meeting_uuid, 'stream_id': stream_id})
+        emit('error', {'message': str(e), 'meeting_id': meeting_uuid, 'rtms_id': meeting_uuid, 'stream_id': stream_id})
         return None
 
     conn['meeting_uuid'] = meeting_uuid
@@ -71,7 +72,7 @@ async def connect_to_signaling_websocket(
     handshake_msg = {
         'msg_type': 1,
         'protocol_version': 1,
-        'meeting_uuid': meeting_uuid,
+        **build_rtms_entity_payload(rtms_type, meeting_uuid),
         'rtms_stream_id': stream_id,
         'sequence': random.randint(0, 10**9),
         'signature': signature,
@@ -112,10 +113,10 @@ async def _handle_signaling_messages(
             msg_type = msg.get('msg_type')
 
             if msg_type == 2:
-                status = msg.get('status')
+                status = msg.get('status_code', msg.get('status'))
                 if status == 0:
                     media_server = msg.get('media_server', {})
-                    media_url = media_server.get('server_urls', {}).get('all', '')
+                    media_url = get_preferred_media_url(rtms_type, media_server.get('server_urls', {}))
                     country_code = media_server.get('datacenter_region', 'unknown')
                     
                     FileLogger.log(f"[Signaling] [{rtms_type},{meeting_uuid},{stream_id}] Handshake OK. Media URL: {media_url} (Server: {country_code.upper()})")
@@ -126,17 +127,19 @@ async def _handle_signaling_messages(
                         await on_media_url_received(media_url, media_server)
                 else:
                     FileLogger.error(f"[Signaling] [{rtms_type},{meeting_uuid},{stream_id}] Handshake failed: status={status}")
-                    emit('error', {'message': f'Handshake failed: {status}', 'meeting_id': meeting_uuid})
+                    emit('error', {'message': f'Handshake failed: {status}', 'meeting_id': meeting_uuid, 'rtms_id': meeting_uuid, 'stream_id': stream_id})
 
             elif msg_type == 12:
                 pong_msg = {'msg_type': 13}
+                if 'timestamp' in msg:
+                    pong_msg['timestamp'] = msg['timestamp']
                 await ws.send(json.dumps(pong_msg))
 
-            elif msg_type == 7:
+            elif msg_type in (7, 8):
                 FileLogger.log(f"[Signaling] [{rtms_type},{meeting_uuid},{stream_id}] Stream state: {msg}")
                 emit('stream_state_changed', msg, meeting_uuid, stream_id, rtms_type)
 
-            elif msg_type == 8:
+            elif msg_type == 9:
                 FileLogger.log(f"[Signaling] [{rtms_type},{meeting_uuid},{stream_id}] Session state: {msg}")
                 emit('session_state_changed', msg, meeting_uuid, stream_id, rtms_type)
 
@@ -159,5 +162,5 @@ async def _handle_signaling_messages(
 
     except Exception as e:
         FileLogger.error(f"[Signaling] [{rtms_type},{meeting_uuid},{stream_id}] Error: {e}")
-        emit('error', {'message': str(e), 'meeting_id': meeting_uuid, 'stream_id': stream_id})
+        emit('error', {'message': str(e), 'meeting_id': meeting_uuid, 'rtms_id': meeting_uuid, 'stream_id': stream_id})
         conn['signaling']['state'] = 'error'

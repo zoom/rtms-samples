@@ -126,7 +126,7 @@ await RTMSManager.init({ **RTMSManager.PRESETS['FULL_MEDIA'], 'credentials': cre
 ## Events
 
 ```python
-# Media events - data dict contains: buffer/text, user_id, user_name, timestamp, meeting_id, stream_id
+# Media events - data dict contains: buffer/text, user_id, user_name, timestamp, rtms_id, meeting_id, stream_id
 rtms.on('audio', lambda data: ...)      # data['buffer'] = bytes
 rtms.on('video', lambda data: ...)      # data['buffer'] = bytes  
 rtms.on('sharescreen', lambda data: ...)
@@ -136,6 +136,10 @@ rtms.on('chat', lambda data: ...)       # data['text'] = str
 # Lifecycle events
 rtms.on('meeting.rtms_started', lambda payload: ...)
 rtms.on('meeting.rtms_stopped', lambda payload: ...)
+rtms.on('contact_center.voice_rtms_started', lambda payload: ...)
+rtms.on('contact_center.voice_rtms_stopped', lambda payload: ...)
+rtms.on('phone.rtms_started', lambda payload: ...)
+rtms.on('phone.rtms_stopped', lambda payload: ...)
 rtms.on('error', lambda error: ...)
 ```
 
@@ -145,12 +149,22 @@ rtms.on('error', lambda error: ...)
 await RTMSManager.init({
     'credentials': {
         'meeting': { 'client_id', 'client_secret', 'secret_token' },
+        'webinar': { 'client_id', 'client_secret', 'secret_token' },  # Optional
         'video_sdk': { 'client_id', 'client_secret', 'secret_token' },  # Optional
+        'contact_center': { 'client_id', 'client_secret', 'secret_token' },  # Optional
+        'phone': { 'client_id', 'client_secret', 'secret_token' },  # Optional
     },
     'media_types': MediaType.ALL,
     'logging': 'info',            # 'off' | 'error' | 'warn' | 'info' | 'debug'
     'log_dir': '/var/log/rtms',
     'enable_gap_filling': False,  # Insert silence during network drops (for recording)
+    'media_params': {
+        'transcript': {
+            'language': 9,
+            'src_language': 9,   # Used for Contact Center transcript subscriptions
+            'enable_lid': True,
+        }
+    }
 })
 ```
 

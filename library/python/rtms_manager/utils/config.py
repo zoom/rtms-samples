@@ -43,6 +43,8 @@ class ChatParams:
 class TranscriptParams:
     content_type: int = MediaContentType.TEXT
     language: int = LanguageId.ENGLISH
+    src_language: Optional[int] = None
+    enable_lid: Optional[bool] = None
 
 
 @dataclass
@@ -66,6 +68,8 @@ class ProductCredentials:
     meeting: Credentials = field(default_factory=Credentials)
     video_sdk: Credentials = field(default_factory=Credentials)
     webinar: Credentials = field(default_factory=Credentials)
+    contact_center: Credentials = field(default_factory=Credentials)
+    phone: Credentials = field(default_factory=Credentials)
     s2s: Optional[Dict[str, str]] = None
 
 
@@ -84,6 +88,57 @@ class RTMSConfig:
 
 
 class RTMSConfigHelper:
+    @staticmethod
+    def _get_option_value(data: Dict[str, Any], snake_key: str, camel_key: Optional[str] = None, default: Any = None) -> Any:
+        if not isinstance(data, dict):
+            return default
+        if snake_key in data:
+            return data[snake_key]
+        if camel_key and camel_key in data:
+            return data[camel_key]
+        return default
+
+    @classmethod
+    def _merge_media_params(cls, config: RTMSConfig, options: Dict[str, Any]):
+        media_params = options.get('media_params', options.get('mediaParams'))
+        if not isinstance(media_params, dict):
+            return
+
+        audio = media_params.get('audio')
+        if isinstance(audio, dict):
+            config.media_params.audio.content_type = cls._get_option_value(audio, 'content_type', 'contentType', config.media_params.audio.content_type)
+            config.media_params.audio.sample_rate = cls._get_option_value(audio, 'sample_rate', 'sampleRate', config.media_params.audio.sample_rate)
+            config.media_params.audio.channel = cls._get_option_value(audio, 'channel', default=config.media_params.audio.channel)
+            config.media_params.audio.codec = cls._get_option_value(audio, 'codec', default=config.media_params.audio.codec)
+            config.media_params.audio.data_opt = cls._get_option_value(audio, 'data_opt', 'dataOpt', config.media_params.audio.data_opt)
+            config.media_params.audio.send_rate = cls._get_option_value(audio, 'send_rate', 'sendRate', config.media_params.audio.send_rate)
+
+        video = media_params.get('video')
+        if isinstance(video, dict):
+            config.media_params.video.content_type = cls._get_option_value(video, 'content_type', 'contentType', config.media_params.video.content_type)
+            config.media_params.video.codec = cls._get_option_value(video, 'codec', default=config.media_params.video.codec)
+            config.media_params.video.data_opt = cls._get_option_value(video, 'data_opt', 'dataOpt', config.media_params.video.data_opt)
+            config.media_params.video.resolution = cls._get_option_value(video, 'resolution', default=config.media_params.video.resolution)
+            config.media_params.video.fps = cls._get_option_value(video, 'fps', default=config.media_params.video.fps)
+
+        deskshare = media_params.get('deskshare')
+        if isinstance(deskshare, dict):
+            config.media_params.deskshare.content_type = cls._get_option_value(deskshare, 'content_type', 'contentType', config.media_params.deskshare.content_type)
+            config.media_params.deskshare.codec = cls._get_option_value(deskshare, 'codec', default=config.media_params.deskshare.codec)
+            config.media_params.deskshare.resolution = cls._get_option_value(deskshare, 'resolution', default=config.media_params.deskshare.resolution)
+            config.media_params.deskshare.fps = cls._get_option_value(deskshare, 'fps', default=config.media_params.deskshare.fps)
+
+        chat = media_params.get('chat')
+        if isinstance(chat, dict):
+            config.media_params.chat.content_type = cls._get_option_value(chat, 'content_type', 'contentType', config.media_params.chat.content_type)
+
+        transcript = media_params.get('transcript')
+        if isinstance(transcript, dict):
+            config.media_params.transcript.content_type = cls._get_option_value(transcript, 'content_type', 'contentType', config.media_params.transcript.content_type)
+            config.media_params.transcript.language = cls._get_option_value(transcript, 'language', default=config.media_params.transcript.language)
+            config.media_params.transcript.src_language = cls._get_option_value(transcript, 'src_language', 'srcLanguage', config.media_params.transcript.src_language)
+            config.media_params.transcript.enable_lid = cls._get_option_value(transcript, 'enable_lid', 'enableLid', config.media_params.transcript.enable_lid)
+
     @staticmethod
     def merge(options: Dict[str, Any]) -> RTMSConfig:
         config = RTMSConfig()
@@ -104,12 +159,38 @@ class RTMSConfigHelper:
                     client_secret=v.get('client_secret', v.get('clientSecret', '')),
                     secret_token=v.get('secret_token', v.get('secretToken', ''))
                 )
+            if 'webinar' in creds:
+                w = creds.get('webinar', {})
+                config.credentials.webinar = Credentials(
+                    client_id=w.get('client_id', w.get('clientId', '')),
+                    client_secret=w.get('client_secret', w.get('clientSecret', '')),
+                    secret_token=w.get('secret_token', w.get('secretToken', ''))
+                )
+            if 'contact_center' in creds or 'contactCenter' in creds:
+                cc = creds.get('contact_center', creds.get('contactCenter', {}))
+                config.credentials.contact_center = Credentials(
+                    client_id=cc.get('client_id', cc.get('clientId', '')),
+                    client_secret=cc.get('client_secret', cc.get('clientSecret', '')),
+                    secret_token=cc.get('secret_token', cc.get('secretToken', ''))
+                )
+            if 'phone' in creds:
+                p = creds.get('phone', {})
+                config.credentials.phone = Credentials(
+                    client_id=p.get('client_id', p.get('clientId', '')),
+                    client_secret=p.get('client_secret', p.get('clientSecret', '')),
+                    secret_token=p.get('secret_token', p.get('secretToken', ''))
+                )
         elif 'client_id' in options or 'clientId' in options:
-            config.credentials.meeting = Credentials(
+            shared_credentials = Credentials(
                 client_id=options.get('client_id', options.get('clientId', '')),
                 client_secret=options.get('client_secret', options.get('clientSecret', '')),
                 secret_token=options.get('secret_token', options.get('secretToken', options.get('zoomSecretToken', '')))
             )
+            config.credentials.meeting = shared_credentials
+            config.credentials.webinar = Credentials(**shared_credentials.__dict__)
+            config.credentials.video_sdk = Credentials(**shared_credentials.__dict__)
+            config.credentials.contact_center = Credentials(**shared_credentials.__dict__)
+            config.credentials.phone = Credentials(**shared_credentials.__dict__)
         
         if 'media_types' in options or 'mediaTypes' in options:
             config.media_types = options.get('media_types', options.get('mediaTypes', MediaType.ALL))
@@ -131,6 +212,8 @@ class RTMSConfigHelper:
                 'enable_gap_filling',
                 options.get('enableGapFilling', options.get('enableRealTimeAudioVideoGapFiller', False))
             )
+
+        RTMSConfigHelper._merge_media_params(config, options)
         
         return config
 
@@ -141,7 +224,8 @@ class RTMSConfigHelper:
             'webinar': config.credentials.webinar or config.credentials.meeting,
             'videoSdk': config.credentials.video_sdk,
             'video_sdk': config.credentials.video_sdk,
-            'contactCenter': config.credentials.meeting,
-            'phone': config.credentials.meeting,
+            'contactCenter': config.credentials.contact_center or config.credentials.meeting,
+            'contact_center': config.credentials.contact_center or config.credentials.meeting,
+            'phone': config.credentials.phone or config.credentials.meeting,
         }
         return product_map.get(product, config.credentials.meeting)

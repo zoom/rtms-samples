@@ -6,6 +6,7 @@ import { RTMSConfigHelper } from './utils/RTMSConfigHelper.js';
 import { FileLogger } from './utils/FileLogger.js';
 import { RTMSError } from './utils/RTMSError.js';
 import { redactSecrets } from './utils/redactSecrets.js';
+import { getRtmsIdFromPayload } from './utils/rtmsEntityHelper.js';
 
 /**
  * Media type constants for easy configuration
@@ -295,10 +296,23 @@ export class RTMSManager extends EventEmitter {
           fps: config.mediaParams.deskshare.fps,
         },
         chat: { content_type: config.mediaParams.chat.contentType },
-        transcript: {
-          content_type: config.mediaParams.transcript.contentType,
-          language: config.mediaParams.transcript.language
-        }
+        transcript: (() => {
+          const transcript = {
+            content_type: config.mediaParams.transcript.contentType
+          };
+
+          if (config.mediaParams.transcript.language != null) {
+            transcript.language = config.mediaParams.transcript.language;
+          }
+          if (config.mediaParams.transcript.srcLanguage != null) {
+            transcript.src_language = config.mediaParams.transcript.srcLanguage;
+          }
+          if (config.mediaParams.transcript.enableLid != null) {
+            transcript.enable_lid = config.mediaParams.transcript.enableLid;
+          }
+
+          return transcript;
+        })()
       }
     };
 
@@ -349,12 +363,14 @@ export class RTMSManager extends EventEmitter {
       this.onStreamStart(session_id, 'videoSdk', rtms_stream_id, server_urls, creds, event_ts);
     });
 
-    // Future product support - contactCenter and phone
-    this.on('contactcenter.rtms_started', (payload) => {
-      const { session_id, rtms_stream_id, server_urls, event_ts } = payload;
+    const handleContactCenterStart = (payload) => {
+      const rtmsId = getRtmsIdFromPayload('contactCenter', payload);
+      const { rtms_stream_id, server_urls, event_ts } = payload;
       const creds = RTMSConfigHelper.getCredentialsForProduct('contactCenter', this.config);
-      this.onStreamStart(session_id, 'contactCenter', rtms_stream_id, server_urls, creds, event_ts);
-    });
+      this.onStreamStart(rtmsId, 'contactCenter', rtms_stream_id, server_urls, creds, event_ts);
+    };
+
+    this.on('contact_center.voice_rtms_started', handleContactCenterStart);
 
     this.on('phone.rtms_started', (payload) => {
       const { call_id, rtms_stream_id, server_urls, event_ts } = payload;
@@ -377,10 +393,12 @@ export class RTMSManager extends EventEmitter {
       this.onStreamStop(rtms_stream_id);
     });
 
-    this.on('contactcenter.rtms_stopped', (payload) => {
+    const handleContactCenterStop = (payload) => {
       const { rtms_stream_id } = payload;
       this.onStreamStop(rtms_stream_id);
-    });
+    };
+
+    this.on('contact_center.voice_rtms_stopped', handleContactCenterStop);
 
     this.on('phone.rtms_stopped', (payload) => {
       const { rtms_stream_id } = payload;

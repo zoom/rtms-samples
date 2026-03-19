@@ -115,6 +115,8 @@ export interface ChatMediaParams {
 export interface TranscriptMediaParams {
   contentType?: number;
   language?: number;
+  srcLanguage?: number;
+  enableLid?: boolean;
 }
 
 /** All media parameters */
@@ -269,6 +271,8 @@ export interface BaseEvent {
   userName: string;
   /** Event timestamp */
   timestamp: number;
+  /** Product-specific RTMS identifier (meeting/session/engagement/call) */
+  rtmsId: string;
   /** Meeting/Session UUID */
   meetingId: string;
   /** RTMS stream ID */
@@ -339,6 +343,8 @@ export interface SignalingEvent {
   eventType: number;
   /** Raw event data */
   data: SignalingEventData;
+  /** Product-specific RTMS identifier (meeting/session/engagement/call) */
+  rtmsId: string;
   /** Meeting/Session UUID */
   meetingId: string;
   /** RTMS stream ID */
@@ -365,6 +371,8 @@ export interface StreamStateEvent {
   reason?: number;
   /** Raw message data */
   data: StreamStateData;
+  /** Product-specific RTMS identifier (meeting/session/engagement/call) */
+  rtmsId: string;
   /** Meeting/Session UUID */
   meetingId: string;
   /** RTMS stream ID */
@@ -391,6 +399,8 @@ export interface SessionStateEvent {
   stopReason?: number;
   /** Raw message data */
   data: SessionStateData;
+  /** Product-specific RTMS identifier (meeting/session/engagement/call) */
+  rtmsId: string;
   /** Meeting/Session UUID */
   meetingId: string;
   /** RTMS stream ID */

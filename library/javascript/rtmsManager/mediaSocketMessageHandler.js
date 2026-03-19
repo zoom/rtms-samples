@@ -80,6 +80,7 @@ export function handleMediaMessage(data, {
             userId: user_id,
             userName: user_name,
             timestamp,
+            rtmsId: meetingUuid,
             meetingId: meetingUuid,
             streamId,
             productType: conn.rtmsType
@@ -97,6 +98,7 @@ export function handleMediaMessage(data, {
             userId: user_id,
             userName: user_name,
             timestamp,
+            rtmsId: meetingUuid,
             meetingId: meetingUuid,
             streamId,
             productType: conn.rtmsType
@@ -114,6 +116,7 @@ export function handleMediaMessage(data, {
             userId: user_id,
             userName: user_name,
             timestamp,
+            rtmsId: meetingUuid,
             meetingId: meetingUuid,
             streamId,
             productType: conn.rtmsType
@@ -130,6 +133,7 @@ export function handleMediaMessage(data, {
             userId: user_id,
             userName: user_name,
             timestamp,
+            rtmsId: meetingUuid,
             meetingId: meetingUuid,
             streamId,
             productType: conn.rtmsType,
@@ -150,6 +154,7 @@ export function handleMediaMessage(data, {
             userId: user_id,
             userName: user_name,
             timestamp,
+            rtmsId: meetingUuid,
             meetingId: meetingUuid,
             streamId,
             productType: conn.rtmsType

@@ -1,5 +1,6 @@
 import WebSocket from 'ws';
 import { generateRTMSSignature } from './utils/signatureHelper.js';
+import { buildRtmsEntityPayload } from './utils/rtmsEntityHelper.js';
 import { handleMediaMessage } from './mediaSocketMessageHandler.js';
 import { FileLogger } from './utils/FileLogger.js';
 
@@ -99,10 +100,19 @@ export function connectToMediaWebSocket(
       }
     };
 
+    if (conn.rtmsType === 'contactCenter' && mediaParams.transcript?.content_type) {
+      mediaParams.transcript = {
+        ...mediaParams.transcript,
+        src_language: mediaParams.transcript.src_language ?? mediaParams.transcript.language,
+        enable_lid: mediaParams.transcript.enable_lid ?? true
+      };
+      delete mediaParams.transcript.language;
+    }
+
     const handshakeMsg = {
       msg_type: 3, // DATA_HAND_SHAKE_REQ
       protocol_version: 1,
-      meeting_uuid: meetingUuid,
+      ...buildRtmsEntityPayload(conn.rtmsType, meetingUuid),
       rtms_stream_id: streamId,
       signature,
       media_type: mediaTypeFlag,

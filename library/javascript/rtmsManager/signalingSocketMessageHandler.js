@@ -9,6 +9,7 @@ import { connectToMediaWebSocket } from './mediaSocket.js';
 import { FileLogger } from './utils/FileLogger.js';
 import { RTMSFlagHelper, TYPE_FLAGS } from './utils/RTMSFlagHelper.js';
 import { RTMSError } from './utils/RTMSError.js';
+import { getPreferredMediaUrl } from './utils/rtmsEntityHelper.js';
 
 /**
  * Handle signaling socket messages
@@ -31,9 +32,16 @@ export function handleSignalingMessage(data, meetingUuid, streamId, signalingWs,
       conn._signalingHandshakeInFlight = false;
       
       if (msg.status_code === 0) {
-        const mediaUrl = msg.media_server?.server_urls?.all;
-        const hostname = new URL(mediaUrl).hostname;
-        const countryCode = hostname.split('.').slice(-3, -2)[0] || 'unknown';
+        const mediaUrl = getPreferredMediaUrl(conn.rtmsType, msg.media_server?.server_urls);
+        let countryCode = 'unknown';
+        if (mediaUrl) {
+          try {
+            const hostname = new URL(mediaUrl).hostname;
+            countryCode = hostname.split('.').slice(-3, -2)[0] || 'unknown';
+          } catch (error) {
+            FileLogger.warn(`[Signaling] [${conn.rtmsType},${meetingUuid},${streamId}] Failed to parse media URL hostname: ${error.message}`);
+          }
+        }
         FileLogger.log(`[Signaling] [${conn.rtmsType},${meetingUuid},${streamId}] Handshake OK. Media URL: ${mediaUrl} (Server: ${countryCode.toUpperCase()})`);
         conn.signaling.state = 'ready';
 
@@ -67,7 +75,7 @@ export function handleSignalingMessage(data, meetingUuid, streamId, signalingWs,
           // Split mode: separate socket per media type
           for (const [type, flag] of Object.entries(TYPE_FLAGS)) {
             if (effectiveFlags & flag) {
-              const typeUrl = msg.media_server?.server_urls?.[type] || mediaUrl;
+              const typeUrl = getPreferredMediaUrl(conn.rtmsType, msg.media_server?.server_urls, type) || mediaUrl;
               FileLogger.log(`[Signaling] [${conn.rtmsType},${meetingUuid},${streamId}] Connecting ${type} media socket`);
               connectToMediaWebSocket(
                 typeUrl,
@@ -173,6 +181,7 @@ export function handleSignalingMessage(data, meetingUuid, streamId, signalingWs,
         type: 'event',
         eventType: msg.event.event_type,
         data: msg.event,
+        rtmsId: meetingUuid,
         meetingId: meetingUuid,
         streamId,
         productType: conn.rtmsType || 'meeting',
@@ -225,6 +234,7 @@ export function handleSignalingMessage(data, meetingUuid, streamId, signalingWs,
         state: msg.state,
         reason: msg.reason,
         data: msg,
+        rtmsId: meetingUuid,
         meetingId: meetingUuid,
         streamId,
         productType: conn.rtmsType || 'meeting',
@@ -240,6 +250,7 @@ export function handleSignalingMessage(data, meetingUuid, streamId, signalingWs,
         state: msg.state,
         stopReason: msg.stop_reason,
         data: msg,
+        rtmsId: meetingUuid,
         meetingId: meetingUuid,
         streamId,
         productType: conn.rtmsType || 'meeting',
