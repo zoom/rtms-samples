@@ -5,6 +5,24 @@ dotenv.config();
 // Import the RTMS SDK
 import rtms from "@zoom/rtms";
 
+function setAudioParamsCompat(client, params) {
+  if (typeof client.setAudioParams === "function") return client.setAudioParams(params);
+  if (typeof client.setAudioParameters === "function") return client.setAudioParameters(params);
+  throw new Error("RTMS SDK client missing setAudioParams/setAudioParameters");
+}
+
+function setVideoParamsCompat(client, params) {
+  if (typeof client.setVideoParams === "function") return client.setVideoParams(params);
+  if (typeof client.setVideoParameters === "function") return client.setVideoParameters(params);
+  throw new Error("RTMS SDK client missing setVideoParams/setVideoParameters");
+}
+
+function setDeskshareParamsCompat(client, params) {
+  if (typeof client.setDeskshareParams === "function") return client.setDeskshareParams(params);
+  if (typeof client.setDeskshareParameters === "function") return client.setDeskshareParameters(params);
+  throw new Error("RTMS SDK client missing setDeskshareParams/setDeskshareParameters");
+}
+
 let clients = new Map();
 
 // Set up webhook event handler to receive RTMS events from Zoom
@@ -45,7 +63,7 @@ rtms.onWebhookEvent(({ event, payload }) => {
     duration: 100
 
   }
-  client.setAudioParams(audio_params);
+  setAudioParamsCompat(client, audio_params);
 
 
   // Configure HD video (720p H.264 at 30fps)
@@ -57,7 +75,7 @@ rtms.onWebhookEvent(({ event, payload }) => {
     fps: 30
   }
 
-  client.setVideoParams(video_params);
+  setVideoParamsCompat(client, video_params);
 
   client.onVideoData((data, size, timestamp, metadata) => {
     console.log(`Video data: ${size} bytes from ${metadata.userName}`);
@@ -72,7 +90,7 @@ rtms.onWebhookEvent(({ event, payload }) => {
     fps: 5
   }
 
-  client.setDeskshareParams(deskshare_params)
+  setDeskshareParamsCompat(client, deskshare_params)
 
   client.onDeskshareData((data, size, timestamp, metadata) => {
     console.log(`Received ${size} bytes of deskshare data at ${timestamp} from ${metadata.userName}`);

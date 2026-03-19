@@ -30,7 +30,7 @@ const PRESETS = Object.freeze({
     mediaTypes: MEDIA.AUDIO,
     mediaParams: {
       audio: {
-        contentType: RTMS_MEDIA_PARAMS.MEDIA_CONTENT_TYPE_RTP,
+        contentType: RTMS_MEDIA_PARAMS.MEDIA_CONTENT_TYPE_RAW_AUDIO,
         sampleRate: RTMS_MEDIA_PARAMS.AUDIO_SAMPLE_RATE_SR_16K,
         channel: RTMS_MEDIA_PARAMS.AUDIO_CHANNEL_MONO,
         codec: RTMS_MEDIA_PARAMS.MEDIA_PAYLOAD_TYPE_L16,
@@ -44,7 +44,7 @@ const PRESETS = Object.freeze({
     mediaTypes: MEDIA.AUDIO | MEDIA.TRANSCRIPT,
     mediaParams: {
       audio: {
-        contentType: RTMS_MEDIA_PARAMS.MEDIA_CONTENT_TYPE_RTP,
+        contentType: RTMS_MEDIA_PARAMS.MEDIA_CONTENT_TYPE_RAW_AUDIO,
         sampleRate: RTMS_MEDIA_PARAMS.AUDIO_SAMPLE_RATE_SR_16K,
         channel: RTMS_MEDIA_PARAMS.AUDIO_CHANNEL_MONO,
         codec: RTMS_MEDIA_PARAMS.MEDIA_PAYLOAD_TYPE_L16,
@@ -62,7 +62,7 @@ const PRESETS = Object.freeze({
     mediaTypes: MEDIA.AUDIO | MEDIA.VIDEO,
     mediaParams: {
       audio: {
-        contentType: RTMS_MEDIA_PARAMS.MEDIA_CONTENT_TYPE_RTP,
+        contentType: RTMS_MEDIA_PARAMS.MEDIA_CONTENT_TYPE_RAW_AUDIO,
         sampleRate: RTMS_MEDIA_PARAMS.AUDIO_SAMPLE_RATE_SR_16K,
         channel: RTMS_MEDIA_PARAMS.AUDIO_CHANNEL_MONO,
         codec: RTMS_MEDIA_PARAMS.MEDIA_PAYLOAD_TYPE_L16,
@@ -70,6 +70,7 @@ const PRESETS = Object.freeze({
         sendRate: 100
       },
       video: {
+        contentType: RTMS_MEDIA_PARAMS.MEDIA_CONTENT_TYPE_RAW_VIDEO,
         codec: RTMS_MEDIA_PARAMS.MEDIA_PAYLOAD_TYPE_H264,
         dataOpt: RTMS_MEDIA_PARAMS.MEDIA_DATA_OPTION_VIDEO_SINGLE_ACTIVE_STREAM,
         resolution: RTMS_MEDIA_PARAMS.MEDIA_RESOLUTION_HD,
@@ -281,12 +282,14 @@ export class RTMSManager extends EventEmitter {
           send_rate: config.mediaParams.audio.sendRate,
         },
         video: {
+          content_type: config.mediaParams.video.contentType,
           codec: config.mediaParams.video.codec,
           data_opt: config.mediaParams.video.dataOpt,
           resolution: config.mediaParams.video.resolution,
           fps: config.mediaParams.video.fps,
         },
         deskshare: {
+          content_type: config.mediaParams.deskshare.contentType,
           codec: config.mediaParams.deskshare.codec,
           resolution: config.mediaParams.deskshare.resolution,
           fps: config.mediaParams.deskshare.fps,

@@ -809,7 +809,7 @@ public class RtmsService {
                         3, 1, connection.getSessionId(), connection.getSessionId(),
                         connection.getStreamId(), signature, 32, false,
                         new RtmsMessages.MediaParams(
-                                new RtmsMessages.AudioParams(1, 1, 1, 1, 1, 100),
+                                new RtmsMessages.AudioParams(1, 1, 1, 1, 2, 20),
                                 new RtmsMessages.VideoParams(7, 3, 2, 25),
                                 new RtmsMessages.DeskshareParams(5, 2, 1),
                                 new RtmsMessages.TranscriptParams(5),

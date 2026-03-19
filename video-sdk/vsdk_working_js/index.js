@@ -471,20 +471,22 @@ function connectToMediaWebSocket(
       payload_encryption: false,
       media_params: {
         audio: {
-          content_type: 1, //RTP
+          content_type: 2, // RAW_AUDIO
           sample_rate: 1, //16k
           channel: 1, //mono
           codec: 1, //L16
           data_opt: 1, //AUDIO_MIXED_STREAM
-          send_rate: 100 //in Milliseconds
+          send_rate: 20 //in Milliseconds
         },
         video: {
+          content_type: 3, // RAW_VIDEO
           codec: 7, //H264
           data_opt: 3, //VIDEO_SINGLE_ACTIVE_STREAM
           resolution: 2, //720p
           fps: 25
         },
         deskshare: {
+          content_type: 3, // RAW_VIDEO
           codec: 5, //JPG,
           resolution: 2, //720p
           fps: 1

@@ -91,6 +91,7 @@ export interface AudioMediaParams {
 
 /** Video media parameters */
 export interface VideoMediaParams {
+  contentType?: number;
   codec?: number;
   dataOpt?: number;
   resolution?: number;
@@ -99,6 +100,7 @@ export interface VideoMediaParams {
 
 /** Deskshare media parameters */
 export interface DeskshareMediaParams {
+  contentType?: number;
   codec?: number;
   resolution?: number;
   fps?: number;

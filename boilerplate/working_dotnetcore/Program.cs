@@ -189,8 +189,8 @@ async Task ConnectToMediaWebSocket(string mediaUrl, string meetingUuid, string s
         payload_encryption = false,
         media_params = new
         {
-            audio = new { content_type = 1, sample_rate = 1, channel = 1, codec = 1, data_opt = 1, send_rate = 100 },
-            video = new { codec = 7, resolution = 2, fps = 25 }
+            audio = new { content_type = 2, sample_rate = 1, channel = 1, codec = 1, data_opt = 1, send_rate = 100 },
+            video = new { content_type = 3, codec = 7, resolution = 2, fps = 25 }
         }
     };
     var handshakeBytes = Encoding.UTF8.GetBytes(JsonSerializer.Serialize(handshake));

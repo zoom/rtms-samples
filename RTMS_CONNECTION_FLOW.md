@@ -485,7 +485,7 @@ Connect to media server and send handshake with media configuration:
   "payload_encryption": false,
   "media_params": {
     "audio": {
-      "content_type": 1,
+      "content_type": 2,
       "sample_rate": 1,
       "channel": 1,
       "codec": 1,
@@ -493,6 +493,7 @@ Connect to media server and send handshake with media configuration:
       "send_rate": 100
     },
     "video": {
+      "content_type": 3,
       "codec": 7,
       "resolution": 2,
       "fps": 25
@@ -527,7 +528,7 @@ function connectToMedia(mediaUrl, signalingWs, meetingUuid, streamId) {
       payload_encryption: false,
       media_params: {
         audio: {
-          content_type: 1, // RAW_AUDIO
+          content_type: 2, // RAW_AUDIO
           sample_rate: 1,  // SR_16K
           channel: 1,      // MONO
           codec: 1,        // L16
@@ -535,6 +536,7 @@ function connectToMedia(mediaUrl, signalingWs, meetingUuid, streamId) {
           send_rate: 100   // 100ms chunks
         },
         video: {
+          content_type: 3, // RAW_VIDEO
           codec: 7,        // H264
           resolution: 2,   // 720p
           fps: 25
@@ -578,7 +580,7 @@ def connect_to_media(media_url, signaling_ws, meeting_uuid, stream_id):
             "payload_encryption": False,
             "media_params": {
                 "audio": {
-                    "content_type": 1,  # RAW_AUDIO
+                    "content_type": 2,  # RAW_AUDIO
                     "sample_rate": 1,   # SR_16K
                     "channel": 1,       # MONO
                     "codec": 1,         # L16
@@ -586,6 +588,7 @@ def connect_to_media(media_url, signaling_ws, meeting_uuid, stream_id):
                     "send_rate": 100    # 100ms chunks
                 },
                 "video": {
+                    "content_type": 3,  # RAW_VIDEO
                     "codec": 7,         # H264
                     "resolution": 2,    # 720p
                     "fps": 25
@@ -634,7 +637,7 @@ func connectToMedia(mediaURL string, signalingConn *websocket.Conn, meetingUUID,
         "payload_encryption": false,
         "media_params": map[string]interface{}{
             "audio": map[string]interface{}{
-                "content_type": 1,   // RAW_AUDIO
+                "content_type": 2,   // RAW_AUDIO
                 "sample_rate":  1,   // SR_16K
                 "channel":      1,   // MONO
                 "codec":        1,   // L16
@@ -642,6 +645,7 @@ func connectToMedia(mediaURL string, signalingConn *websocket.Conn, meetingUUID,
                 "send_rate":    100, // 100ms chunks
             },
             "video": map[string]interface{}{
+                "content_type": 3,  // RAW_VIDEO
                 "codec":      7,  // H264
                 "resolution": 2,  // 720p
                 "fps":        25,
@@ -1070,7 +1074,7 @@ Combine flags: `audio + video + transcript = 1 + 2 + 16 = 19`
 
 | Parameter | Options | Description |
 |-----------|---------|-------------|
-| `content_type` | 1 (RAW_AUDIO), 2 (ENCODED) | Audio format type |
+| `content_type` | 2 (RAW_AUDIO) | Audio format type |
 | `sample_rate` | 0 (8kHz), 1 (16kHz), 2 (32kHz), 3 (48kHz) | Sample rate |
 | `channel` | 1 (MONO), 2 (STEREO) | Audio channels |
 | `codec` | 1 (L16 PCM) | Audio codec |
@@ -1081,6 +1085,7 @@ Combine flags: `audio + video + transcript = 1 + 2 + 16 = 19`
 
 | Parameter | Options | Description |
 |-----------|---------|-------------|
+| `content_type` | 3 (RAW_VIDEO) | Video format type |
 | `codec` | 7 (H264) | Video codec |
 | `resolution` | 1 (360p), 2 (720p), 3 (1080p) | Video resolution |
 | `fps` | 15, 25, 30 | Frames per second |
@@ -1166,8 +1171,8 @@ function connectToMedia(mediaUrl, meetingUuid, streamId) {
       media_type: 32,
       payload_encryption: false,
       media_params: {
-        audio: { content_type: 1, sample_rate: 1, channel: 1, codec: 1, data_opt: 1, send_rate: 100 },
-        video: { codec: 7, resolution: 2, fps: 25 }
+        audio: { content_type: 2, sample_rate: 1, channel: 1, codec: 1, data_opt: 1, send_rate: 100 },
+        video: { content_type: 3, codec: 7, resolution: 2, fps: 25 }
       }
     }));
   });

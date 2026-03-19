@@ -5,12 +5,14 @@
   "main": "index.js",
   "type": "module",
   "scripts": {
-    "fetch": "npm --prefix node_modules/@zoom/rtms run fetch",
     "start": "node --env-file=.env index.js"
   },
   "license": "MIT",
   "dependencies": {
-    "@zoom/rtms": "^0.0.2",
+    "@zoom/rtms": "0.0.7",
     "dotenv": "^16.5.0"
+  },
+  "engines": {
+    "node": ">=20.3.0"
   }
 }

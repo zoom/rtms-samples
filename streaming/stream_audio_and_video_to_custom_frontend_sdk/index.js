@@ -76,6 +76,12 @@ dotenv.config();
 // Import the RTMS SDK
 import rtms from "@zoom/rtms";
 
+function setVideoParamsCompat(client, params) {
+    if (typeof client.setVideoParams === "function") return client.setVideoParams(params);
+    if (typeof client.setVideoParameters === "function") return client.setVideoParameters(params);
+    throw new Error("RTMS SDK client missing setVideoParams/setVideoParameters");
+}
+
 
 // Start live transcoding and get streams
 const { videoStream, audioStream, ffmpeg } = startLocalTranscoding();
@@ -114,7 +120,7 @@ rtms.onWebhookEvent(({ event, payload }) => {
 
 
     // Configure HD video (720p H.264 at 30fps)
-    client.setVideoParams({
+    setVideoParamsCompat(client, {
         contentType: rtms.VideoContentType.RAW_VIDEO,
         codec: rtms.VideoCodec.H264,
         resolution: rtms.VideoResolution.HD,
@@ -158,5 +164,4 @@ rtms.onWebhookEvent(({ event, payload }) => {
 
 
 });
-
 

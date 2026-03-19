@@ -7,9 +7,11 @@ from enum import IntEnum, IntFlag
 
 class MediaContentType(IntEnum):
     """Media content type constants"""
-    RAW = 0
-    RTP = 1
+    RAW_AUDIO = 2
+    RAW_VIDEO = 3
     TEXT = 5
+    RTP = RAW_AUDIO  # Deprecated alias for backward compatibility
+    RAW = RAW_AUDIO  # Deprecated alias for backward compatibility
 
 
 class AudioSampleRate(IntEnum):
@@ -109,6 +111,8 @@ class MediaType(IntFlag):
 RTMS_MEDIA_PARAMS = {
     # Content types
     'MEDIA_CONTENT_TYPE_RAW': MediaContentType.RAW,
+    'MEDIA_CONTENT_TYPE_RAW_AUDIO': MediaContentType.RAW_AUDIO,
+    'MEDIA_CONTENT_TYPE_RAW_VIDEO': MediaContentType.RAW_VIDEO,
     'MEDIA_CONTENT_TYPE_RTP': MediaContentType.RTP,
     'MEDIA_CONTENT_TYPE_TEXT': MediaContentType.TEXT,
     

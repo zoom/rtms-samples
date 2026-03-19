@@ -193,9 +193,9 @@ function connectToMediaWebSocket(mediaUrl: string, meetingUuid: string, streamId
       media_type: 32,
       payload_encryption: false,
       media_params: {
-        audio: { content_type: 1, sample_rate: 1, channel: 1, codec: 1, data_opt: 1, send_rate: 100 },
-        video: { codec: 7, resolution: 2, fps: 25 },
-        deskshare: { codec: 5 },
+        audio: { content_type: 2, sample_rate: 1, channel: 1, codec: 1, data_opt: 1, send_rate: 100 },
+        video: { content_type: 3, codec: 7, resolution: 2, fps: 25 },
+        deskshare: { content_type: 3, codec: 5 },
         chat: { content_type: 5 },
         transcript: { content_type: 5 }
       }

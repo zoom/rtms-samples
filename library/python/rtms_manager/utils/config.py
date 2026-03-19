@@ -9,7 +9,7 @@ from .media_params import (
 
 @dataclass
 class AudioParams:
-    content_type: int = MediaContentType.RTP
+    content_type: int = MediaContentType.RAW_AUDIO
     sample_rate: int = AudioSampleRate.SR_16K
     channel: int = AudioChannel.MONO
     codec: int = MediaPayloadType.L16
@@ -19,6 +19,7 @@ class AudioParams:
 
 @dataclass
 class VideoParams:
+    content_type: int = MediaContentType.RAW_VIDEO
     codec: int = MediaPayloadType.H264
     data_opt: int = VideoDataOption.SINGLE_ACTIVE_STREAM
     resolution: int = MediaResolution.HD
@@ -27,6 +28,7 @@ class VideoParams:
 
 @dataclass
 class DeskshareParams:
+    content_type: int = MediaContentType.RAW_VIDEO
     codec: int = MediaPayloadType.JPG
     resolution: int = MediaResolution.HD
     fps: int = 1

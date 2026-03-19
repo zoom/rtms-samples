@@ -4,6 +4,12 @@ import rtms from "@zoom/rtms";
 
 dotenv.config();
 
+function setVideoParamsCompat(client, params) {
+    if (typeof client.setVideoParams === "function") return client.setVideoParams(params);
+    if (typeof client.setVideoParameters === "function") return client.setVideoParameters(params);
+    throw new Error("RTMS SDK client missing setVideoParams/setVideoParameters");
+}
+
 const meetingState = new Map();
 
 rtms.onWebhookEvent(async ({ event, payload }) => {
@@ -46,7 +52,7 @@ rtms.onWebhookEvent(async ({ event, payload }) => {
     const meetingUuid = payload.meeting_uuid;
     const streamId = payload.rtms_stream_id;
 
-    client.setVideoParams({
+    setVideoParamsCompat(client, {
         contentType: rtms.VideoContentType.RAW_VIDEO,
         codec: rtms.VideoCodec.H264,
         resolution: rtms.VideoResolution.HD,

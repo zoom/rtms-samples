@@ -69,7 +69,7 @@ const rtmsConfig = {
   },
   mediaParams: {
     audio: {
-      contentType: MEDIA_PARAMS.MEDIA_CONTENT_TYPE_RTP,
+      contentType: MEDIA_PARAMS.MEDIA_CONTENT_TYPE_RAW_AUDIO,
       sampleRate: MEDIA_PARAMS.AUDIO_SAMPLE_RATE_SR_16K,
       channel: MEDIA_PARAMS.AUDIO_CHANNEL_MONO,
       codec: MEDIA_PARAMS.MEDIA_PAYLOAD_TYPE_L16,

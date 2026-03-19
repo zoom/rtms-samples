@@ -325,7 +325,7 @@ function connectToMediaWebSocket(mediaUrl, meetingUuid, streamId, signalingSocke
             payload_encryption: false,
             media_params: {
               audio: {
-                content_type: 1,
+                content_type: 2,
                 sample_rate: 1,
                 channel: 1,
                 codec: 1,
@@ -333,6 +333,7 @@ function connectToMediaWebSocket(mediaUrl, meetingUuid, streamId, signalingSocke
                 send_rate: 100
               },
               video: {
+                content_type: 3,
                 codec: 7, //H264
                 resolution: 2,
                 fps: 25

@@ -7,6 +7,18 @@ import { azureSpeechToTextStream } from "./azureSpeechToText.js";
 // Imnod in the RTMS SDK
 import rtms from "@zoom/rtms";
 
+function setAudioParamsCompat(client, params) {
+  if (typeof client.setAudioParams === "function") return client.setAudioParams(params);
+  if (typeof client.setAudioParameters === "function") return client.setAudioParameters(params);
+  throw new Error("RTMS SDK client missing setAudioParams/setAudioParameters");
+}
+
+function setVideoParamsCompat(client, params) {
+  if (typeof client.setVideoParams === "function") return client.setVideoParams(params);
+  if (typeof client.setVideoParameters === "function") return client.setVideoParameters(params);
+  throw new Error("RTMS SDK client missing setVideoParams/setVideoParameters");
+}
+
 // Set up webhook event handler to receive RTMS events from Zoom
 rtms.onWebhookEvent(({ event, payload }) => {
   console.log(`Received webhook event: ${event}`);
@@ -23,7 +35,7 @@ rtms.onWebhookEvent(({ event, payload }) => {
   
 
   // Configure HD video (720p H.264 at 25fps)
-  client.setVideoParams({
+  setVideoParamsCompat(client, {
     contentType: rtms.VideoContentType.RAW_VIDEO,
     codec: rtms.VideoCodec.H264,
     resolution: rtms.VideoResolution.HD,
@@ -31,7 +43,7 @@ rtms.onWebhookEvent(({ event, payload }) => {
     fps: 25
   });
 
-  client.setAudioParameters({
+  setAudioParamsCompat(client, {
     contentType: rtms.AudioContentType.RAW_AUDIO,
     sampleRate: rtms.AudioSampleRate.SR_16K,
     channel: rtms.AudioChannel.MONO,

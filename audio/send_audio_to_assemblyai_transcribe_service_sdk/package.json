@@ -5,16 +5,18 @@
   "main": "index.js",
   "type": "module",
   "scripts": {
-    "fetch": "npm --prefix node_modules/@zoom/rtms run fetch",
     "start": "node --env-file=.env index.js"
   },
   "license": "MIT",
   "dependencies": {
-    "@zoom/rtms": "^0.0.2",
+    "@zoom/rtms": "0.0.7",
     "assemblyai": "^4.12.2",
     "dotenv": "^16.4.1",
     "express": "^4.21.2",
     "node-record-lpcm16": "^1.0.1",
     "ws": "^8.16.0"
+  },
+  "engines": {
+    "node": ">=20.3.0"
   }
 }

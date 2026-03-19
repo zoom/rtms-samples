@@ -8,19 +8,23 @@ dotenv.config();
 // Import the RTMS SDK
 import rtms from "@zoom/rtms";
 
+function setVideoParamsCompat(client, params) {
+    if (typeof client.setVideoParams === "function") return client.setVideoParams(params);
+    if (typeof client.setVideoParameters === "function") return client.setVideoParameters(params);
+    throw new Error("RTMS SDK client missing setVideoParams/setVideoParameters");
+}
+
 let meetingUUID;
 
 // Set up webhook event handler to receive RTMS events from Zoom
 rtms.onWebhookEvent(({ event, payload }) => {
     console.log(`Received webhook event: ${event}`);
 
-    // Only process webhook events for RTMS start notifications
-    if (event == "meeting.rtms_started") {
-        console.log(`Received event ${event}, ignoring...`);
-       meetingUUID=payload.meeting_uuid;
-    }
-       if (event == "meeting.rtms_stopped") {
-        console.log(`Received event ${event}, ignoring...`);
+    if (event === "meeting.rtms_started") {
+        meetingUUID = payload.meeting_uuid;
+    } else if (event === "meeting.rtms_stopped") {
+        return;
+    } else {
         return;
     }
 
@@ -48,7 +52,7 @@ rtms.onWebhookEvent(({ event, payload }) => {
 
 
     // Configure HD video (720p H.264 at 30fps)
-    client.setVideoParams({
+    setVideoParamsCompat(client, {
         contentType: rtms.VideoContentType.RAW_VIDEO,
         codec: rtms.VideoCodec.H264,
         resolution: rtms.VideoResolution.HD,
@@ -79,4 +83,3 @@ rtms.onWebhookEvent(({ event, payload }) => {
     // Join the meeting using the webhook payload directly
     client.join(payload);
 });
-

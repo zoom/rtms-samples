@@ -58,7 +58,7 @@ func connectToMediaWebSocket(mediaURL, meetingUUID, streamID, clientID, clientSe
 		"payload_encryption": false,
 		"media_params": map[string]interface{}{
 			"audio": map[string]interface{}{
-				"content_type": 1,
+				"content_type": 2,
 				"sample_rate":  1,
 				"channel":      1,
 				"codec":        1,
@@ -66,6 +66,7 @@ func connectToMediaWebSocket(mediaURL, meetingUUID, streamID, clientID, clientSe
 				"send_rate":    100,
 			},
 			"video": map[string]interface{}{
+				"content_type": 3,
 				"codec":      7,
 				"resolution": 2,
 				"fps":        25,

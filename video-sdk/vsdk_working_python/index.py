@@ -56,7 +56,7 @@ def connect_to_media_ws(media_url, session_id, stream_id, signaling_socket):
             "payload_encryption": False,
             "media_params": {
                 "audio": {
-                    "content_type": 1,
+                    "content_type": 2,
                     "sample_rate": 1,
                     "channel": 1,
                     "codec": 1,
@@ -64,6 +64,7 @@ def connect_to_media_ws(media_url, session_id, stream_id, signaling_socket):
                     "send_rate": 100
                 },
                 "video": {
+                    "content_type": 3,
                     "codec": 7,
                     "resolution": 2,
                     "fps": 25

@@ -60,7 +60,7 @@ async def connect_to_media_websocket(
 
     media_params = conn.get('config', {}).get('media_params', {
         'audio': {
-            'content_type': 1,
+            'content_type': 2,
             'sample_rate': 1,
             'channel': 1,
             'codec': 1,
@@ -68,12 +68,14 @@ async def connect_to_media_websocket(
             'send_rate': 100
         },
         'video': {
+            'content_type': 3,
             'codec': 7,
             'data_opt': 3,
             'resolution': 2,
             'fps': 25
         },
         'deskshare': {
+            'content_type': 3,
             'codec': 5,
             'resolution': 2,
             'fps': 1

@@ -46,7 +46,7 @@ export class RTMSConfigHelper {
       // Media parameters (advanced - usually use PRESETS instead)
       mediaParams: {
         audio: {
-          contentType: 1, // MEDIA_CONTENT_TYPE_RTP
+          contentType: 2, // MEDIA_CONTENT_TYPE_RAW_AUDIO
           sampleRate: 1,  // AUDIO_SAMPLE_RATE_SR_16K
           channel: 1,     // AUDIO_CHANNEL_MONO
           codec: 1,       // MEDIA_PAYLOAD_TYPE_L16
@@ -54,12 +54,14 @@ export class RTMSConfigHelper {
           sendRate: 100,
         },
         video: {
+          contentType: 3, // MEDIA_CONTENT_TYPE_RAW_VIDEO
           codec: 7,       // MEDIA_PAYLOAD_TYPE_H264
           dataOpt: 3,     // MEDIA_DATA_OPTION_VIDEO_SINGLE_ACTIVE_STREAM
           resolution: 2,  // MEDIA_RESOLUTION_HD
           fps: 25,
         },
         deskshare: {
+          contentType: 3, // MEDIA_CONTENT_TYPE_RAW_VIDEO
           codec: 5,       // MEDIA_PAYLOAD_TYPE_JPG
           resolution: 2,  // MEDIA_RESOLUTION_HD
           fps: 1,

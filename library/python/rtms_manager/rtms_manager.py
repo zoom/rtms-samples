@@ -203,12 +203,14 @@ class RTMSManager:
                 'send_rate': self._config.media_params.audio.send_rate,
             },
             'video': {
+                'content_type': self._config.media_params.video.content_type,
                 'codec': self._config.media_params.video.codec,
                 'data_opt': self._config.media_params.video.data_opt,
                 'resolution': self._config.media_params.video.resolution,
                 'fps': self._config.media_params.video.fps,
             },
             'deskshare': {
+                'content_type': self._config.media_params.deskshare.content_type,
                 'codec': self._config.media_params.deskshare.codec,
                 'resolution': self._config.media_params.deskshare.resolution,
                 'fps': self._config.media_params.deskshare.fps,

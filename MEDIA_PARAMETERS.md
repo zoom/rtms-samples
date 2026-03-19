@@ -10,11 +10,12 @@ Specifies the format of media data transmission.
 
 | Constant | Value | Description |
 |----------|-------|-------------|
-| `MEDIA_CONTENT_TYPE_RTP` | 1 | RTP-wrapped media (includes RTP header) |
 | `MEDIA_CONTENT_TYPE_RAW_AUDIO` | 2 | Raw audio samples without headers |
 | `MEDIA_CONTENT_TYPE_RAW_VIDEO` | 3 | Raw video frames without headers |
 | `MEDIA_CONTENT_TYPE_FILE_STREAM` | 4 | File stream format |
 | `MEDIA_CONTENT_TYPE_TEXT` | 5 | Plain text (for transcript/chat) |
+
+`MEDIA_CONTENT_TYPE_RTP` is retained in the helper libraries only as a deprecated compatibility alias that now maps to `2`. New payloads should use `MEDIA_CONTENT_TYPE_RAW_AUDIO`.
 
 ## Media Data Type (Bitmask)
 
@@ -187,7 +188,7 @@ Same values as video parameters. For screen share:
 ```javascript
 const mediaParams = {
   audio: {
-    content_type: 1,  // MEDIA_CONTENT_TYPE_RTP
+    content_type: 2,  // MEDIA_CONTENT_TYPE_RAW_AUDIO
     sample_rate: 1,   // AUDIO_SAMPLE_RATE_SR_16K (16kHz)
     channel: 1,       // AUDIO_CHANNEL_MONO
     codec: 1,         // MEDIA_PAYLOAD_TYPE_L16 (PCM)
@@ -195,12 +196,14 @@ const mediaParams = {
     send_rate: 20     // milliseconds between packets (recommended: 20ms)
   },
   video: {
+    content_type: 3,  // MEDIA_CONTENT_TYPE_RAW_VIDEO
     codec: 7,         // MEDIA_PAYLOAD_TYPE_H264
     resolution: 2,    // MEDIA_RESOLUTION_HD (720p)
     fps: 25,
     data_opt: 3       // MEDIA_DATA_OPTION_VIDEO_SINGLE_ACTIVE_STREAM
   },
   deskshare: {
+    content_type: 3,  // MEDIA_CONTENT_TYPE_RAW_VIDEO
     codec: 5,         // MEDIA_PAYLOAD_TYPE_JPG
     resolution: 2,    // MEDIA_RESOLUTION_HD
     fps: 1
@@ -225,7 +228,7 @@ const { MEDIA_PARAMS } = RTMSManager;
 const config = {
   mediaParams: {
     audio: {
-      contentType: MEDIA_PARAMS.MEDIA_CONTENT_TYPE_RTP,
+      contentType: MEDIA_PARAMS.MEDIA_CONTENT_TYPE_RAW_AUDIO,
       sampleRate: MEDIA_PARAMS.AUDIO_SAMPLE_RATE_SR_16K,
       channel: MEDIA_PARAMS.AUDIO_CHANNEL_MONO,
       codec: MEDIA_PARAMS.MEDIA_PAYLOAD_TYPE_L16,
@@ -233,6 +236,7 @@ const config = {
       sendRate: 20  // recommended
     },
     video: {
+      contentType: MEDIA_PARAMS.MEDIA_CONTENT_TYPE_RAW_VIDEO,
       codec: MEDIA_PARAMS.MEDIA_PAYLOAD_TYPE_H264,
       dataOpt: MEDIA_PARAMS.MEDIA_DATA_OPTION_VIDEO_SINGLE_ACTIVE_STREAM,
       resolution: MEDIA_PARAMS.MEDIA_RESOLUTION_HD,
