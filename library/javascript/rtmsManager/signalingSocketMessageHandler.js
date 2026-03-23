@@ -10,13 +10,121 @@ import { FileLogger } from './utils/FileLogger.js';
 import { RTMSFlagHelper, TYPE_FLAGS } from './utils/RTMSFlagHelper.js';
 import { RTMSError } from './utils/RTMSError.js';
 import { getPreferredMediaUrl } from './utils/rtmsEntityHelper.js';
+import { getProtocolDefinitions } from './utils/rtmsProtocolDefinitions.js';
+
+function getVideoParticipants(event = {}) {
+  if (Array.isArray(event.participants) && event.participants.length > 0) {
+    return event.participants.map((participant) => ({
+      userId: participant.user_id,
+      userName: participant.user_name || null
+    }));
+  }
+
+  if (event.user_id == null) {
+    return [];
+  }
+
+  return [{
+    userId: event.user_id,
+    userName: event.user_name || null
+  }];
+}
+
+function upsertVideoParticipants(conn, participants = []) {
+  if (!conn.videoOnParticipants) {
+    conn.videoOnParticipants = new Map();
+  }
+
+  participants.forEach((participant) => {
+    if (participant?.userId == null) return;
+    const key = String(participant.userId);
+    const existing = conn.videoOnParticipants.get(key) || {};
+    conn.videoOnParticipants.set(key, {
+      userId: participant.userId,
+      userName: participant.userName ?? existing.userName ?? null
+    });
+  });
+}
+
+function removeVideoParticipants(conn, participants = []) {
+  if (!conn.videoOnParticipants) {
+    conn.videoOnParticipants = new Map();
+  }
+
+  const removedParticipants = [];
+  participants.forEach((participant) => {
+    if (participant?.userId == null) return;
+    const key = String(participant.userId);
+    if (!conn.videoOnParticipants.has(key)) return;
+    removedParticipants.push(participant);
+    conn.videoOnParticipants.delete(key);
+    if (conn.currentVideoSubscriptionUserId != null && String(conn.currentVideoSubscriptionUserId) === String(participant.userId)) {
+      conn.currentVideoSubscriptionUserId = null;
+    }
+  });
+  return removedParticipants;
+}
+
+function emitVideoParticipantSnapshot(eventName, participants, msg, meetingUuid, streamId, conn, emit) {
+  emit(eventName, {
+    type: eventName,
+    participants,
+    availableParticipants: conn.getVideoOnParticipants ? conn.getVideoOnParticipants() : [],
+    data: msg.event,
+    rtmsId: meetingUuid,
+    meetingId: meetingUuid,
+    streamId,
+    productType: conn.rtmsType || 'meeting',
+    timestamp: msg.event?.timestamp || Date.now()
+  });
+}
+
+function shouldSubscribeToIndividualVideoEvents(conn, mediaTypesFlag) {
+  const protocol = getProtocolDefinitions(conn.config);
+  const requestedVideo = mediaTypesFlag === 32 || Boolean(mediaTypesFlag & TYPE_FLAGS.video);
+  return requestedVideo && conn.config?.mediaParams?.video?.data_opt === protocol.mediaDataOptions.VIDEO_SINGLE_INDIVIDUAL_STREAM;
+}
+
+function buildEventSubscriptionPayload(conn, mediaTypesFlag) {
+  const protocol = getProtocolDefinitions(conn.config);
+  const payload = {
+    msg_type: 5,
+    events: [
+      { event_type: 2, subscribe: true }, // ACTIVE_SPEAKER_CHANGE
+      { event_type: 3, subscribe: true }, // PARTICIPANT_JOIN
+      { event_type: 4, subscribe: true }  // PARTICIPANT_LEAVE
+    ]
+  };
+
+  if (shouldSubscribeToIndividualVideoEvents(conn, mediaTypesFlag)) {
+    payload.events.push(
+      { event_type: 5, subscribe: true }, // SHARING_START
+      { event_type: 6, subscribe: true }, // SHARING_STOP
+      { event_type: protocol.eventTypes.PARTICIPANT_VIDEO_ON, subscribe: true },
+      { event_type: protocol.eventTypes.PARTICIPANT_VIDEO_OFF, subscribe: true }
+    );
+  }
+
+  return payload;
+}
+
+export function sendDeferredEventSubscriptions(conn, signalingWs, meetingUuid, streamId) {
+  if (!conn.pendingEventSubscriptionPayload || conn.eventSubscriptionsSent) {
+    return;
+  }
+
+  FileLogger.log(`[Signaling] [${conn.rtmsType},${meetingUuid},${streamId}] Subscribing to events`);
+  signalingWs.send(JSON.stringify(conn.pendingEventSubscriptionPayload));
+  conn.eventSubscriptionsSent = true;
+}
 
 /**
  * Handle signaling socket messages
  * Uses SPLIT mode only - each media type gets its own WebSocket connection
  */
 export function handleSignalingMessage(data, meetingUuid, streamId, signalingWs, conn, emit, mediaTypesFlag, clientId, clientSecret) {
- 
+  const protocol = getProtocolDefinitions(conn.config);
+
   let msg;
   try {
     msg = JSON.parse(data.toString());
@@ -28,10 +136,14 @@ export function handleSignalingMessage(data, meetingUuid, streamId, signalingWs,
 
   switch (msg.msg_type) {
     case 2: // SIGNALING_HAND_SHAKE_RESP
-      FileLogger.log(`[Signaling] [${conn.rtmsType},${meetingUuid},${streamId}] Handshake response for ${conn.rtmsType} ${meetingUuid}`);
+      FileLogger.log(
+        `[Signaling] [${conn.rtmsType},${meetingUuid},${streamId}] Handshake response for ${conn.rtmsType} ${meetingUuid}: status=${msg.status_code} (${getRtmsStatusCode(msg.status_code)})`
+      );
       conn._signalingHandshakeInFlight = false;
       
       if (msg.status_code === 0) {
+        conn.hasConnectedSignaling = true;
+        conn.signalingStatus8Failures = 0;
         const mediaUrl = getPreferredMediaUrl(conn.rtmsType, msg.media_server?.server_urls);
         let countryCode = 'unknown';
         if (mediaUrl) {
@@ -56,11 +168,11 @@ export function handleSignalingMessage(data, meetingUuid, streamId, signalingWs,
         // Check if unified mode is enabled (single socket for all media types)
         const useUnifiedMode = conn.config?.useUnifiedMediaSocket === true;
         
-        if (useUnifiedMode) {
-          // Unified mode: single WebSocket for all media types (better sync)
+        if (useUnifiedMode && msg.media_server?.server_urls?.all) {
+          // Unified mode requires the dedicated "all" media endpoint.
           FileLogger.log(`[Signaling] [${conn.rtmsType},${meetingUuid},${streamId}] Connecting unified media socket`);
           connectToMediaWebSocket(
-            mediaUrl,
+            msg.media_server.server_urls.all,
             meetingUuid,
             streamId,
             signalingWs,
@@ -68,10 +180,16 @@ export function handleSignalingMessage(data, meetingUuid, streamId, signalingWs,
             clientId,
             clientSecret,
             'all',
-            effectiveFlags,
+            mediaTypesFlag === 32 ? 32 : effectiveFlags,
             emit
           );
         } else {
+          if (useUnifiedMode) {
+            FileLogger.warn(
+              `[Signaling] [${conn.rtmsType},${meetingUuid},${streamId}] Unified media socket requested, but media_server.server_urls.all is unavailable. Falling back to split media sockets.`
+            );
+          }
+
           // Split mode: separate socket per media type
           for (const [type, flag] of Object.entries(TYPE_FLAGS)) {
             if (effectiveFlags & flag) {
@@ -93,19 +211,28 @@ export function handleSignalingMessage(data, meetingUuid, streamId, signalingWs,
           }
         }
 
-        // Subscribe to signaling events
-        const subscribePayload = {
-          msg_type: 5,
-          events: [
-            { event_type: 2, subscribe: true }, // ACTIVE_SPEAKER_CHANGE
-            { event_type: 3, subscribe: true }, // PARTICIPANT_JOIN
-            { event_type: 4, subscribe: true }  // PARTICIPANT_LEAVE
-          ]
-        };
-        FileLogger.log(`[Signaling] [${conn.rtmsType},${meetingUuid},${streamId}] Subscribing to events`);
-        signalingWs.send(JSON.stringify(subscribePayload));
+        conn.pendingEventSubscriptionPayload = buildEventSubscriptionPayload(conn, mediaTypesFlag);
+        conn.eventSubscriptionsSent = false;
+        if (shouldSubscribeToIndividualVideoEvents(conn, mediaTypesFlag)) {
+          FileLogger.log(
+            `[Signaling] [${conn.rtmsType},${meetingUuid},${streamId}] Deferring event subscription until individual video stream is active`
+          );
+        } else {
+          sendDeferredEventSubscriptions(conn, signalingWs, meetingUuid, streamId);
+        }
 
       } else {
+        if (msg.status_code === 8 && !conn.hasConnectedSignaling) {
+          conn.signalingStatus8Failures = (conn.signalingStatus8Failures || 0) + 1;
+
+          if (conn.signalingStatus8Failures < 3) {
+            FileLogger.warn(
+              `[Signaling] [${conn.rtmsType},${meetingUuid},${streamId}] Initial signaling handshake rejected with status 8; treating as transient startup rejection and waiting for reconnect (attempt ${conn.signalingStatus8Failures}).`
+            );
+            break;
+          }
+        }
+
         // Handshake failed - emit RTMSError
         const error = RTMSError.fromZoomStatus(msg.status_code, {
           meetingId: meetingUuid,
@@ -157,6 +284,12 @@ export function handleSignalingMessage(data, meetingUuid, streamId, signalingWs,
             } else {
               FileLogger.log(`[Signaling] [${conn.rtmsType},${meetingUuid},${streamId}] LEAVE: ${msg.event.user_name || 'Unknown'}`);
             }
+            {
+              const removedParticipants = removeVideoParticipants(conn, getVideoParticipants(msg.event));
+              if (removedParticipants.length > 0) {
+                emitVideoParticipantSnapshot('video_on_participants_changed', removedParticipants, msg, meetingUuid, streamId, conn, emit);
+              }
+            }
             break;
 
           case 5: // SHARING_START
@@ -170,6 +303,24 @@ export function handleSignalingMessage(data, meetingUuid, streamId, signalingWs,
           case 7: // MEDIA_CONNECTION_INTERRUPTED
             FileLogger.log(`[Signaling] [${conn.rtmsType},${meetingUuid},${streamId}] MEDIA_CONNECTION_INTERRUPTED`);
             break;
+
+          case protocol.eventTypes.PARTICIPANT_VIDEO_ON: {
+            const participants = getVideoParticipants(msg.event);
+            upsertVideoParticipants(conn, participants);
+            FileLogger.log(`[Signaling] [${conn.rtmsType},${meetingUuid},${streamId}] PARTICIPANT_VIDEO_ON: ${participants.map((participant) => participant.userId).join(', ')}`);
+            emitVideoParticipantSnapshot('participant_video_on', participants, msg, meetingUuid, streamId, conn, emit);
+            emitVideoParticipantSnapshot('video_on_participants_changed', participants, msg, meetingUuid, streamId, conn, emit);
+            break;
+          }
+
+          case protocol.eventTypes.PARTICIPANT_VIDEO_OFF: {
+            const participants = getVideoParticipants(msg.event);
+            const removedParticipants = removeVideoParticipants(conn, participants);
+            FileLogger.log(`[Signaling] [${conn.rtmsType},${meetingUuid},${streamId}] PARTICIPANT_VIDEO_OFF: ${participants.map((participant) => participant.userId).join(', ')}`);
+            emitVideoParticipantSnapshot('participant_video_off', participants, msg, meetingUuid, streamId, conn, emit);
+            emitVideoParticipantSnapshot('video_on_participants_changed', removedParticipants.length > 0 ? removedParticipants : participants, msg, meetingUuid, streamId, conn, emit);
+            break;
+          }
 
           default:
             FileLogger.log(`[Signaling] [${conn.rtmsType},${meetingUuid},${streamId}] Unknown event_type: ${msg.event.event_type}`);
@@ -192,9 +343,9 @@ export function handleSignalingMessage(data, meetingUuid, streamId, signalingWs,
     case 8: // Stream State changed
       FileLogger.log(`[Signaling] [${conn.rtmsType},${meetingUuid},${streamId}] Stream state: ${getRtmsStreamState(msg.state)}, reason: ${getRtmsStopReason(msg.reason)}`);
 
-      // Meeting ended (reason: 6, state: 4)
-      if (msg.reason === 6 && msg.state === 4) {
-        FileLogger.log(`[Signaling] [${conn.rtmsType},${meetingUuid},${streamId}] Meeting ended, cleaning up`);
+      // Any terminated stream should stop reconnecting and clean up immediately.
+      if (msg.state === 4) {
+        FileLogger.log(`[Signaling] [${conn.rtmsType},${meetingUuid},${streamId}] Stream terminated, cleaning up local sockets`);
 
         if (conn) {
           conn.shouldReconnect = false;
@@ -232,7 +383,7 @@ export function handleSignalingMessage(data, meetingUuid, streamId, signalingWs,
       emit('stream_state_changed', {
         type: 'stream_state_changed',
         state: msg.state,
-        reason: msg.reason,
+        reason: msg.reason ?? null,
         data: msg,
         rtmsId: meetingUuid,
         meetingId: meetingUuid,
@@ -245,10 +396,15 @@ export function handleSignalingMessage(data, meetingUuid, streamId, signalingWs,
     case 9: // Session State Changed
       FileLogger.log(`[Signaling] [${conn.rtmsType},${meetingUuid},${streamId}] Session state: ${getRtmsSessionState(msg.state)}, stop_reason: ${getRtmsStopReason(msg.stop_reason)}`);
 
+      if (msg.state === 5 && conn) {
+        FileLogger.log(`[Signaling] [${conn.rtmsType},${meetingUuid},${streamId}] Session stopped, disabling reconnect`);
+        conn.shouldReconnect = false;
+      }
+
       emit('session_state_changed', {
         type: 'session_state_changed',
         state: msg.state,
-        stopReason: msg.stop_reason,
+        stopReason: msg.stop_reason ?? null,
         data: msg,
         rtmsId: meetingUuid,
         meetingId: meetingUuid,
@@ -264,6 +420,46 @@ export function handleSignalingMessage(data, meetingUuid, streamId, signalingWs,
         msg_type: 13,
         timestamp: msg.timestamp
       }));
+      break;
+
+    case protocol.messageTypes.VIDEO_SUBSCRIPTION_RESP: {
+      const success = msg.status_code === 0;
+      const subscribed = msg.subscribe !== false;
+      if (success) {
+        conn.currentVideoSubscriptionUserId = subscribed ? msg.user_id : null;
+      }
+
+      emit('video_subscription_response', {
+        type: 'video_subscription_response',
+        userId: msg.user_id ?? null,
+        subscribed,
+        statusCode: msg.status_code,
+        success,
+        reason: msg.reason ?? null,
+        currentVideoSubscriptionUserId: conn.currentVideoSubscriptionUserId ?? null,
+        data: msg,
+        rtmsId: meetingUuid,
+        meetingId: meetingUuid,
+        streamId,
+        productType: conn.rtmsType || 'meeting',
+        timestamp: msg.timestamp || Date.now()
+      });
+      break;
+    }
+
+    case protocol.messageTypes.STREAM_CLOSE_RESP:
+      emit('stream_close_response', {
+        type: 'stream_close_response',
+        statusCode: msg.status_code,
+        success: msg.status_code === 0,
+        reason: msg.reason ?? null,
+        data: msg,
+        rtmsId: meetingUuid,
+        meetingId: meetingUuid,
+        streamId,
+        productType: conn.rtmsType || 'meeting',
+        timestamp: msg.timestamp || Date.now()
+      });
       break;
 
     default:

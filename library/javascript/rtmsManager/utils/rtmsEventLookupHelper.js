@@ -62,7 +62,7 @@ export function getRtmsStopReason(errorCode) {
     case 4:
       return 'RTMS stopped: App user ejected by host (STOP_BC_USER_EJECTED)';
     case 5:
-      return 'RTMS stopped: App disabled by host (STOP_BC_APP_DISABLED_BY_HOST)';
+      return 'RTMS stopped: Host disabled app (STOP_BC_HOST_DISABLED_APP)';
     case 6:
       return 'RTMS stopped: Meeting ended (STOP_BC_MEETING_ENDED)';
     case 7:
@@ -76,7 +76,7 @@ export function getRtmsStopReason(errorCode) {
     case 11:
       return 'RTMS stopped: Connection timeout (STOP_BC_CONNECTION_TIMEOUT)';
     case 12:
-      return 'RTMS stopped: Meeting connection interrupted (STOP_BC_MEETING_CONNECTION_INTERRUPTED)';
+      return 'RTMS stopped: Instance connection interrupted (STOP_BC_INSTANCE_CONNECTION_INTERRUPTED)';
     case 13:
       return 'RTMS stopped: Signaling connection interrupted (STOP_BC_SIGNAL_CONNECTION_INTERRUPTED)';
     case 14:
@@ -89,6 +89,22 @@ export function getRtmsStopReason(errorCode) {
       return 'RTMS stopped: Received exit signal (STOP_BC_EXIT_SIGNAL)';
     case 18:
       return 'RTMS stopped: Authentication failure (STOP_BC_AUTHENTICATION_FAILURE)';
+    case 19:
+      return 'RTMS stopped: Await reconnection timeout (STOP_BC_AWAIT_RECONNECTION_TIMEOUT)';
+    case 20:
+      return 'RTMS stopped: Receiver requested close (STOP_BC_RECEIVER_REQUEST_CLOSE)';
+    case 21:
+      return 'RTMS stopped: Customer disconnected (STOP_BC_CUSTOMER_DISCONNECTED)';
+    case 22:
+      return 'RTMS stopped: Agent disconnected (STOP_BC_AGENT_DISCONNECTED)';
+    case 23:
+      return 'RTMS stopped: Admin disabled app (STOP_BC_ADMIN_DISABLED_APP)';
+    case 24:
+      return 'RTMS stopped: Keep-alive timeout (STOP_BC_KEEP_ALIVE_TIMEOUT)';
+    case 25:
+      return 'RTMS stopped: Manual API triggered (STOP_BC_MANUAL_API_TRIGGERED)';
+    case 26:
+      return 'RTMS stopped: Streaming not supported (STOP_BC_STREAMING_NOT_SUPPORTED)';
     default:
       return `RTMS stopped: Unknown reason code (${errorCode})`;
   }
@@ -99,129 +115,91 @@ export function getRtmsStatusCode(statusCode) {
     case 0:
       return 'RTMS status: OK';
     case 1:
-      return 'RTMS status: CONNECTION_TIMEOUT';
-    case 2:
-      return 'RTMS status: INVALID_JSON_MSG_SIZE';
-    case 3:
-      return 'RTMS status: INVALID_JSON_MSG';
-    case 4:
       return 'RTMS status: INVALID_MESSAGE_TYPE';
-    case 5:
-      return 'RTMS status: MSG_TYPE_NOT_EXIST';
-    case 6:
-      return 'RTMS status: MSG_TYPE_NOT_UINT';
-    case 7:
-      return 'RTMS status: MEETING_UUID_NOT_EXIST';
-    case 8:
-      return 'RTMS status: MEETING_UUID_NOT_STRING';
-    case 9:
-      return 'RTMS status: MEETING_UUID_IS_EMPTY';
-    case 10:
-      return 'RTMS status: RTMS_STREAM_ID_NOT_EXIST';
-    case 11:
-      return 'RTMS status: RTMS_STREAM_ID_NOT_STRING';
-    case 12:
-      return 'RTMS status: RTMS_STREAM_ID_IS_EMPTY';
-    case 13:
-      return 'RTMS status: SESSION_NOT_FOUND';
-    case 14:
-      return 'RTMS status: SIGNATURE_NOT_EXIST';
-    case 15:
+    case 2:
+      return 'RTMS status: INVALID_RTMS_STREAM_ID';
+    case 3:
       return 'RTMS status: INVALID_SIGNATURE';
-    case 16:
-      return 'RTMS status: INVALID_MEETING_OR_STREAM_ID';
-    case 17:
+    case 4:
+      return 'RTMS status: INVALID_PAYLOAD';
+    case 5:
+      return 'RTMS status: INVALID_EVENTS';
+    case 6:
+      return 'RTMS status: INVALID_EVENT_TYPE';
+    case 7:
+      return 'RTMS status: INVALID_MEDIA_TYPE';
+    case 8:
       return 'RTMS status: DUPLICATE_SIGNAL_REQUEST';
-    case 18:
-      return 'RTMS status: EVENTS_NOT_EXIST';
-    case 19:
-      return 'RTMS status: EVENTS_VALUE_NOT_ARRAY';
-    case 20:
-      return 'RTMS status: EVENT_TYPE_NOT_EXIST';
-    case 21:
-      return 'RTMS status: EVENT_TYPE_VALUE_NOT_UINT';
-    case 22:
-      return 'RTMS status: MEDIA_TYPE_NOT_EXIST';
-    case 23:
-      return 'RTMS status: MEDIA_TYPE_NOT_UINT';
-    case 24:
+    case 9:
       return 'RTMS status: MEDIA_TYPE_AUDIO_NOT_SUPPORT';
-    case 25:
+    case 10:
       return 'RTMS status: MEDIA_TYPE_VIDEO_NOT_SUPPORT';
-    case 26:
+    case 11:
       return 'RTMS status: MEDIA_TYPE_DESKSHARE_NOT_SUPPORT';
-    case 27:
+    case 12:
       return 'RTMS status: MEDIA_TYPE_TRANSCRIPT_NOT_SUPPORT';
-    case 28:
+    case 13:
       return 'RTMS status: MEDIA_TYPE_CHAT_NOT_SUPPORT';
-    case 29:
+    case 14:
       return 'RTMS status: MEDIA_TYPE_INVALID_VALUE';
-    case 30:
+    case 15:
       return 'RTMS status: MEDIA_DATA_ALL_CONNECTION_EXIST';
-    case 31:
+    case 16:
       return 'RTMS status: DUPLICATE_MEDIA_DATA_CONNECTION';
-    case 32:
-      return 'RTMS status: MEDIA_PARAMS_NOT_EXIST';
-    case 33:
+    case 17:
       return 'RTMS status: INVALID_MEDIA_PARAMS';
-    case 34:
-      return 'RTMS status: NO_MEDIA_TYPE_SPECIFIED';
-    case 35:
+    case 18:
       return 'RTMS status: INVALID_MEDIA_AUDIO_PARAMS';
-    case 36:
-      return 'RTMS status: MEDIA_AUDIO_CONTENT_TYPE_NOT_UINT';
-    case 37:
+    case 19:
       return 'RTMS status: INVALID_MEDIA_AUDIO_CONTENT_TYPE';
-    case 38:
-      return 'RTMS status: MEDIA_AUDIO_SAMPLE_RATE_NOT_UINT';
-    case 39:
+    case 20:
       return 'RTMS status: INVALID_MEDIA_AUDIO_SAMPLE_RATE';
-    case 40:
-      return 'RTMS status: MEDIA_AUDIO_CHANNEL_NOT_UINT';
-    case 41:
+    case 21:
       return 'RTMS status: INVALID_MEDIA_AUDIO_CHANNEL';
-    case 42:
-      return 'RTMS status: MEDIA_AUDIO_CODEC_NOT_UINT';
-    case 43:
+    case 22:
       return 'RTMS status: INVALID_MEDIA_AUDIO_CODEC';
-    case 44:
-      return 'RTMS status: MEDIA_AUDIO_DATA_OPT_NOT_UINT';
-    case 45:
+    case 23:
       return 'RTMS status: INVALID_MEDIA_AUDIO_DATA_OPT';
-    case 46:
-      return 'RTMS status: MEDIA_AUDIO_SEND_RATE_NOT_UINT';
-    case 47:
-      return 'RTMS status: MEDIA_AUDIO_FRAME_SIZE_NOT_UINT';
-    case 48:
+    case 24:
+      return 'RTMS status: INVALID_MEDIA_AUDIO_SEND_RATE';
+    case 25:
       return 'RTMS status: INVALID_MEDIA_VIDEO_PARAMS';
-    case 49:
+    case 26:
       return 'RTMS status: INVALID_MEDIA_VIDEO_CONTENT_TYPE';
-    case 50:
-      return 'RTMS status: MEDIA_VIDEO_CONTENT_TYPE_NOT_UINT';
-    case 51:
+    case 27:
       return 'RTMS status: INVALID_MEDIA_VIDEO_CODEC';
-    case 52:
-      return 'RTMS status: MEDIA_VIDEO_CODEC_NOT_UINT';
-    case 53:
+    case 28:
       return 'RTMS status: INVALID_MEDIA_VIDEO_RESOLUTION';
-    case 54:
-      return 'RTMS status: MEDIA_VIDEO_RESOLUTION_NOT_UINT';
-    case 55:
+    case 29:
       return 'RTMS status: INVALID_MEDIA_VIDEO_DATA_OPT';
-    case 56:
-      return 'RTMS status: MEDIA_VIDEO_DATA_OPT_NOT_UINT';
-    case 57:
-      return 'RTMS status: MEDIA_VIDEO_FPS_NOT_UINT';
-    case 58:
-      return 'RTMS status: INVALID_MEDIA_SHARE_PARAMS';
-    case 59:
-      return 'RTMS status: INVALID_AUDIO_DATA_BUFFER';
-    case 60:
-      return 'RTMS status: INVALID_VIDEO_DATA_BUFFER';
-    case 61:
-      return 'RTMS status: POST_FIRST_PACKET_FAILURE';
-    case 62:
-      return 'RTMS status: RTMS_SESSION_NOT_FOUND';
+    case 30:
+      return 'RTMS status: INVALID_MEDIA_VIDEO_FPS';
+    case 31:
+      return 'RTMS status: INVALID_MEDIA_DESKSHARE_PARAMS';
+    case 32:
+      return 'RTMS status: INVALID_MEDIA_DESKSHARE_CONTENT_TYPE';
+    case 33:
+      return 'RTMS status: INVALID_MEDIA_DESKSHARE_CODEC';
+    case 34:
+      return 'RTMS status: INVALID_MEDIA_DESKSHARE_RESOLUTION';
+    case 35:
+      return 'RTMS status: INVALID_MEDIA_DESKSHARE_FPS';
+    case 36:
+      return 'RTMS status: INVALID_MEDIA_TRANSCRIPT_PARAMS';
+    case 37:
+      return 'RTMS status: INVALID_MEDIA_TRANSCRIPT_CONTENT_TYPE';
+    case 38:
+      return 'RTMS status: INVALID_MEDIA_CHAT_PARAMS';
+    case 39:
+      return 'RTMS status: INVALID_MEDIA_CHAT_CONTENT_TYPE';
+    case 40:
+      return 'RTMS status: INVALID_RTMS_SESSION_ID';
+    case 41:
+      return 'RTMS status: INVALID_CLIENT_READY_ACK';
+    case 42:
+      return 'RTMS status: INVALID_EVENT_SUBSCRIBE';
+    case 43:
+      return 'RTMS status: INVALID_MEDIA_TRANSCRIPT_SROUCE_LANGUAGE';
     default:
       return `RTMS status: Unknown status code (${statusCode})`;
   }

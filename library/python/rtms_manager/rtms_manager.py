@@ -1,13 +1,29 @@
 import asyncio
+import json
+import time
 from typing import Dict, Any, Callable, Optional, List
 from dataclasses import dataclass, field
 
 from .utils.logger import FileLogger
 from .utils.config import RTMSConfig, RTMSConfigHelper, Credentials
 from .utils.media_params import MediaType, RTMS_MEDIA_PARAMS
-from .utils.rtms_entity import get_preferred_media_url, get_rtms_id_from_payload, normalize_rtms_type
+from .utils.rtms_entity import get_preferred_media_url, get_rtms_id_from_payload
+from .utils.protocol_definitions import RTMS_PROTOCOL_DEFINITIONS
 from .signaling_socket import connect_to_signaling_websocket
 from .media_socket import connect_to_media_websocket, TYPE_FLAGS
+
+
+def calculate_effective_flags(requested_flags: int, server_urls: Dict[str, Any]) -> int:
+    if requested_flags != MediaType.ALL:
+        return requested_flags
+
+    effective_flags = 0
+    for type_name, flag in TYPE_FLAGS.items():
+        if type_name == 'all':
+            continue
+        if isinstance(server_urls, dict) and server_urls.get(type_name):
+            effective_flags |= flag
+    return effective_flags
 
 
 @dataclass
@@ -27,6 +43,10 @@ class StreamConnection:
     start_time: Optional[int] = None
     first_packet_timestamp: Optional[int] = None
     last_packet_timestamp: Optional[int] = None
+    has_connected_signaling: bool = False
+    signaling_status8_failures: int = 0
+    video_on_participants: Dict[str, Dict[str, Any]] = field(default_factory=dict)
+    current_video_subscription_user_id: Optional[Any] = None
 
     def to_dict(self) -> Dict[str, Any]:
         return {
@@ -38,6 +58,8 @@ class StreamConnection:
             'signaling': self.signaling,
             'media': {k: {'state': v.get('state')} for k, v in self.media.items()},
             'start_time': self.start_time,
+            'video_on_participants': list(self.video_on_participants.values()),
+            'current_video_subscription_user_id': self.current_video_subscription_user_id,
         }
 
 
@@ -46,6 +68,7 @@ class RTMSManager:
     
     MEDIA = MediaType
     MEDIA_PARAMS = RTMS_MEDIA_PARAMS
+    PROTOCOL = RTMS_PROTOCOL_DEFINITIONS
     
     PRESETS = {
         'AUDIO_ONLY': {
@@ -145,6 +168,8 @@ class RTMSManager:
         self.on('contact_center.voice_rtms_stopped', self._on_contact_center_stopped)
         self.on('phone.rtms_started', self._on_phone_started)
         self.on('phone.rtms_stopped', self._on_phone_stopped)
+        self.on('stream_state_changed', self._on_stream_state_changed)
+        self.on('session_state_changed', self._on_session_state_changed)
 
     def _on_meeting_started(self, payload: Dict[str, Any]):
         meeting_uuid = payload.get('meeting_uuid')
@@ -206,6 +231,20 @@ class RTMSManager:
         stream_id = payload.get('rtms_stream_id')
         asyncio.create_task(self._on_stream_stop(stream_id))
 
+    def _on_stream_state_changed(self, payload: Dict[str, Any], *_args):
+        if payload.get('state') == 4 and payload.get('streamId'):
+            asyncio.create_task(self._on_stream_stop(payload.get('streamId')))
+
+    def _on_session_state_changed(self, payload: Dict[str, Any], *_args):
+        if payload.get('state') == 5 and payload.get('streamId'):
+            asyncio.create_task(self._on_stream_stop(payload.get('streamId')))
+
+    def _find_connection_by_rtms_id(self, rtms_id: str) -> Optional[StreamConnection]:
+        for conn in self._connections.values():
+            if conn.rtms_id == rtms_id:
+                return conn
+        return None
+
     async def _on_stream_start(
         self, 
         rtms_id: str, 
@@ -215,30 +254,32 @@ class RTMSManager:
         creds: Credentials,
         start_time: Optional[int] = None
     ):
+        existing_conn = self._find_connection_by_rtms_id(rtms_id)
+        if existing_conn:
+            if existing_conn.stream_id == stream_id:
+                FileLogger.warn(f'[RTMSManager] Duplicate stream ID {stream_id} for {rtms_type} {rtms_id}')
+                return
+
+            FileLogger.warn(
+                f'[RTMSManager] Replacing stale {existing_conn.rtms_type} {rtms_id} stream {existing_conn.stream_id} with new stream {stream_id}'
+            )
+            await self._on_stream_stop(existing_conn.stream_id)
+
         if stream_id in self._connections:
             FileLogger.warn(f'[RTMSManager] Duplicate stream ID {stream_id} for {rtms_type} {rtms_id}')
             return
 
         FileLogger.info(f'[RTMSManager] Starting {rtms_type} {rtms_id} stream {stream_id}')
 
-        normalized_rtms_type = normalize_rtms_type(rtms_type)
-
         transcript_params = {
             'content_type': self._config.media_params.transcript.content_type,
         }
-        if normalized_rtms_type == 'contact_center':
-            transcript_params['src_language'] = (
-                self._config.media_params.transcript.src_language
-                if self._config.media_params.transcript.src_language is not None
-                else self._config.media_params.transcript.language
-            )
-            transcript_params['enable_lid'] = (
-                self._config.media_params.transcript.enable_lid
-                if self._config.media_params.transcript.enable_lid is not None
-                else True
-            )
-        else:
+        if self._config.media_params.transcript.language is not None:
             transcript_params['language'] = self._config.media_params.transcript.language
+        if self._config.media_params.transcript.src_language is not None:
+            transcript_params['src_language'] = self._config.media_params.transcript.src_language
+        if self._config.media_params.transcript.enable_lid is not None:
+            transcript_params['enable_lid'] = self._config.media_params.transcript.enable_lid
 
         media_params = {
             'audio': {
@@ -273,37 +314,53 @@ class RTMSManager:
             server_url=server_url,
             client_id=creds.client_id,
             client_secret=creds.client_secret,
-            config={'media_params': media_params, 'media_types_flag': self._config.media_types},
+            config={
+                'media_params': media_params,
+                'media_types_flag': self._config.media_types,
+                'protocol_definitions': self._config.protocol_definitions.to_dict(),
+            },
             start_time=start_time,
         )
         self._connections[stream_id] = conn
 
-        conn_dict = conn.to_dict()
-        conn_dict['config'] = conn.config
+        conn_state = conn.__dict__
 
         async def on_media_url_received(media_url: str, media_server: Dict[str, Any]):
-            effective_flags = self._config.media_types
-            
-            if self._config.use_unified_media_socket:
+            effective_flags = calculate_effective_flags(
+                self._config.media_types,
+                media_server.get('server_urls', {}) if isinstance(media_server, dict) else {},
+            )
+
+            unified_media_url = None
+            if isinstance(media_server, dict):
+                server_urls = media_server.get('server_urls', {})
+                if isinstance(server_urls, dict):
+                    unified_media_url = server_urls.get('all')
+
+            if self._config.use_unified_media_socket and unified_media_url:
                 await connect_to_media_websocket(
-                    media_url, rtms_id, stream_id, conn_dict,
+                    unified_media_url, rtms_id, stream_id, conn_state,
                     creds.client_id, creds.client_secret,
-                    'all', effective_flags, self.emit
+                    'all', MediaType.ALL if self._config.media_types == MediaType.ALL else effective_flags, self.emit
                 )
             else:
+                if self._config.use_unified_media_socket:
+                    FileLogger.warn(
+                        f'[RTMSManager] Unified media socket requested for {rtms_type} {rtms_id}, but media_server.server_urls.all is unavailable. Falling back to split media sockets.'
+                    )
                 for type_name, flag in TYPE_FLAGS.items():
                     if type_name == 'all':
                         continue
                     if effective_flags & flag:
                         type_url = get_preferred_media_url(rtms_type, media_server.get('server_urls', {}), type_name) or media_url
                         await connect_to_media_websocket(
-                            type_url, rtms_id, stream_id, conn_dict,
+                            type_url, rtms_id, stream_id, conn_state,
                             creds.client_id, creds.client_secret,
                             type_name, flag, self.emit
                         )
 
         await connect_to_signaling_websocket(
-            rtms_id, stream_id, server_url, conn_dict,
+            rtms_id, stream_id, server_url, conn_state,
             creds.client_id, creds.client_secret,
             self.emit, self._config.media_types, on_media_url_received
         )
@@ -338,6 +395,8 @@ class RTMSManager:
             'start_time': conn.start_time,
             'end_time': asyncio.get_event_loop().time(),
             'media_config': conn.media_config,
+            'video_on_participants': list(conn.video_on_participants.values()),
+            'current_video_subscription_user_id': conn.current_video_subscription_user_id,
         }
 
         del self._connections[stream_id]
@@ -363,6 +422,49 @@ class RTMSManager:
 
     def get_active_streams(self) -> List[Dict[str, Any]]:
         return [conn.to_dict() for conn in self._connections.values()]
+
+    def get_video_on_participants(self, stream_id: str) -> List[Dict[str, Any]]:
+        conn = self._connections.get(stream_id)
+        if not conn:
+            return []
+        return [participant.copy() for participant in conn.video_on_participants.values()]
+
+    def get_current_video_subscription(self, stream_id: str) -> Optional[Any]:
+        conn = self._connections.get(stream_id)
+        if not conn:
+            return None
+        return conn.current_video_subscription_user_id
+
+    async def subscribe_to_individual_video(self, stream_id: str, user_id: Any, subscribe: bool = True):
+        conn = self._connections.get(stream_id)
+        if not conn:
+            raise RuntimeError(f'No active stream found for {stream_id}')
+
+        if conn.signaling.get('state') != 'ready' or not conn.signaling.get('socket'):
+            raise RuntimeError(f'Signaling socket is not ready for stream {stream_id}')
+
+        if conn.config.get('media_params', {}).get('video', {}).get('data_opt') != self._config.protocol_definitions.media_data_options.VIDEO_SINGLE_INDIVIDUAL_STREAM:
+            raise RuntimeError(f'Individual video subscription is not enabled for stream {stream_id}')
+
+        await conn.signaling['socket'].send(json.dumps({
+            'msg_type': self._config.protocol_definitions.message_types.VIDEO_SUBSCRIPTION_REQ,
+            'user_id': user_id,
+            'subscribe': subscribe,
+            'timestamp': int(time.time() * 1000),
+        }))
+
+    async def request_stream_close(self, stream_id: str):
+        conn = self._connections.get(stream_id)
+        if not conn:
+            raise RuntimeError(f'No active stream found for {stream_id}')
+
+        if conn.signaling.get('state') != 'ready' or not conn.signaling.get('socket'):
+            raise RuntimeError(f'Signaling socket is not ready for stream {stream_id}')
+
+        await conn.signaling['socket'].send(json.dumps({
+            'msg_type': self._config.protocol_definitions.message_types.STREAM_CLOSE_REQ,
+            'rtms_stream_id': stream_id,
+        }))
 
     @classmethod
     def get_stream_metadata(cls, stream_id: str) -> Optional[Dict[str, Any]]:

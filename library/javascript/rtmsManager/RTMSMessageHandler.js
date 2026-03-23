@@ -8,6 +8,7 @@ import {
   getRtmsStatusCode
 } from './utils/rtmsEventLookupHelper.js';
 import { FileLogger } from './utils/FileLogger.js';
+import { getProtocolDefinitions } from './utils/rtmsProtocolDefinitions.js';
 
 export class RTMSMessageHandler {
   /**
@@ -48,6 +49,7 @@ export class RTMSMessageHandler {
     };
     this.mediaTypesFlag = mediaTypesFlag;
     this.config = config;
+    this.protocolDefinitions = getProtocolDefinitions(config);
     this.shouldReconnect = true;
     this.signaling = { socket: null, state: 'connecting', lastKeepAlive: null };
     this._signalingReconnectTimer = null;
@@ -60,6 +62,10 @@ export class RTMSMessageHandler {
     this._lastPacketTimestamp = null;
     this.mediaConfig = {};
     this.pingRtt = -1;
+    this.hasConnectedSignaling = false;
+    this.signalingStatus8Failures = 0;
+    this.videoOnParticipants = new Map();
+    this.currentVideoSubscriptionUserId = null;
 
     this.audioFiller = null;
     this.videoFiller = null;
@@ -178,5 +184,49 @@ export class RTMSMessageHandler {
 
   getActiveConnections() {
     return [this];
+  }
+
+  getVideoOnParticipants() {
+    return Array.from(this.videoOnParticipants.values()).map((participant) => ({ ...participant }));
+  }
+
+  isIndividualVideoSubscriptionEnabled() {
+    const requestedVideo = this.mediaTypesFlag === 32 || Boolean(this.mediaTypesFlag & 2);
+    const dataOpt = this.config?.mediaParams?.video?.data_opt;
+    return requestedVideo && dataOpt === this.protocolDefinitions.mediaDataOptions.VIDEO_SINGLE_INDIVIDUAL_STREAM;
+  }
+
+  sendSignalingMessage(payload) {
+    const signalingSocket = this.signaling?.socket;
+    if (!signalingSocket || this.signaling?.state !== 'ready') {
+      throw new Error(`Signaling socket is not ready for stream ${this.streamId}`);
+    }
+    signalingSocket.send(JSON.stringify(payload));
+  }
+
+  subscribeToIndividualVideo(userId, subscribe = true) {
+    if (!this.isIndividualVideoSubscriptionEnabled()) {
+      throw new Error(`Individual video subscription is not enabled for stream ${this.streamId}`);
+    }
+
+    const payload = {
+      msg_type: this.protocolDefinitions.messageTypes.VIDEO_SUBSCRIPTION_REQ,
+      user_id: userId,
+      subscribe,
+      timestamp: Date.now()
+    };
+
+    FileLogger.log(
+      `[Signaling] [${this.rtmsType},${this.rtmsId},${this.streamId}] Sending VIDEO_SUBSCRIPTION_REQ: ${JSON.stringify(payload)}`
+    );
+
+    this.sendSignalingMessage(payload);
+  }
+
+  requestStreamClose() {
+    this.sendSignalingMessage({
+      msg_type: this.protocolDefinitions.messageTypes.STREAM_CLOSE_REQ,
+      rtms_stream_id: this.streamId
+    });
   }
 }

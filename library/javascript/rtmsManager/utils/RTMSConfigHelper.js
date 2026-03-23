@@ -25,6 +25,25 @@ export class RTMSConfigHelper {
       
       // Media socket mode: true = single socket for all media (better sync), false = separate sockets
       useUnifiedMediaSocket: false,
+
+      // March 2026 protocol extensions. These values remain overrideable
+      // because Zoom's public changelog documented the names before publishing
+      // an authoritative numeric enum table.
+      protocolDefinitions: {
+        messageTypes: {
+          STREAM_CLOSE_REQ: 21,
+          STREAM_CLOSE_RESP: 22,
+          VIDEO_SUBSCRIPTION_REQ: 28,
+          VIDEO_SUBSCRIPTION_RESP: 29
+        },
+        eventTypes: {
+          PARTICIPANT_VIDEO_ON: 8,
+          PARTICIPANT_VIDEO_OFF: 9
+        },
+        mediaDataOptions: {
+          VIDEO_SINGLE_INDIVIDUAL_STREAM: 4
+        }
+      },
       
       // History settings
       maxStreamHistorySize: 100,
@@ -151,7 +170,10 @@ export class RTMSConfigHelper {
     }
     delete normalized.mediaTypesFlag;
     
-    // Remove deprecated mediaSocketConnectionMode if present (we only use split mode now)
+    // Map legacy mediaSocketConnectionMode to the current boolean flag.
+    if (normalized.useUnifiedMediaSocket == null && typeof normalized.mediaSocketConnectionMode === 'string') {
+      normalized.useUnifiedMediaSocket = normalized.mediaSocketConnectionMode.toLowerCase() === 'unified';
+    }
     delete normalized.mediaSocketConnectionMode;
     
     return normalized;

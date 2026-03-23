@@ -10,6 +10,7 @@ npm install ws express
 
 ```javascript
 import { RTMSManager } from './rtmsManager/index.js';
+import crypto from 'node:crypto';
 import express from 'express';
 
 const app = express();
@@ -105,7 +106,36 @@ RTMSManager.on('chat', ({ text, userId, userName, timestamp, meetingId, streamId
 // Lifecycle events
 RTMSManager.on('meeting.rtms_started', (payload) => {});
 RTMSManager.on('meeting.rtms_stopped', (payload) => {});
+RTMSManager.on('participant_video_on', ({ participants, availableParticipants, streamId }) => {});
+RTMSManager.on('participant_video_off', ({ participants, availableParticipants, streamId }) => {});
+RTMSManager.on('video_subscription_response', ({ userId, success, streamId }) => {});
+RTMSManager.on('stream_close_response', ({ success, streamId }) => {});
 RTMSManager.on('error', (rtmsError) => {});
+```
+
+## Individual Video Subscription
+
+```javascript
+await RTMSManager.init({
+  credentials,
+  mediaTypes: RTMSManager.MEDIA.VIDEO,
+  mediaParams: {
+    video: {
+      contentType: RTMSManager.MEDIA_PARAMS.MEDIA_CONTENT_TYPE_RAW_VIDEO,
+      codec: RTMSManager.MEDIA_PARAMS.MEDIA_PAYLOAD_TYPE_H264,
+      dataOpt: RTMSManager.MEDIA_PARAMS.MEDIA_DATA_OPTION_VIDEO_SINGLE_INDIVIDUAL_STREAM,
+      resolution: RTMSManager.MEDIA_PARAMS.MEDIA_RESOLUTION_HD,
+      fps: 25
+    }
+  }
+});
+
+RTMSManager.on('participant_video_on', ({ availableParticipants, streamId }) => {
+  console.log(streamId, availableParticipants);
+});
+
+const participants = RTMSManager.getVideoOnParticipants(streamId);
+RTMSManager.subscribeToIndividualVideo(streamId, participants[0].userId);
 ```
 
 ## Configuration
@@ -113,13 +143,19 @@ RTMSManager.on('error', (rtmsError) => {});
 ```javascript
 await RTMSManager.init({
   credentials: {
-    meeting: { clientId, clientSecret, secretToken },
-    videoSdk: { clientId, clientSecret, secretToken },  // Optional
+    meeting: { clientId: '...', clientSecret: '...', secretToken: '...' },
+    videoSdk: { clientId: '...', clientSecret: '...', secretToken: '...' },  // Optional
   },
   mediaTypes: RTMSManager.MEDIA.ALL,
   logging: 'info',            // 'off' | 'error' | 'warn' | 'info' | 'debug'
   logDir: './logs',           // Log file directory
   enableGapFilling: false,    // Insert silence during network drops (for recording)
+  protocolDefinitions: {
+    // Optional overrides for the March 2026 protocol definitions
+    messageTypes: { STREAM_CLOSE_REQ: 21, STREAM_CLOSE_RESP: 22, VIDEO_SUBSCRIPTION_REQ: 28, VIDEO_SUBSCRIPTION_RESP: 29 },
+    eventTypes: { PARTICIPANT_VIDEO_ON: 8, PARTICIPANT_VIDEO_OFF: 9 },
+    mediaDataOptions: { VIDEO_SINGLE_INDIVIDUAL_STREAM: 4 }
+  }
 });
 ```
 

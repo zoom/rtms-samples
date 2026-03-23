@@ -32,6 +32,7 @@ export { RTMSError, ZOOM_STATUS_CODES, SDK_ERROR_CODES } from './utils/RTMSError
 export { FileLogger } from './utils/FileLogger.js';
 export { RTMSConfigHelper } from './utils/RTMSConfigHelper.js';
 export { RTMS_MEDIA_PARAMS } from './utils/rtmsMediaParams.js';
+export { RTMS_PROTOCOL_DEFINITIONS } from './utils/rtmsProtocolDefinitions.js';
 export { RTMSFlagHelper, TYPE_FLAGS } from './utils/RTMSFlagHelper.js';
 
 // Lookup helpers

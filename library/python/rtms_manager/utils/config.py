@@ -5,6 +5,7 @@ from .media_params import (
     MediaPayloadType, MediaResolution, AudioDataOption, VideoDataOption,
     LanguageId
 )
+from .protocol_definitions import RTMSProtocolDefinitions, merge_protocol_definitions
 
 
 @dataclass
@@ -85,6 +86,7 @@ class RTMSConfig:
     max_stream_history_size: int = 100
     reconnect_delay: int = 3000
     max_reconnect_attempts: int = 3
+    protocol_definitions: RTMSProtocolDefinitions = field(default_factory=RTMSProtocolDefinitions)
 
 
 class RTMSConfigHelper:
@@ -206,12 +208,20 @@ class RTMSConfigHelper:
                 'use_unified_media_socket', 
                 options.get('useUnifiedMediaSocket', False)
             )
-        
+        elif 'media_socket_connection_mode' in options or 'mediaSocketConnectionMode' in options:
+            mode = options.get('media_socket_connection_mode', options.get('mediaSocketConnectionMode', 'split'))
+            if isinstance(mode, str):
+                config.use_unified_media_socket = mode.lower() == 'unified'
+
         if 'enable_gap_filling' in options or 'enableGapFilling' in options or 'enableRealTimeAudioVideoGapFiller' in options:
             config.enable_gap_filling = options.get(
                 'enable_gap_filling',
                 options.get('enableGapFilling', options.get('enableRealTimeAudioVideoGapFiller', False))
             )
+
+        protocol_definitions = options.get('protocol_definitions', options.get('protocolDefinitions'))
+        if isinstance(protocol_definitions, dict):
+            config.protocol_definitions = merge_protocol_definitions(protocol_definitions)
 
         RTMSConfigHelper._merge_media_params(config, options)
         

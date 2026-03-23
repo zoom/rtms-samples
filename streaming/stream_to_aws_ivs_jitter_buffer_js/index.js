@@ -106,9 +106,14 @@ function connectToSignalingWebSocket(meetingUuid, streamId, serverUrl) {
     console.log(`Connecting to signaling WebSocket for stream ${streamId}`);
 
     const existingConn = activeConnections.get(streamId);
+    if (existingConn) {
+        existingConn.meetingUuid = meetingUuid;
+        existingConn.streamId = streamId;
+        existingConn.serverUrl = serverUrl;
+    }
     if (existingConn && existingConn.signaling) {
         const existingState = existingConn.signaling.readyState;
-        if (existingState === WebSocket.CONNECTING || existingState === WebSocket.OPEN) {
+        if (existingState !== WebSocket.CLOSED) {
             console.warn(`[Signaling] Already connected/connecting for stream ${streamId}. Skipping duplicate connect.`);
             return;
         }

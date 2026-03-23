@@ -128,6 +128,28 @@ export interface MediaParams {
   transcript?: TranscriptMediaParams;
 }
 
+export interface ProtocolMessageTypes {
+  VIDEO_SUBSCRIPTION_REQ?: number;
+  VIDEO_SUBSCRIPTION_RESP?: number;
+  STREAM_CLOSE_REQ?: number;
+  STREAM_CLOSE_RESP?: number;
+}
+
+export interface ProtocolEventTypes {
+  PARTICIPANT_VIDEO_ON?: number;
+  PARTICIPANT_VIDEO_OFF?: number;
+}
+
+export interface ProtocolMediaDataOptions {
+  VIDEO_SINGLE_INDIVIDUAL_STREAM?: number;
+}
+
+export interface RTMSProtocolDefinitions {
+  messageTypes?: ProtocolMessageTypes;
+  eventTypes?: ProtocolEventTypes;
+  mediaDataOptions?: ProtocolMediaDataOptions;
+}
+
 /** Logging levels */
 export type LogLevel = 'off' | 'error' | 'warn' | 'info' | 'debug';
 
@@ -181,6 +203,9 @@ export interface RTMSConfig {
   // Media parameters (advanced)
   /** Media encoding/format parameters */
   mediaParams?: MediaParams;
+
+  /** Override numeric values for newer RTMS protocol additions if Zoom changes them */
+  protocolDefinitions?: RTMSProtocolDefinitions;
 }
 
 // =============================================================================
@@ -355,6 +380,52 @@ export interface SignalingEvent {
   timestamp: number;
 }
 
+export interface VideoParticipant {
+  userId: number | string;
+  userName?: string | null;
+}
+
+export interface VideoParticipantStateEvent {
+  type: 'participant_video_on' | 'participant_video_off' | 'video_on_participants_changed';
+  participants: VideoParticipant[];
+  availableParticipants: VideoParticipant[];
+  data: SignalingEventData;
+  rtmsId: string;
+  meetingId: string;
+  streamId: string;
+  productType: ProductType;
+  timestamp: number;
+}
+
+export interface VideoSubscriptionResponseEvent {
+  type: 'video_subscription_response';
+  userId: number | string | null;
+  subscribed: boolean;
+  statusCode: number;
+  success: boolean;
+  reason: string | null;
+  currentVideoSubscriptionUserId: number | string | null;
+  data: Record<string, any>;
+  rtmsId: string;
+  meetingId: string;
+  streamId: string;
+  productType: ProductType;
+  timestamp: number;
+}
+
+export interface StreamCloseResponseEvent {
+  type: 'stream_close_response';
+  statusCode: number;
+  success: boolean;
+  reason: string | null;
+  data: Record<string, any>;
+  rtmsId: string;
+  meetingId: string;
+  streamId: string;
+  productType: ProductType;
+  timestamp: number;
+}
+
 /** Raw stream state message from Zoom */
 export interface StreamStateData {
   msg_type: number;
@@ -444,6 +515,9 @@ export type SharescreenEventHandler = (event: SharescreenEvent) => void;
 export type TranscriptEventHandler = (event: TranscriptEvent) => void;
 export type ChatEventHandler = (event: ChatEvent) => void;
 export type SignalingEventHandler = (event: SignalingEvent) => void;
+export type VideoParticipantStateHandler = (event: VideoParticipantStateEvent) => void;
+export type VideoSubscriptionResponseHandler = (event: VideoSubscriptionResponseEvent) => void;
+export type StreamCloseResponseHandler = (event: StreamCloseResponseEvent) => void;
 export type StreamStateHandler = (event: StreamStateEvent) => void;
 export type SessionStateHandler = (event: SessionStateEvent) => void;
 export type ErrorHandler = (error: RTMSError) => void;
@@ -485,6 +559,9 @@ export class RTMSManager extends EventEmitter {
   /** Raw media parameters (advanced usage) */
   static readonly MEDIA_PARAMS: Record<string, number>;
 
+  /** Newer RTMS protocol additions with overrideable defaults */
+  static readonly PROTOCOL: RTMSProtocolDefinitions;
+
   /**
    * Initialize the RTMSManager
    * Auto-starts after initialization - no separate start() needed.
@@ -510,6 +587,10 @@ export class RTMSManager extends EventEmitter {
    * Get all active RTMS connections
    */
   static getActiveConnections(): any[];
+  static getVideoOnParticipants(streamId: string): VideoParticipant[];
+  static getCurrentVideoSubscription(streamId: string): number | string | null;
+  static subscribeToIndividualVideo(streamId: string, userId: number | string, subscribe?: boolean): void;
+  static requestStreamClose(streamId: string): void;
 
   // Event registration overloads
   static on(event: 'audio', handler: AudioEventHandler): void;
@@ -518,6 +599,11 @@ export class RTMSManager extends EventEmitter {
   static on(event: 'transcript', handler: TranscriptEventHandler): void;
   static on(event: 'chat', handler: ChatEventHandler): void;
   static on(event: 'event', handler: SignalingEventHandler): void;
+  static on(event: 'participant_video_on', handler: VideoParticipantStateHandler): void;
+  static on(event: 'participant_video_off', handler: VideoParticipantStateHandler): void;
+  static on(event: 'video_on_participants_changed', handler: VideoParticipantStateHandler): void;
+  static on(event: 'video_subscription_response', handler: VideoSubscriptionResponseHandler): void;
+  static on(event: 'stream_close_response', handler: StreamCloseResponseHandler): void;
   static on(event: 'stream_state_changed', handler: StreamStateHandler): void;
   static on(event: 'session_state_changed', handler: SessionStateHandler): void;
   static on(event: 'error', handler: ErrorHandler): void;

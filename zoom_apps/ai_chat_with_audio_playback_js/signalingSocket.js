@@ -43,6 +43,13 @@ export function connectToSignalingWebSocket(
     return;
    }
 
+   const currentConn = activeConnections.get(meetingUuid);
+   if (currentConn) {
+     currentConn.meetingUuid = meetingUuid;
+     currentConn.streamId = streamId;
+     currentConn.serverUrls = serverUrls;
+   }
+
    if (signalingLocksByStreamId.has(streamId)) {
      console.warn(`[Signaling] ⚠️ Duplicate handshake blocked for stream ${streamId}.`);
      return;
@@ -52,8 +59,7 @@ export function connectToSignalingWebSocket(
      if (existingConn.streamId !== streamId) continue;
      if (
        existingConn.signaling?.socket &&
-       (existingConn.signaling.socket.readyState === WebSocket.OPEN ||
-        existingConn.signaling.socket.readyState === WebSocket.CONNECTING)
+       existingConn.signaling.socket.readyState !== WebSocket.CLOSED
      ) {
        console.warn(`[Signaling] ⚠️ Existing signaling socket already active for stream ${streamId}.`);
        return;

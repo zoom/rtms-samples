@@ -1,4 +1,4 @@
-# RTMS JavaScript Boilerplate
+# RTMS JavaScript Individual Video Boilerplate
 
 A production-ready reference implementation for receiving real-time audio, video, screen share, transcript, and chat data from Zoom meetings.
 
@@ -49,7 +49,6 @@ This is the main reference implementation for RTMS in JavaScript. It demonstrate
 | `MEDIA_SOCKET_CONNECTION_MODE` | No | Socket mode: `unified` or `split` |
 | `AUDIO_STREAM_MODE` | No | Audio mode: `mixed` or `multi` |
 | `VIDEO_STREAM_MODE` | No | Video mode: `active`, `individual`, or `speaker` |
-| `DEFAULT_VIDEO_SUBSCRIPTION_USER_ID` | No | Auto-subscribe this user ID when `VIDEO_STREAM_MODE=individual` and that participant's camera is on |
 | `RTMSTRIGGERMANAGERTYPE` | No | Event manager type: `webhook` or `websocket` |
 | `SERVE_STATIC_ENABLED` | No | Enable static file serving (default: true) |
 | `FRONTEND_WSS_PATH` | No | WebSocket path for frontend (default: `/ws`) |
@@ -133,10 +132,9 @@ For individual participant video, use:
 MEDIA_TYPES_FLAG=2
 VIDEO_STREAM_MODE=individual
 MEDIA_SOCKET_CONNECTION_MODE=split
-DEFAULT_VIDEO_SUBSCRIPTION_USER_ID=16778240
 ```
 
-Then the sample will automatically subscribe to that user when they appear in `participant_video_on` / `video_on_participants_changed`.
+Then the sample waits for RTMS to send a real `userId` in `participant_video_on` / `video_on_participants_changed`, logs the valid candidates, and auto-subscribes to the first available participant.
 
 If you want to do it manually instead, call:
 

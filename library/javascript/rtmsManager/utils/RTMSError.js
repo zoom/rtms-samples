@@ -11,26 +11,91 @@
 // Zoom RTMS status codes mapped to helpful error information
 const ZOOM_STATUS_CODES = {
   0: { code: 'SUCCESS', message: 'Success', category: 'success' },
-  1: { code: 'INVALID_SIGNATURE', message: 'Signature validation failed', category: 'auth' },
-  2: { code: 'INVALID_CLIENT_ID', message: 'Invalid client ID', category: 'auth' },
-  3: { code: 'INVALID_MEETING_UUID', message: 'Invalid meeting UUID', category: 'meeting' },
-  4: { code: 'INVALID_STREAM_ID', message: 'Invalid stream ID', category: 'stream' },
-  5: { code: 'MEETING_NOT_FOUND', message: 'Meeting not found or ended', category: 'meeting' },
-  6: { code: 'STREAM_NOT_FOUND', message: 'Stream not found', category: 'stream' },
-  7: { code: 'INVALID_PARAMETER', message: 'Invalid parameter in request', category: 'request' },
-  8: { code: 'PERMISSION_DENIED', message: 'Permission denied - RTMS not enabled', category: 'permission' },
-  9: { code: 'RATE_LIMIT_EXCEEDED', message: 'Rate limit exceeded', category: 'limit' },
-  10: { code: 'SERVER_ERROR', message: 'Zoom server error', category: 'server' },
-  11: { code: 'SERVICE_UNAVAILABLE', message: 'RTMS service temporarily unavailable', category: 'server' },
-  12: { code: 'TIMEOUT', message: 'Request timed out', category: 'network' },
-  13: { code: 'CONNECTION_CLOSED', message: 'Connection closed unexpectedly', category: 'network' },
-  14: { code: 'PROTOCOL_ERROR', message: 'Protocol version mismatch', category: 'protocol' },
-  15: { code: 'HANDSHAKE_FAILED', message: 'Handshake failed - authentication rejected', category: 'auth' },
-  16: { code: 'MEDIA_NOT_AVAILABLE', message: 'Requested media type not available', category: 'media' },
-  17: { code: 'ENCRYPTION_ERROR', message: 'Encryption/decryption failed', category: 'security' },
-  18: { code: 'INVALID_TOKEN', message: 'Invalid or expired access token', category: 'auth' },
-  19: { code: 'DUPLICATE_CONNECTION', message: 'Duplicate connection detected', category: 'connection' },
-  20: { code: 'MAX_CONNECTIONS', message: 'Maximum connections reached', category: 'limit' },
+  1: { code: 'STATUS_INVALID_MESSAGE_TYPE', message: 'Invalid message type', category: 'request' },
+  2: { code: 'STATUS_INVALID_RTMS_STREAM_ID', message: 'Invalid RTMS stream ID', category: 'stream' },
+  3: { code: 'STATUS_INVALID_SIGNATURE', message: 'Invalid signature', category: 'auth' },
+  4: { code: 'STATUS_INVALID_PAYLOAD', message: 'Invalid payload', category: 'request' },
+  5: { code: 'STATUS_INVALID_EVENTS', message: 'Invalid events array', category: 'request' },
+  6: { code: 'STATUS_INVALID_EVENT_TYPE', message: 'Invalid event type', category: 'request' },
+  7: { code: 'STATUS_INVALID_MEDIA_TYPE', message: 'Invalid media type', category: 'request' },
+  8: {
+    code: 'STATUS_DUPLICATE_SIGNAL_REQUEST',
+    message: 'Duplicate signaling connection request',
+    category: 'connection',
+    causes: [
+      'Another signaling connection for the same stream is still active',
+      'The previous signaling socket has not fully closed yet',
+      'Zoom retried the RTMS start flow while the old signaling connection was still shutting down'
+    ],
+    fixes: [
+      'Ensure only one signaling connection exists per RTMS stream',
+      'Wait for the previous signaling socket to fully close before reconnecting',
+      'Acknowledge webhook events immediately to avoid duplicate startup races'
+    ]
+  },
+  9: { code: 'STATUS_MEDIA_TYPE_AUDIO_NOT_SUPPORT', message: 'Audio media type is not supported', category: 'media' },
+  10: { code: 'STATUS_MEDIA_TYPE_VIDEO_NOT_SUPPORT', message: 'Video media type is not supported', category: 'media' },
+  11: { code: 'STATUS_MEDIA_TYPE_DESKSHARE_NOT_SUPPORT', message: 'Deskshare media type is not supported', category: 'media' },
+  12: { code: 'STATUS_MEDIA_TYPE_TRANSCRIPT_NOT_SUPPORT', message: 'Transcript media type is not supported', category: 'media' },
+  13: { code: 'STATUS_MEDIA_TYPE_CHAT_NOT_SUPPORT', message: 'Chat media type is not supported', category: 'media' },
+  14: {
+    code: 'STATUS_MEDIA_TYPE_INVALID_VALUE',
+    message: 'media_type has an invalid RTMS bitmask value',
+    category: 'request',
+    causes: [
+      'media_type in the RTMS data handshake is not a valid RTMS media flag or bitmask',
+      'MEDIA_TYPES_FLAG is set to an unsupported value in the sample configuration'
+    ],
+    fixes: [
+      'Use valid RTMS media flags such as 1=audio, 2=video, 4=deskshare, 8=transcript, 16=chat, or 32=all',
+      'Review the top-level media_type bitmask in the data handshake payload'
+    ],
+    docsUrl: 'https://developers.zoom.us/docs/rtms/media-types/'
+  },
+  15: { code: 'STATUS_MEDIA_DATA_ALL_CONNECTION_EXIST', message: 'Unified media connection already exists', category: 'connection' },
+  16: { code: 'STATUS_DUPLICATE_MEDIA_DATA_CONNECTION', message: 'Duplicate media data connection detected', category: 'connection' },
+  17: { code: 'STATUS_INVALID_MEDIA_PARAMS', message: 'Invalid media_params payload', category: 'request' },
+  18: { code: 'STATUS_INVALID_MEDIA_AUDIO_PARAMS', message: 'Invalid audio media parameters', category: 'request' },
+  19: { code: 'STATUS_INVALID_MEDIA_AUDIO_CONTENT_TYPE', message: 'Invalid audio content_type', category: 'request' },
+  20: { code: 'STATUS_INVALID_MEDIA_AUDIO_SAMPLE_RATE', message: 'Invalid audio sample_rate', category: 'request' },
+  21: { code: 'STATUS_INVALID_MEDIA_AUDIO_CHANNEL', message: 'Invalid audio channel', category: 'request' },
+  22: { code: 'STATUS_INVALID_MEDIA_AUDIO_CODEC', message: 'Invalid audio codec', category: 'request' },
+  23: { code: 'STATUS_INVALID_MEDIA_AUDIO_DATA_OPT', message: 'Invalid audio data_opt', category: 'request' },
+  24: { code: 'STATUS_INVALID_MEDIA_AUDIO_SEND_RATE', message: 'Invalid audio send_rate', category: 'request' },
+  25: { code: 'STATUS_INVALID_MEDIA_VIDEO_PARAMS', message: 'Invalid video media parameters', category: 'request' },
+  26: { code: 'STATUS_INVALID_MEDIA_VIDEO_CONTENT_TYPE', message: 'Invalid video content_type', category: 'request' },
+  27: { code: 'STATUS_INVALID_MEDIA_VIDEO_CODEC', message: 'Invalid video codec', category: 'request' },
+  28: { code: 'STATUS_INVALID_MEDIA_VIDEO_RESOLUTION', message: 'Invalid video resolution', category: 'request' },
+  29: {
+    code: 'STATUS_INVALID_MEDIA_VIDEO_DATA_OPT',
+    message: 'Invalid video data_opt',
+    category: 'request',
+    causes: [
+      'The video data_opt value in the data handshake is not supported by the RTMS server build',
+      'The client is using the wrong numeric value for VIDEO_SINGLE_INDIVIDUAL_STREAM',
+      'The selected video mode is not compatible with the current RTMS deployment'
+    ],
+    fixes: [
+      'Verify video.data_opt matches the RTMS protocol definition used by your server build',
+      'For single participant video, use VIDEO_SINGLE_INDIVIDUAL_STREAM = 4',
+      'If active-stream video works but individual video fails, focus on video.data_opt instead of media_type'
+    ],
+    docsUrl: 'https://developers.zoom.us/docs/rtms/media-parameter-definition/'
+  },
+  30: { code: 'STATUS_INVALID_MEDIA_VIDEO_FPS', message: 'Invalid video fps', category: 'request' },
+  31: { code: 'STATUS_INVALID_MEDIA_DESKSHARE_PARAMS', message: 'Invalid deskshare media parameters', category: 'request' },
+  32: { code: 'STATUS_INVALID_MEDIA_DESKSHARE_CONTENT_TYPE', message: 'Invalid deskshare content_type', category: 'request' },
+  33: { code: 'STATUS_INVALID_MEDIA_DESKSHARE_CODEC', message: 'Invalid deskshare codec', category: 'request' },
+  34: { code: 'STATUS_INVALID_MEDIA_DESKSHARE_RESOLUTION', message: 'Invalid deskshare resolution', category: 'request' },
+  35: { code: 'STATUS_INVALID_MEDIA_DESKSHARE_FPS', message: 'Invalid deskshare fps', category: 'request' },
+  36: { code: 'STATUS_INVALID_MEDIA_TRANSCRIPT_PARAMS', message: 'Invalid transcript media parameters', category: 'request' },
+  37: { code: 'STATUS_INVALID_MEDIA_TRANSCRIPT_CONTENT_TYPE', message: 'Invalid transcript content_type', category: 'request' },
+  38: { code: 'STATUS_INVALID_MEDIA_CHAT_PARAMS', message: 'Invalid chat media parameters', category: 'request' },
+  39: { code: 'STATUS_INVALID_MEDIA_CHAT_CONTENT_TYPE', message: 'Invalid chat content_type', category: 'request' },
+  40: { code: 'STATUS_INVALID_RTMS_SESSION_ID', message: 'Invalid RTMS session ID', category: 'stream' },
+  41: { code: 'STATUS_INVALID_CLIENT_READY_ACK', message: 'Invalid client ready acknowledgment', category: 'request' },
+  42: { code: 'STATUS_INVALID_EVENT_SUBSCRIBE', message: 'Invalid event subscribe payload', category: 'request' },
+  43: { code: 'STATUS_INVALID_MEDIA_TRANSCRIPT_SROUCE_LANGUAGE', message: 'Invalid transcript src_language', category: 'request' },
 };
 
 // Error causes and fixes by category
@@ -82,12 +147,16 @@ const ERROR_GUIDANCE = {
       'RTMS is not enabled for this Zoom account',
       'App does not have RTMS scopes',
       'Meeting host has not granted RTMS permission',
-      'Account-level RTMS feature is disabled'
+      'Account-level RTMS feature is disabled',
+      'Another RTMS signaling connection for this meeting or stream is still shutting down',
+      'RTMS start event arrived before the signaling server was fully ready'
     ],
     fixes: [
       'Enable RTMS in Zoom Admin Portal -> Account Settings',
       'Add RTMS scopes to your app in Zoom Marketplace',
       'Ensure meeting host allows real-time media streaming',
+      'Ensure previous RTMS signaling sockets are fully closed before reconnecting',
+      'Allow a short retry window after the rtms_started event before treating the failure as permanent',
       'Contact Zoom support if account-level feature is needed'
     ],
     docsUrl: 'https://developers.zoom.us/docs/rtms/prerequisites/'

@@ -103,8 +103,37 @@ RTMSManager.on('chat', (data) => { /* data.text */ });
 RTMSManager.on('meeting.rtms_started', (payload) => { /* New stream */ });
 RTMSManager.on('meeting.rtms_stopped', (payload) => { /* Stream ended */ });
 RTMSManager.on('session.rtms_started', (payload) => { /* Video SDK */ });
-RTMSManager.on('stream_state_changed', (msg, meetingUuid, streamId, type) => {});
+RTMSManager.on('participant_video_on', ({ availableParticipants, streamId }) => {});
+RTMSManager.on('video_subscription_response', ({ userId, success }) => {});
+RTMSManager.on('stream_state_changed', (msg) => {});
 RTMSManager.on('error', (error) => { /* RTMSError with cause/fix */ });
+```
+
+### Individual Video Subscription
+
+```javascript
+await RTMSManager.init({
+  credentials,
+  mediaTypes: RTMSManager.MEDIA.VIDEO,
+  mediaParams: {
+    video: {
+      contentType: RTMSManager.MEDIA_PARAMS.MEDIA_CONTENT_TYPE_RAW_VIDEO,
+      codec: RTMSManager.MEDIA_PARAMS.MEDIA_PAYLOAD_TYPE_H264,
+      dataOpt: RTMSManager.MEDIA_PARAMS.MEDIA_DATA_OPTION_VIDEO_SINGLE_INDIVIDUAL_STREAM,
+      resolution: RTMSManager.MEDIA_PARAMS.MEDIA_RESOLUTION_HD,
+      fps: 25
+    }
+  }
+});
+
+const participants = RTMSManager.getVideoOnParticipants(streamId);
+RTMSManager.subscribeToIndividualVideo(streamId, participants[0].userId);
+```
+
+```python
+participants = rtms.get_video_on_participants(stream_id)
+if participants:
+    await rtms.subscribe_to_individual_video(stream_id, participants[0]['user_id'])
 ```
 
 ## Configuration

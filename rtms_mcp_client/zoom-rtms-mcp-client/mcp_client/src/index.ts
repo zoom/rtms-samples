@@ -110,6 +110,11 @@ function generateSignature(clientId: string, meetingUuid: string, streamId: stri
 }
 
 function connectToSignalingWebSocket(meetingUuid: string, streamId: string, serverUrl: string) {
+  const existingConnections = activeConnections.get(meetingUuid);
+  if (existingConnections?.signaling && existingConnections.signaling.readyState !== WebSocket.CLOSED) {
+    console.warn(`[Signaling] Existing signaling socket already active for stream ${streamId}`);
+    return;
+  }
   if (signalingLocksByStreamId.has(streamId)) {
     console.warn(`[Signaling] Duplicate handshake blocked for stream ${streamId}`);
     return;
@@ -131,7 +136,6 @@ function connectToSignalingWebSocket(meetingUuid: string, streamId: string, serv
   ws.on('message', (data) => {
     const msg = JSON.parse(data.toString());
     if (msg.msg_type === 2) {
-      signalingLocksByStreamId.delete(streamId);
       if (msg.status_code === 0) {
         duplicateSignalRetryCounts.delete(streamId);
         const timer = duplicateSignalRetryTimers.get(streamId);
@@ -142,6 +146,7 @@ function connectToSignalingWebSocket(meetingUuid: string, streamId: string, serv
         const mediaUrl = msg.media_server?.server_urls?.all;
         if (mediaUrl) connectToMediaWebSocket(mediaUrl, meetingUuid, streamId, ws);
       } else if (msg.status_code === 17 && String(msg.reason || '').toLowerCase().includes('duplicate signal request')) {
+        signalingLocksByStreamId.delete(streamId);
         const retryCount = duplicateSignalRetryCounts.get(streamId) ?? 0;
         if (retryCount < MAX_DUPLICATE_SIGNAL_RETRIES) {
           const delay = INITIAL_DUPLICATE_SIGNAL_RETRY_DELAY_MS * (2 ** retryCount);
@@ -159,6 +164,7 @@ function connectToSignalingWebSocket(meetingUuid: string, streamId: string, serv
           console.error(`[Signaling] Duplicate signal retries exhausted for stream ${streamId}`);
         }
       } else {
+        signalingLocksByStreamId.delete(streamId);
         console.error(`[Signaling] Handshake failed for stream ${streamId}:`, msg);
       }
     }

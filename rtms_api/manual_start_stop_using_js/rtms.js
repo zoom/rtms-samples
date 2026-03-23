@@ -132,7 +132,7 @@ function connectToSignalingWebSocket(meetingUuid, streamId, serverUrls) {
     const msg = JSON.parse(data);
     console.log('Signaling message:', msg);
 
-    if (msg.msg_type === 2) {
+    if (msg.msg_type === 2 && msg.status_code !== 0) {
       signalingLocksByStreamId.delete(streamId);
     }
 

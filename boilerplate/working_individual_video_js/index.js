@@ -6,6 +6,7 @@ import { FrontendManager } from '../../library/javascript/rtmsManager/FrontendMa
 import dotenv from 'dotenv';
 import path from 'path';
 import { fileURLToPath } from 'url';
+import util from 'node:util';
 import express from 'express';
 import http from 'http';
 
@@ -84,10 +85,6 @@ const websocketCredentials = {
   clientSecret: process.env.ZOOM_CLIENT_SECRET,
 };
 
-const defaultVideoSubscriptionUserId = process.env.DEFAULT_VIDEO_SUBSCRIPTION_USER_ID
-  ? String(process.env.DEFAULT_VIDEO_SUBSCRIPTION_USER_ID).trim()
-  : '';
-
 const rtmsConfig = {
   logging: {
     enabled: true,
@@ -146,36 +143,62 @@ console.log('[Consumer] App Configuration:', appConfig);
 console.log('[Consumer] RTMS Configuration:', RTMSManager.redactSecrets(rtmsConfig));
 console.log('[Consumer] Audio stream mode:', normalizeMode(process.env.AUDIO_STREAM_MODE, 'mixed'));
 console.log('[Consumer] Video stream mode:', normalizeMode(process.env.VIDEO_STREAM_MODE, 'active'));
-if (defaultVideoSubscriptionUserId) {
-  console.log('[Consumer] Default individual video user ID:', defaultVideoSubscriptionUserId);
+const autoSelectedVideoUserIds = new Map();
+
+function isIndividualVideoMode() {
+  return normalizeMode(process.env.VIDEO_STREAM_MODE, 'active') === 'individual';
 }
 
-function trySubscribeConfiguredIndividualVideo(streamId, availableParticipants = []) {
-  if (!defaultVideoSubscriptionUserId) return;
-  if (normalizeMode(process.env.VIDEO_STREAM_MODE, 'active') !== 'individual') return;
+function getValidIndividualVideoCandidates(availableParticipants = []) {
+  return availableParticipants
+    .filter((participant) => participant && participant.userId != null && String(participant.userId).trim() !== '')
+    .map((participant) => ({
+      userId: participant.userId,
+      userName: participant.userName || null
+    }));
+}
 
-  const matchedParticipant = availableParticipants.find(
-    (participant) => String(participant.userId) === defaultVideoSubscriptionUserId
-  );
+function trySubscribeAvailableIndividualVideo(streamId, availableParticipants = []) {
+  if (!isIndividualVideoMode()) return;
 
-  if (!matchedParticipant) {
+  const candidates = getValidIndividualVideoCandidates(availableParticipants);
+  if (candidates.length === 0) {
+    console.log('[Consumer] No valid individual video user ID available yet:', { streamId });
     return;
   }
 
+  console.log('[Consumer] Individual video candidates:', { streamId, candidates });
+
   const currentUserId = RTMSManager.getCurrentVideoSubscription(streamId);
-  if (currentUserId != null && String(currentUserId) === defaultVideoSubscriptionUserId) {
+  if (currentUserId != null) {
+    const currentUserIdStr = String(currentUserId);
+    if (candidates.some((participant) => String(participant.userId) === currentUserIdStr)) {
+      return;
+    }
+  }
+
+  const selectedParticipant = candidates[0];
+  const lastAutoSelectedUserId = autoSelectedVideoUserIds.get(streamId);
+  if (lastAutoSelectedUserId != null && String(lastAutoSelectedUserId) === String(selectedParticipant.userId)) {
     return;
   }
 
   try {
-    RTMSManager.subscribeToIndividualVideo(streamId, matchedParticipant.userId);
-    console.log('[Consumer] Auto-subscribing configured individual video user:', {
+    console.log('[Consumer] Sending VIDEO_SUBSCRIPTION_REQ:', {
       streamId,
-      userId: matchedParticipant.userId,
-      userName: matchedParticipant.userName || null
+      userId: selectedParticipant.userId,
+      subscribe: true,
+      timestamp: Date.now()
+    });
+    RTMSManager.subscribeToIndividualVideo(streamId, selectedParticipant.userId);
+    autoSelectedVideoUserIds.set(streamId, selectedParticipant.userId);
+    console.log('[Consumer] Auto-subscribing individual video user from RTMS event:', {
+      streamId,
+      userId: selectedParticipant.userId,
+      userName: selectedParticipant.userName
     });
   } catch (error) {
-    console.error('[Consumer] Failed to auto-subscribe configured individual video user:', error.message);
+    console.error('[Consumer] Failed to auto-subscribe individual video user:', error.message);
   }
 }
 
@@ -252,11 +275,23 @@ if (appConfig.managerType === 'webhook') {
 
 // 6. Register media/event handlers
 RTMSManager.on('audio', ({ buffer, userId, userName, timestamp, meetingId, streamId, productType }) => {
-  // Process audio data here
+  console.log('[Consumer] Audio packet received:', {
+    streamId,
+    userId: userId ?? null,
+    userName: userName ?? null,
+    timestamp: timestamp ?? null,
+    bytes: buffer?.length ?? null
+  });
 });
 
 RTMSManager.on('video', ({ buffer, userId, userName, timestamp, meetingId, streamId, productType }) => {
-  // Process video data here
+  console.log('[Consumer] Video packet received:', {
+    streamId,
+    userId: userId ?? null,
+    userName: userName ?? null,
+    timestamp: timestamp ?? null,
+    bytes: buffer?.length ?? null
+  });
 });
 
 RTMSManager.on('sharescreen', ({ buffer, userId, userName, timestamp, meetingId, streamId, productType }) => {
@@ -301,12 +336,19 @@ RTMSManager.on('chat', ({ text, userId, userName, timestamp, meetingId, streamId
 
 // Other events (optional logging)
 RTMSManager.on('event', (eventData) => {
-  console.log('[Consumer] Event:', eventData);
+  console.log('[Consumer] Event:', util.inspect(eventData, { depth: null, colors: true }));
+
+  if (eventData?.eventType === 3 && Array.isArray(eventData.data?.participants)) {
+    console.log('[Consumer] Participant IDs:', eventData.data.participants.map((participant) => ({
+      userId: participant.user_id,
+      userName: participant.user_name || null
+    })));
+  }
 });
 
 RTMSManager.on('participant_video_on', ({ participants, availableParticipants, streamId }) => {
   console.log('[Consumer] Participant video on:', { streamId, participants, availableParticipants });
-  trySubscribeConfiguredIndividualVideo(streamId, availableParticipants);
+  trySubscribeAvailableIndividualVideo(streamId, availableParticipants);
 });
 
 RTMSManager.on('participant_video_off', ({ participants, availableParticipants, streamId }) => {
@@ -315,15 +357,21 @@ RTMSManager.on('participant_video_off', ({ participants, availableParticipants, 
 
 RTMSManager.on('video_on_participants_changed', ({ availableParticipants, streamId }) => {
   console.log('[Consumer] Video-on participants changed:', { streamId, availableParticipants });
-  trySubscribeConfiguredIndividualVideo(streamId, availableParticipants);
+  trySubscribeAvailableIndividualVideo(streamId, availableParticipants);
 });
 
 RTMSManager.on('video_subscription_response', (msg) => {
   console.log('[Consumer] Video subscription response:', msg);
+  if (msg?.success === false) {
+    autoSelectedVideoUserIds.delete(msg.streamId);
+  }
 });
 
 RTMSManager.on('stream_state_changed', (msg) => {
   console.log('[Consumer] Stream state changed:', msg);
+  if (msg?.streamId && msg?.state === 4) {
+    autoSelectedVideoUserIds.delete(msg.streamId);
+  }
 });
 
 RTMSManager.on('session_state_changed', (msg) => {

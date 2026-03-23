@@ -13,6 +13,7 @@ import { processTranscript } from './processors/transcriptProcessor.js';
 import { processChat } from './processors/chatProcessor.js';
 import { FileLogger } from './utils/FileLogger.js';
 import { RTMSError } from './utils/RTMSError.js';
+import { sendDeferredEventSubscriptions } from './signalingSocketMessageHandler.js';
 
 
 const keepAliveResponse = { msg_type: 13, timestamp: 0 };
@@ -32,7 +33,9 @@ export function handleMediaMessage(data, {
     switch (msg.msg_type) {
 
       case 4: // DATA_HAND_SHAKE_RESP
-        FileLogger.log(`[Media] [${conn.rtmsType},${meetingUuid},${streamId}] Handshake response (${mediaType}): status=${msg.status_code}`);
+        FileLogger.log(
+          `[Media] [${conn.rtmsType},${meetingUuid},${streamId}] Handshake response (${mediaType}): status=${msg.status_code} (${getRtmsStatusCode(msg.status_code)})`
+        );
 
         if (msg.status_code === 0) {
           // Handshake successful - notify signaling socket
@@ -44,6 +47,10 @@ export function handleMediaMessage(data, {
           // Set state for this media type socket
           if (mediaType && conn.media[mediaType]) {
             conn.media[mediaType].state = 'streaming';
+          }
+
+          if ((mediaType === 'video' || mediaType === 'all') && conn.pendingEventSubscriptionPayload && !conn.eventSubscriptionsSent) {
+            sendDeferredEventSubscriptions(conn, signalingSocket, meetingUuid, streamId);
           }
         } else {
           // Handshake failed - emit RTMSError

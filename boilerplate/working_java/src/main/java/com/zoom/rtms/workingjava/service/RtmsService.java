@@ -344,12 +344,12 @@ public class RtmsService {
         if (statusCode == 0) {
             log.info("[Signaling] Handshake OK. Status code: {} for {}", statusCode, conn.getSessionId());
 
-            // Extract media URL (Node.js uses msg.media_server?.server_urls?.audio)
-            String mediaUrl = msg.path("media_server").path("server_urls").path("audio").asText();
+            // Combined media handshake should use the dedicated unified endpoint.
+            String mediaUrl = msg.path("media_server").path("server_urls").path("all").asText();
             log.info("[Signaling] Media URL extracted: {} for {}", mediaUrl, conn.getSessionId());
 
             if (mediaUrl.isEmpty()) {
-                log.error("[Signaling] No media URL received in handshake response for {}", conn.getSessionId());
+                log.error("[Signaling] No unified media URL (server_urls.all) received in handshake response for {}", conn.getSessionId());
                 return;
             }
 

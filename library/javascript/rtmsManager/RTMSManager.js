@@ -7,6 +7,7 @@ import { FileLogger } from './utils/FileLogger.js';
 import { RTMSError } from './utils/RTMSError.js';
 import { redactSecrets } from './utils/redactSecrets.js';
 import { getRtmsIdFromPayload } from './utils/rtmsEntityHelper.js';
+import { RTMS_PROTOCOL_DEFINITIONS } from './utils/rtmsProtocolDefinitions.js';
 
 /**
  * Media type constants for easy configuration
@@ -161,6 +162,42 @@ export class RTMSManager extends EventEmitter {
     }
   }
 
+  static getVideoOnParticipants(streamId) {
+    try {
+      const handler = RTMSManager.instance.connectionManager.get(streamId);
+      return handler?.getVideoOnParticipants ? handler.getVideoOnParticipants() : [];
+    } catch (error) {
+      FileLogger.warn(`[RTMSManager] getVideoOnParticipants failed: ${error.message}`);
+      return [];
+    }
+  }
+
+  static getCurrentVideoSubscription(streamId) {
+    try {
+      const handler = RTMSManager.instance.connectionManager.get(streamId);
+      return handler?.currentVideoSubscriptionUserId ?? null;
+    } catch (error) {
+      FileLogger.warn(`[RTMSManager] getCurrentVideoSubscription failed: ${error.message}`);
+      return null;
+    }
+  }
+
+  static subscribeToIndividualVideo(streamId, userId, subscribe = true) {
+    const handler = RTMSManager.instance.connectionManager.get(streamId);
+    if (!handler) {
+      throw new Error(`[RTMSManager] No active stream found for ${streamId}`);
+    }
+    handler.subscribeToIndividualVideo(userId, subscribe);
+  }
+
+  static requestStreamClose(streamId) {
+    const handler = RTMSManager.instance.connectionManager.get(streamId);
+    if (!handler) {
+      throw new Error(`[RTMSManager] No active stream found for ${streamId}`);
+    }
+    handler.requestStreamClose();
+  }
+
 
   /**
    * Media type constants for easy configuration
@@ -186,6 +223,10 @@ export class RTMSManager extends EventEmitter {
    */
   static get MEDIA_PARAMS() {
     return RTMS_MEDIA_PARAMS;
+  }
+
+  static get PROTOCOL() {
+    return RTMS_PROTOCOL_DEFINITIONS;
   }
 
   /**
@@ -239,7 +280,22 @@ export class RTMSManager extends EventEmitter {
     if (config.logDir) {
       FileLogger.setLogDir(config.logDir);
     }
-    if (config.logging && config.logging !== 'off') {
+    if (config.logging && typeof config.logging === 'object') {
+      if (config.logging.logDir) {
+        FileLogger.setLogDir(config.logging.logDir);
+      }
+      if (typeof config.logging.console === 'boolean') {
+        FileLogger.setConsoleOutput(config.logging.console);
+      }
+      if (typeof config.logging.file === 'boolean') {
+        FileLogger.setFileOutput(config.logging.file);
+      }
+
+      const effectiveLevel = config.logging.enabled === false
+        ? 'off'
+        : (config.logging.level || 'info');
+      FileLogger.setLevel(effectiveLevel);
+    } else if (config.logging && config.logging !== 'off') {
       FileLogger.setLevel(config.logging);
     } else if (!options.logger) {
       FileLogger.setLevel('off');
@@ -405,6 +461,18 @@ export class RTMSManager extends EventEmitter {
       this.onStreamStop(rtms_stream_id);
     });
 
+    this.on('stream_state_changed', ({ state, streamId }) => {
+      if (state === 4 && streamId) {
+        this.onStreamStop(streamId);
+      }
+    });
+
+    this.on('session_state_changed', ({ state, streamId }) => {
+      if (state === 5 && streamId) {
+        this.onStreamStop(streamId);
+      }
+    });
+
     // Bind methods
     this.start = this.start.bind(this);
     this.stop = this.stop.bind(this);
@@ -447,6 +515,19 @@ export class RTMSManager extends EventEmitter {
   }
 
   onStreamStart(rtmsId, rtmsType, streamId, serverUrls, creds, startTime = null) {
+    const existingByRtmsId = this.connectionManager.findByRtmsId(rtmsId);
+    if (existingByRtmsId) {
+      if (existingByRtmsId.streamId === streamId) {
+        this.logger.warn(`[RTMSManager] Duplicate stream ID ${streamId} for ${rtmsType} ${rtmsId}`);
+        return true;
+      }
+
+      this.logger.warn(
+        `[RTMSManager] Replacing stale ${existingByRtmsId.rtmsType} ${rtmsId} stream ${existingByRtmsId.streamId} with new stream ${streamId}`
+      );
+      this.onStreamStop(existingByRtmsId.streamId);
+    }
+
     if (this.connectionManager.has(streamId)) {
       this.logger.warn(`[RTMSManager] Duplicate stream ID ${streamId} for ${rtmsType} ${rtmsId}`);
       return true;
@@ -488,7 +569,9 @@ export class RTMSManager extends EventEmitter {
         serverUrls: handler.serverUrls,
         clientId: handler.clientId,
         mediaConfig: handler.mediaConfig,
-        pingRtt: handler.pingRtt
+        pingRtt: handler.pingRtt,
+        videoOnParticipants: handler.getVideoOnParticipants ? handler.getVideoOnParticipants() : [],
+        currentVideoSubscriptionUserId: handler.currentVideoSubscriptionUserId ?? null
       });
 
       this.connectionManager.remove(streamId);
@@ -611,7 +694,9 @@ export class RTMSManager extends EventEmitter {
         pingRtt: active.pingRtt,
         startTime: active.startTime,
         firstPacketTimestamp: active.firstPacketTimestamp,
-        lastPacketTimestamp: active.lastPacketTimestamp
+        lastPacketTimestamp: active.lastPacketTimestamp,
+        videoOnParticipants: active.getVideoOnParticipants ? active.getVideoOnParticipants() : [],
+        currentVideoSubscriptionUserId: active.currentVideoSubscriptionUserId ?? null
       };
     }
 

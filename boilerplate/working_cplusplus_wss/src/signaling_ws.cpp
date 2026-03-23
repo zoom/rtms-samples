@@ -59,11 +59,6 @@ void connect_to_signaling_server(const std::string& server_url, const std::strin
         int msg_type = payload.value("msg_type", -1);
 
         if (msg_type == 2) {
-            {
-                std::lock_guard<std::mutex> guard(g_stream_lock_mu);
-                g_stream_locks.erase(stream_id);
-            }
-
             if (payload.value("status_code", -1) == 0) {
                 auto media_url = payload["media_server"]["server_urls"]["all"];
                 std::cout << "🎥 Media server URL: " << media_url << "\n";

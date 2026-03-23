@@ -12,6 +12,25 @@ const TYPE_FLAGS = {
   chat: 16
 };
 
+function buildMediaParamsForSocket(configuredMediaParams, mediaType) {
+  if (mediaType === 'all') {
+    return {
+      ...configuredMediaParams,
+      transcript: configuredMediaParams.transcript
+        ? { ...configuredMediaParams.transcript }
+        : undefined
+    };
+  }
+
+  const paramsBySocketType = {};
+  const mediaParamsKey = mediaType === 'sharescreen' ? 'deskshare' : mediaType;
+  if (configuredMediaParams?.[mediaParamsKey]) {
+    paramsBySocketType[mediaParamsKey] = { ...configuredMediaParams[mediaParamsKey] };
+  }
+
+  return paramsBySocketType;
+}
+
 /**
  * Connect to a media WebSocket for a specific media type.
  * 
@@ -70,7 +89,7 @@ export function connectToMediaWebSocket(
     const signature = generateRTMSSignature(meetingUuid, streamId, clientId, clientSecret);
    
 
-    const mediaParams = conn.config?.mediaParams || {
+    const configuredMediaParams = conn.config?.mediaParams || {
       audio: {
         content_type: 2,
         sample_rate: 1,
@@ -100,12 +119,16 @@ export function connectToMediaWebSocket(
       }
     };
 
-    if (conn.rtmsType === 'contactCenter' && mediaParams.transcript?.content_type) {
-      mediaParams.transcript = {
-        ...mediaParams.transcript,
-        src_language: mediaParams.transcript.src_language ?? mediaParams.transcript.language,
-        enable_lid: mediaParams.transcript.enable_lid ?? true
-      };
+    const mediaParams = buildMediaParamsForSocket(configuredMediaParams, mediaType);
+
+    if (mediaParams.transcript?.content_type) {
+      const language = mediaParams.transcript.language;
+      if (mediaParams.transcript.src_language == null && language != null) {
+        mediaParams.transcript.src_language = language;
+      }
+      if (mediaParams.transcript.enable_lid == null && mediaParams.transcript.src_language != null) {
+        mediaParams.transcript.enable_lid = true;
+      }
       delete mediaParams.transcript.language;
     }
 
@@ -119,6 +142,12 @@ export function connectToMediaWebSocket(
       payload_encryption: false,
       media_params: mediaParams
     };
+    FileLogger.log(
+      `[Media] [${conn.rtmsType},${meetingUuid},${streamId}] ${mediaType} handshake summary: ${JSON.stringify({
+        media_type: mediaTypeFlag,
+        media_params: mediaParams
+      })}`
+    );
     FileLogger.log(`[Media] [${conn.rtmsType},${meetingUuid},${streamId}] ${mediaType} handshake payload: ${JSON.stringify(handshakeMsg, null, 2)}`);
 
     // Store the media configuration in the connection object

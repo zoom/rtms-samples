@@ -7,7 +7,8 @@ from websockets.client import WebSocketClientProtocol
 
 from .utils.signature import generate_rtms_signature
 from .utils.logger import FileLogger
-from .utils.rtms_entity import build_rtms_entity_payload, normalize_rtms_type
+from .utils.rtms_entity import build_rtms_entity_payload
+from .signaling_socket import send_deferred_event_subscriptions
 
 
 TYPE_FLAGS = {
@@ -18,6 +19,56 @@ TYPE_FLAGS = {
     'chat': 16,
     'all': 32,
 }
+
+STATUS_TEXT = {
+    0: 'SUCCESS',
+    7: 'INVALID_MEDIA_TYPE',
+    9: 'MEDIA_TYPE_AUDIO_NOT_SUPPORT',
+    10: 'MEDIA_TYPE_VIDEO_NOT_SUPPORT',
+    11: 'MEDIA_TYPE_DESKSHARE_NOT_SUPPORT',
+    12: 'MEDIA_TYPE_TRANSCRIPT_NOT_SUPPORT',
+    13: 'MEDIA_TYPE_CHAT_NOT_SUPPORT',
+    14: 'MEDIA_TYPE_INVALID_VALUE',
+    15: 'MEDIA_DATA_ALL_CONNECTION_EXIST',
+    16: 'DUPLICATE_MEDIA_DATA_CONNECTION',
+    17: 'INVALID_MEDIA_PARAMS',
+    18: 'INVALID_MEDIA_AUDIO_PARAMS',
+    19: 'INVALID_MEDIA_AUDIO_CONTENT_TYPE',
+    20: 'INVALID_MEDIA_AUDIO_SAMPLE_RATE',
+    21: 'INVALID_MEDIA_AUDIO_CHANNEL',
+    22: 'INVALID_MEDIA_AUDIO_CODEC',
+    23: 'INVALID_MEDIA_AUDIO_DATA_OPT',
+    24: 'INVALID_MEDIA_AUDIO_SEND_RATE',
+    25: 'INVALID_MEDIA_VIDEO_PARAMS',
+    26: 'INVALID_MEDIA_VIDEO_CONTENT_TYPE',
+    27: 'INVALID_MEDIA_VIDEO_CODEC',
+    28: 'INVALID_MEDIA_VIDEO_RESOLUTION',
+    29: 'INVALID_MEDIA_VIDEO_DATA_OPT',
+    30: 'INVALID_MEDIA_VIDEO_FPS',
+    31: 'INVALID_MEDIA_DESKSHARE_PARAMS',
+    32: 'INVALID_MEDIA_DESKSHARE_CONTENT_TYPE',
+    33: 'INVALID_MEDIA_DESKSHARE_CODEC',
+    34: 'INVALID_MEDIA_DESKSHARE_RESOLUTION',
+    35: 'INVALID_MEDIA_DESKSHARE_FPS',
+    36: 'INVALID_MEDIA_TRANSCRIPT_PARAMS',
+    37: 'INVALID_MEDIA_TRANSCRIPT_CONTENT_TYPE',
+    38: 'INVALID_MEDIA_CHAT_PARAMS',
+    39: 'INVALID_MEDIA_CHAT_CONTENT_TYPE',
+    43: 'INVALID_MEDIA_TRANSCRIPT_SROUCE_LANGUAGE',
+}
+
+
+def _build_media_params_for_socket(configured_media_params: Dict[str, Any], media_type: str) -> Dict[str, Any]:
+    if media_type == 'all':
+        return {
+            **configured_media_params,
+            'transcript': dict(configured_media_params['transcript']) if isinstance(configured_media_params.get('transcript'), dict) else configured_media_params.get('transcript'),
+        }
+
+    media_params_key = 'deskshare' if media_type == 'sharescreen' else media_type
+    if isinstance(configured_media_params.get(media_params_key), dict):
+        return {media_params_key: dict(configured_media_params[media_params_key])}
+    return {}
 
 
 async def connect_to_media_websocket(
@@ -59,7 +110,7 @@ async def connect_to_media_websocket(
 
     signature = generate_rtms_signature(meeting_uuid, stream_id, client_id, client_secret)
 
-    media_params = conn.get('config', {}).get('media_params', {
+    configured_media_params = conn.get('config', {}).get('media_params', {
         'audio': {
             'content_type': 2,
             'sample_rate': 1,
@@ -85,12 +136,14 @@ async def connect_to_media_websocket(
         'transcript': {'content_type': 5}
     })
 
-    if normalize_rtms_type(rtms_type) == 'contact_center' and isinstance(media_params.get('transcript'), dict):
+    media_params = _build_media_params_for_socket(configured_media_params, media_type)
+
+    if isinstance(media_params.get('transcript'), dict):
         transcript_params = dict(media_params['transcript'])
         language = transcript_params.pop('language', None)
         if transcript_params.get('src_language') is None and language is not None:
             transcript_params['src_language'] = language
-        if transcript_params.get('enable_lid') is None:
+        if transcript_params.get('enable_lid') is None and transcript_params.get('src_language') is not None:
             transcript_params['enable_lid'] = True
         media_params = {
             **media_params,
@@ -108,6 +161,9 @@ async def connect_to_media_websocket(
         'media_params': media_params
     }
 
+    FileLogger.log(
+        f"[Media] [{rtms_type},{meeting_uuid},{stream_id}] {media_type} handshake summary: {json.dumps({'media_type': media_type_flag, 'media_params': media_params})}"
+    )
     FileLogger.log(f"[Media] [{rtms_type},{meeting_uuid},{stream_id}] {media_type} handshake payload: {json.dumps(handshake_msg)}")
 
     conn['media_config'] = media_params
@@ -151,11 +207,37 @@ async def _handle_media_messages(
 
             if msg_type == 4:
                 status = msg.get('status_code', msg.get('status', -1))
+                status_text = STATUS_TEXT.get(status, f'STATUS_{status}')
                 if status == 0:
+                    FileLogger.log(
+                        f"[Media] [{rtms_type},{meeting_uuid},{stream_id}] Handshake response ({media_type}): status={status} ({status_text})"
+                    )
                     FileLogger.log(f"[Media] [{rtms_type},{meeting_uuid},{stream_id}] {media_type} handshake OK")
                     conn['media'][media_type]['state'] = 'ready'
+                    signaling_ws = conn.get('signaling', {}).get('socket')
+                    if signaling_ws:
+                        await signaling_ws.send(json.dumps({
+                            'msg_type': 7,
+                            'rtms_stream_id': stream_id,
+                        }))
+                    if media_type in ('video', 'all') and conn.get('pending_event_subscription_payload') and not conn.get('event_subscriptions_sent'):
+                        await send_deferred_event_subscriptions(conn, meeting_uuid, stream_id)
                 else:
-                    FileLogger.error(f"[Media] [{rtms_type},{meeting_uuid},{stream_id}] {media_type} handshake failed: {status}")
+                    FileLogger.error(
+                        f"[Media] [{rtms_type},{meeting_uuid},{stream_id}] {media_type} handshake failed: status={status} ({status_text})"
+                    )
+                    if status in (14, 15, 16):
+                        conn['should_reconnect'] = False
+                    emit(
+                        'error',
+                        {
+                            'message': f'{media_type} handshake failed: status={status} ({status_text})',
+                            'status_code': status,
+                            'meeting_id': meeting_uuid,
+                            'rtms_id': meeting_uuid,
+                            'stream_id': stream_id,
+                        },
+                    )
 
             elif msg_type in (5, 14, 15, 16, 17, 18):
                 content = msg.get('content', {})

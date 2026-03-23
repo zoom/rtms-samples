@@ -65,6 +65,16 @@ app.MapPost(webhookPath, async (HttpRequest request, HttpResponse response, ILog
             await response.CompleteAsync();
             return;
         }
+        if (activeConnections.TryGetValue(meetingUuid!, out var existingConnDict) &&
+            existingConnDict.TryGetValue("signaling", out var existingSignaling) &&
+            existingSignaling.State != WebSocketState.Closed &&
+            existingSignaling.State != WebSocketState.Aborted)
+        {
+            logger.LogWarning("Active signaling socket already exists for meeting {meetingUuid} stream {streamId}", meetingUuid, streamId);
+            response.StatusCode = 200;
+            await response.CompleteAsync();
+            return;
+        }
         if (!signalingInFlight.TryAdd(streamId!, 0))
         {
             logger.LogWarning("Duplicate signaling handshake blocked for stream {streamId}", streamId);
@@ -145,7 +155,6 @@ async Task ConnectToSignalingWebSocket(string meetingUuid, string streamId, stri
             switch (msgType)
             {
                 case 2 when msg.GetProperty("status_code").GetInt32() == 0:
-                    signalingInFlight.TryRemove(streamId, out _);
                     var mediaUrl = msg.GetProperty("media_server").GetProperty("server_urls").GetProperty("all").GetString();
                     if (mediaUrl != null)
                     {

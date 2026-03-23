@@ -132,6 +132,10 @@ rtms.on('video', lambda data: ...)      # data['buffer'] = bytes
 rtms.on('sharescreen', lambda data: ...)
 rtms.on('transcript', lambda data: ...) # data['text'] = str
 rtms.on('chat', lambda data: ...)       # data['text'] = str
+rtms.on('participant_video_on', lambda data: ...)   # data['available_participants']
+rtms.on('participant_video_off', lambda data: ...)
+rtms.on('video_subscription_response', lambda data: ...)
+rtms.on('stream_close_response', lambda data: ...)
 
 # Lifecycle events
 rtms.on('meeting.rtms_started', lambda payload: ...)
@@ -148,11 +152,11 @@ rtms.on('error', lambda error: ...)
 ```python
 await RTMSManager.init({
     'credentials': {
-        'meeting': { 'client_id', 'client_secret', 'secret_token' },
-        'webinar': { 'client_id', 'client_secret', 'secret_token' },  # Optional
-        'video_sdk': { 'client_id', 'client_secret', 'secret_token' },  # Optional
-        'contact_center': { 'client_id', 'client_secret', 'secret_token' },  # Optional
-        'phone': { 'client_id', 'client_secret', 'secret_token' },  # Optional
+        'meeting': { 'client_id': '...', 'client_secret': '...', 'secret_token': '...' },
+        'webinar': { 'client_id': '...', 'client_secret': '...', 'secret_token': '...' },  # Optional
+        'video_sdk': { 'client_id': '...', 'client_secret': '...', 'secret_token': '...' },  # Optional
+        'contact_center': { 'client_id': '...', 'client_secret': '...', 'secret_token': '...' },  # Optional
+        'phone': { 'client_id': '...', 'client_secret': '...', 'secret_token': '...' },  # Optional
     },
     'media_types': MediaType.ALL,
     'logging': 'info',            # 'off' | 'error' | 'warn' | 'info' | 'debug'
@@ -161,11 +165,40 @@ await RTMSManager.init({
     'media_params': {
         'transcript': {
             'language': 9,
-            'src_language': 9,   # Used for Contact Center transcript subscriptions
+            'src_language': 9,
             'enable_lid': True,
+        },
+        'video': {
+            'data_opt': RTMSManager.MEDIA_PARAMS['MEDIA_DATA_OPTION_VIDEO_SINGLE_INDIVIDUAL_STREAM'],
         }
+    },
+    'protocol_definitions': {
+        'message_types': {
+            'STREAM_CLOSE_REQ': 21,
+            'STREAM_CLOSE_RESP': 22,
+            'VIDEO_SUBSCRIPTION_REQ': 28,
+            'VIDEO_SUBSCRIPTION_RESP': 29,
+        },
+        'event_types': {
+            'PARTICIPANT_VIDEO_ON': 8,
+            'PARTICIPANT_VIDEO_OFF': 9,
+        },
+        'media_data_options': {
+            'VIDEO_SINGLE_INDIVIDUAL_STREAM': 4,
+        },
     }
 })
+```
+
+## Individual Video Subscription
+
+```python
+participants = rtms.get_video_on_participants(stream_id)
+if participants:
+    await rtms.subscribe_to_individual_video(stream_id, participants[0]['user_id'])
+
+# Graceful backend-initiated shutdown
+await rtms.request_stream_close(stream_id)
 ```
 
 ## Full Documentation

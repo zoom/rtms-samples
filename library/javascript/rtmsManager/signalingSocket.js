@@ -21,10 +21,15 @@ export function connectToSignalingWebSocket(
 ) {
   FileLogger.log(`[Signaling] [${conn.rtmsType},${meetingUuid},${streamId}] Connecting...`);
 
+  conn.meetingUuid = meetingUuid;
+  conn.streamId = streamId;
+  conn.serverUrls = serverUrls;
+  if (!conn.mediaTypesFlag) conn.mediaTypesFlag = mediaTypesFlag;
+
   // Guard: prevent duplicate signaling connections
   if (conn.signaling && conn.signaling.socket) {
     const existingState = conn.signaling.socket.readyState;
-    if (existingState === WebSocket.CONNECTING || existingState === WebSocket.OPEN) {
+    if (existingState !== WebSocket.CLOSED) {
       FileLogger.warn(`[Signaling] [${conn.rtmsType},${meetingUuid},${streamId}] Duplicate connect attempt blocked (readyState: ${existingState}, state: ${conn.signaling.state}).`);
       return;
     }
@@ -66,10 +71,6 @@ export function connectToSignalingWebSocket(
     return;
   }
 
-  conn.meetingUuid = meetingUuid;
-  conn.streamId = streamId;
-  conn.serverUrls = serverUrls;
-  if (!conn.mediaTypesFlag) conn.mediaTypesFlag = mediaTypesFlag;
   conn.signaling.socket = signalingWs;
   conn.signaling.state = 'connecting';
   conn._signalingHandshakeInFlight = false;

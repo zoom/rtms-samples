@@ -5,6 +5,7 @@ from .utils.media_params import (
     LanguageId, RTMS_MEDIA_PARAMS
 )
 from .utils.config import RTMSConfig, MediaParams, Credentials
+from .utils.protocol_definitions import RTMSProtocolDefinitions, RTMS_PROTOCOL_DEFINITIONS
 from .utils.logger import FileLogger
 
 __all__ = [
@@ -22,5 +23,7 @@ __all__ = [
     'RTMSConfig',
     'MediaParams',
     'Credentials',
+    'RTMSProtocolDefinitions',
+    'RTMS_PROTOCOL_DEFINITIONS',
     'FileLogger',
 ]

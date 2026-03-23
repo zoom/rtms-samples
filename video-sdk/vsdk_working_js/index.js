@@ -594,6 +594,13 @@ function connectToSignalingWebSocket(
      return;
    }
 
+   const currentConn = activeConnections.get(sessionID);
+   if (currentConn) {
+     currentConn.sessionID = sessionID;
+     currentConn.streamId = streamId;
+     currentConn.serverUrls = serverUrls;
+   }
+
    if (signalingLocksByStreamId.has(streamId)) {
      console.warn(`[Signaling] ⚠️ Duplicate handshake blocked for stream ${streamId}.`);
      return;
@@ -603,8 +610,7 @@ function connectToSignalingWebSocket(
      if (existingConn.streamId !== streamId) continue;
      if (
        existingConn.signaling?.socket &&
-       (existingConn.signaling.socket.readyState === WebSocket.OPEN ||
-        existingConn.signaling.socket.readyState === WebSocket.CONNECTING)
+       existingConn.signaling.socket.readyState !== WebSocket.CLOSED
      ) {
        console.warn(`[Signaling] ⚠️ Existing signaling socket already active for stream ${streamId}.`);
        return;
@@ -706,10 +712,12 @@ function connectToSignalingWebSocket(
         console.log(`[Signaling] Processing handshake response (case 2) for ${sessionID}`);
         console.log(`[Signaling] Handshake response:`, JSON.stringify(msg, null, 2));
         if (msg.status_code === 0) {
-          //This only return audio?
-          //const mediaUrl = msg.media_server?.server_urls?.all;
-          const mediaUrl = msg.media_server?.server_urls?.audio;
+          const mediaUrl = msg.media_server?.server_urls?.all;
           console.log(`[Signaling] Handshake OK. Media URL: ${mediaUrl}`);
+          if (!mediaUrl) {
+            console.warn(`[Signaling] No unified media URL (server_urls.all) received for ${sessionID}`);
+            break;
+          }
           conn.signaling.state = 'ready';
           console.log(`[Signaling] Connection state updated to 'ready' for ${sessionID}`);
 
