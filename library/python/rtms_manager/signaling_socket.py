@@ -26,9 +26,35 @@ STATUS_TEXT = {
     42: 'INVALID_EVENT_SUBSCRIBE',
 }
 
+MAX_DUPLICATE_SIGNAL_RETRIES = 3
+INITIAL_DUPLICATE_SIGNAL_RETRY_DELAY_SECONDS = 1.5
+
 
 def _get_protocol(conn: Dict[str, Any]):
     return merge_protocol_definitions(conn.get('config', {}).get('protocol_definitions', {}))
+
+
+def _cancel_task(conn: Dict[str, Any], key: str):
+    task = conn.get(key)
+    if task:
+        task.cancel()
+        conn.pop(key, None)
+
+
+def _release_signaling_connect_lock(conn: Dict[str, Any], ws: Optional[WebSocketClientProtocol]):
+    if conn.get('_signaling_connect_ws') is ws:
+        conn['_signaling_connect_locked'] = False
+        conn['_signaling_connect_ws'] = None
+
+
+async def _close_socket_quietly(ws: Optional[WebSocketClientProtocol]):
+    if not ws:
+        return
+    if not ws.closed:
+        try:
+            await ws.close()
+        except Exception:
+            pass
 
 
 def _is_individual_video_enabled(conn: Dict[str, Any], media_types_flag: int) -> bool:
@@ -136,47 +162,49 @@ async def connect_to_signaling_websocket(
     rtms_type = conn.get('rtms_type', 'meeting')
     FileLogger.log(f"[Signaling] [{rtms_type},{meeting_uuid},{stream_id}] Connecting...")
 
+    conn['meeting_uuid'] = meeting_uuid
+    conn['stream_id'] = stream_id
+    conn['server_url'] = server_url
+    if 'media_types_flag' not in conn:
+        conn['media_types_flag'] = media_types_flag
+
     if not server_url or not server_url.startswith('ws'):
         FileLogger.error(f"[Signaling] [{rtms_type},{meeting_uuid},{stream_id}] Invalid server URL: {server_url}")
         emit('error', {'message': 'Invalid server URL', 'meeting_id': meeting_uuid, 'rtms_id': meeting_uuid, 'stream_id': stream_id})
         conn['should_reconnect'] = False
         return None
 
-    # Guard: Close any existing signaling socket before creating a new one
+    if conn.get('_signaling_connect_locked'):
+        FileLogger.warn(f"[Signaling] [{rtms_type},{meeting_uuid},{stream_id}] Duplicate connect attempt blocked (connect already in progress).")
+        return None
+
     existing_socket = conn.get('signaling', {}).get('socket')
-    if existing_socket and existing_socket.open:
-        FileLogger.warn(f"[Signaling] [{rtms_type},{meeting_uuid},{stream_id}] Closing existing socket before reconnecting")
-        try:
-            await existing_socket.close()
-        except Exception:
-            pass
-        conn['signaling']['socket'] = None
-    
-    # Cancel any pending reconnect task
-    reconnect_task = conn.get('_signaling_reconnect_task')
-    if reconnect_task:
-        reconnect_task.cancel()
-        conn.pop('_signaling_reconnect_task', None)
+    if existing_socket and not existing_socket.closed:
+        FileLogger.warn(f"[Signaling] [{rtms_type},{meeting_uuid},{stream_id}] Duplicate connect attempt blocked (existing signaling socket still active).")
+        return None
+
+    _cancel_task(conn, '_signaling_reconnect_task')
+    _cancel_task(conn, '_duplicate_signal_retry_task')
+    conn['_signaling_connect_locked'] = True
 
     try:
         ws = await websockets.connect(server_url)
     except Exception as e:
+        conn['_signaling_connect_locked'] = False
+        conn['_signaling_connect_ws'] = None
         FileLogger.error(f"[Signaling] [{rtms_type},{meeting_uuid},{stream_id}] Connection failed: {e}")
         emit('error', {'message': str(e), 'meeting_id': meeting_uuid, 'rtms_id': meeting_uuid, 'stream_id': stream_id})
         return None
 
-    conn['meeting_uuid'] = meeting_uuid
-    conn['stream_id'] = stream_id
-    conn['server_url'] = server_url
+    conn['_signaling_connect_ws'] = ws
     conn['signaling'] = {'socket': ws, 'state': 'connecting'}
-    if 'media_types_flag' not in conn:
-        conn['media_types_flag'] = media_types_flag
 
     FileLogger.log(f"[Signaling] [{rtms_type},{meeting_uuid},{stream_id}] Connected, sending handshake")
 
     if not conn.get('should_reconnect', True):
         FileLogger.warn(f"[Signaling] [{rtms_type},{meeting_uuid},{stream_id}] Aborting - RTMS stopped")
-        await ws.close()
+        await _close_socket_quietly(ws)
+        _release_signaling_connect_lock(conn, ws)
         return None
 
     signature = generate_rtms_signature(meeting_uuid, stream_id, client_id, client_secret)
@@ -216,6 +244,10 @@ async def _handle_signaling_messages(
     
     try:
         async for message in ws:
+            if conn.get('signaling', {}).get('socket') is not ws:
+                FileLogger.warn(f"[Signaling] [{rtms_type},{meeting_uuid},{stream_id}] Ignoring message from stale signaling socket.")
+                continue
+
             try:
                 data = message if isinstance(message, str) else message.decode('utf-8')
                 msg = json.loads(data)
@@ -227,6 +259,8 @@ async def _handle_signaling_messages(
             if msg_type == 2:
                 status = msg.get('status_code', msg.get('status'))
                 status_text = STATUS_TEXT.get(status, f'STATUS_{status}')
+                is_duplicate_signal_request = 'duplicate signal request' in str(msg.get('reason', '')).lower()
+                _release_signaling_connect_lock(conn, ws)
                 if status == 0:
                     media_server = msg.get('media_server', {})
                     media_url = get_preferred_media_url(rtms_type, media_server.get('server_urls', {}))
@@ -240,6 +274,8 @@ async def _handle_signaling_messages(
                     conn['media_server'] = media_server
                     conn['has_connected_signaling'] = True
                     conn['signaling_status8_failures'] = 0
+                    conn['_duplicate_signal_retry_count'] = 0
+                    _cancel_task(conn, '_duplicate_signal_retry_task')
 
                     if on_media_url_received:
                         await on_media_url_received(media_url, media_server)
@@ -253,6 +289,35 @@ async def _handle_signaling_messages(
                     else:
                         await send_deferred_event_subscriptions(conn, meeting_uuid, stream_id)
                 else:
+                    if is_duplicate_signal_request and conn.get('should_reconnect', False):
+                        retry_count = conn.get('_duplicate_signal_retry_count', 0)
+                        if retry_count < MAX_DUPLICATE_SIGNAL_RETRIES:
+                            delay = INITIAL_DUPLICATE_SIGNAL_RETRY_DELAY_SECONDS * (2 ** retry_count)
+                            conn['_duplicate_signal_retry_count'] = retry_count + 1
+                            conn['_suppress_next_signaling_close_reconnect'] = ws
+                            _cancel_task(conn, '_duplicate_signal_retry_task')
+
+                            async def _retry_duplicate():
+                                await asyncio.sleep(delay)
+                                conn.pop('_duplicate_signal_retry_task', None)
+                                if conn.get('should_reconnect', False):
+                                    await connect_to_signaling_websocket(
+                                        conn['meeting_uuid'], stream_id, conn['server_url'], conn,
+                                        client_id, client_secret, emit, conn['media_types_flag'],
+                                        on_media_url_received
+                                    )
+
+                            conn['_duplicate_signal_retry_task'] = asyncio.create_task(_retry_duplicate())
+                            FileLogger.warn(
+                                f"[Signaling] [{rtms_type},{meeting_uuid},{stream_id}] Duplicate signal request (status={status}), retrying in {delay:.1f}s"
+                            )
+                            await _close_socket_quietly(ws)
+                            continue
+
+                        FileLogger.error(
+                            f"[Signaling] [{rtms_type},{meeting_uuid},{stream_id}] Duplicate signal retries exhausted (status={status})"
+                        )
+
                     FileLogger.error(
                         f"[Signaling] [{rtms_type},{meeting_uuid},{stream_id}] Handshake failed: status={status} ({status_text})"
                     )
@@ -454,6 +519,13 @@ async def _handle_signaling_messages(
     except websockets.exceptions.ConnectionClosed as e:
         FileLogger.log(f"[Signaling] [{rtms_type},{meeting_uuid},{stream_id}] Closed (code: {e.code})")
         conn['signaling']['state'] = 'closed'
+        _release_signaling_connect_lock(conn, ws)
+        if conn.get('signaling', {}).get('socket') is ws:
+            conn['signaling']['socket'] = None
+
+        if conn.get('_suppress_next_signaling_close_reconnect') is ws:
+            conn['_suppress_next_signaling_close_reconnect'] = None
+            return
 
         if conn.get('should_reconnect', False):
             FileLogger.log(f"[Signaling] [{rtms_type},{meeting_uuid},{stream_id}] Reconnecting in 3s...")
@@ -472,3 +544,4 @@ async def _handle_signaling_messages(
         FileLogger.error(f"[Signaling] [{rtms_type},{meeting_uuid},{stream_id}] Error: {e}")
         emit('error', {'message': str(e), 'meeting_id': meeting_uuid, 'rtms_id': meeting_uuid, 'stream_id': stream_id})
         conn['signaling']['state'] = 'error'
+        _release_signaling_connect_lock(conn, ws)

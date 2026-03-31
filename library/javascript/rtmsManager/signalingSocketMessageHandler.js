@@ -12,6 +12,9 @@ import { RTMSError } from './utils/RTMSError.js';
 import { getPreferredMediaUrl } from './utils/rtmsEntityHelper.js';
 import { getProtocolDefinitions } from './utils/rtmsProtocolDefinitions.js';
 
+const MAX_DUPLICATE_SIGNAL_RETRIES = 3;
+const INITIAL_DUPLICATE_SIGNAL_RETRY_DELAY_MS = 1500;
+
 function getVideoParticipants(event = {}) {
   if (Array.isArray(event.participants) && event.participants.length > 0) {
     return event.participants.map((participant) => ({
@@ -136,14 +139,25 @@ export function handleSignalingMessage(data, meetingUuid, streamId, signalingWs,
 
   switch (msg.msg_type) {
     case 2: // SIGNALING_HAND_SHAKE_RESP
+      {
+      const isDuplicateSignalRequest = String(msg.reason || '').toLowerCase().includes('duplicate signal request');
       FileLogger.log(
         `[Signaling] [${conn.rtmsType},${meetingUuid},${streamId}] Handshake response for ${conn.rtmsType} ${meetingUuid}: status=${msg.status_code} (${getRtmsStatusCode(msg.status_code)})`
       );
       conn._signalingHandshakeInFlight = false;
+      if (conn._signalingConnectSocket === signalingWs) {
+        conn._signalingConnectLocked = false;
+        conn._signalingConnectSocket = null;
+      }
       
       if (msg.status_code === 0) {
         conn.hasConnectedSignaling = true;
         conn.signalingStatus8Failures = 0;
+        conn._duplicateSignalRetryCount = 0;
+        if (conn._duplicateSignalRetryTimer) {
+          clearTimeout(conn._duplicateSignalRetryTimer);
+          conn._duplicateSignalRetryTimer = null;
+        }
         const mediaUrl = getPreferredMediaUrl(conn.rtmsType, msg.media_server?.server_urls);
         let countryCode = 'unknown';
         if (mediaUrl) {
@@ -222,6 +236,34 @@ export function handleSignalingMessage(data, meetingUuid, streamId, signalingWs,
         }
 
       } else {
+        if (isDuplicateSignalRequest && conn.shouldReconnect) {
+          if (conn._duplicateSignalRetryCount < MAX_DUPLICATE_SIGNAL_RETRIES) {
+            const delay = INITIAL_DUPLICATE_SIGNAL_RETRY_DELAY_MS * (2 ** conn._duplicateSignalRetryCount);
+            conn._duplicateSignalRetryCount += 1;
+            if (conn._duplicateSignalRetryTimer) {
+              clearTimeout(conn._duplicateSignalRetryTimer);
+            }
+            conn._suppressNextSignalingCloseReconnect = signalingWs;
+            conn._duplicateSignalRetryTimer = setTimeout(() => {
+              conn._duplicateSignalRetryTimer = null;
+              if (conn.shouldReconnect && typeof conn.connect === 'function') {
+                conn.connect();
+              }
+            }, delay);
+            FileLogger.warn(
+              `[Signaling] [${conn.rtmsType},${meetingUuid},${streamId}] Duplicate signal request (status ${msg.status_code}), retrying in ${delay}ms`
+            );
+            if (signalingWs.readyState === WebSocket.OPEN || signalingWs.readyState === WebSocket.CONNECTING) {
+              signalingWs.close();
+            }
+            break;
+          }
+
+          FileLogger.error(
+            `[Signaling] [${conn.rtmsType},${meetingUuid},${streamId}] Duplicate signal retries exhausted (status ${msg.status_code})`
+          );
+        }
+
         if (msg.status_code === 8 && !conn.hasConnectedSignaling) {
           conn.signalingStatus8Failures = (conn.signalingStatus8Failures || 0) + 1;
 
@@ -249,6 +291,7 @@ export function handleSignalingMessage(data, meetingUuid, streamId, signalingWs,
         emit('error', error);
       }
       break;
+      }
 
     case 6: // Events
       if (msg.event) {
@@ -341,7 +384,9 @@ export function handleSignalingMessage(data, meetingUuid, streamId, signalingWs,
       break;
 
     case 8: // Stream State changed
-      FileLogger.log(`[Signaling] [${conn.rtmsType},${meetingUuid},${streamId}] Stream state: ${getRtmsStreamState(msg.state)}, reason: ${getRtmsStopReason(msg.reason)}`);
+      FileLogger.log(
+        `[Signaling] [${conn.rtmsType},${meetingUuid},${streamId}] Stream state: ${getRtmsStreamState(msg.state)}, reason: ${msg.reason == null ? 'n/a' : getRtmsStopReason(msg.reason)}`
+      );
 
       // Any terminated stream should stop reconnecting and clean up immediately.
       if (msg.state === 4) {
@@ -394,7 +439,9 @@ export function handleSignalingMessage(data, meetingUuid, streamId, signalingWs,
       break;
 
     case 9: // Session State Changed
-      FileLogger.log(`[Signaling] [${conn.rtmsType},${meetingUuid},${streamId}] Session state: ${getRtmsSessionState(msg.state)}, stop_reason: ${getRtmsStopReason(msg.stop_reason)}`);
+      FileLogger.log(
+        `[Signaling] [${conn.rtmsType},${meetingUuid},${streamId}] Session state: ${getRtmsSessionState(msg.state)}, stop_reason: ${msg.stop_reason == null ? 'n/a' : getRtmsStopReason(msg.stop_reason)}`
+      );
 
       if (msg.state === 5 && conn) {
         FileLogger.log(`[Signaling] [${conn.rtmsType},${meetingUuid},${streamId}] Session stopped, disabling reconnect`);

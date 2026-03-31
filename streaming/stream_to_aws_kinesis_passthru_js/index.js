@@ -34,6 +34,47 @@ const RECONNECT_DELAY = 3000;
 const MAX_DUPLICATE_SIGNAL_RETRIES = Number(process.env.MAX_DUPLICATE_SIGNAL_RETRIES || 3);
 const INITIAL_DUPLICATE_SIGNAL_RETRY_DELAY_MS = Number(process.env.INITIAL_DUPLICATE_SIGNAL_RETRY_DELAY_MS || 1500);
 
+function getOrCreateConnection(streamId) {
+    if (!activeConnections.has(streamId)) {
+        activeConnections.set(streamId, {
+            shouldReconnect: true,
+            _duplicateSignalRetryCount: 0,
+            _signalingConnectLocked: false,
+            _signalingConnectSocket: null,
+        });
+    }
+
+    return activeConnections.get(streamId);
+}
+
+function clearTimer(timer) {
+    if (timer) {
+        clearTimeout(timer);
+    }
+}
+
+function clearSignalingTimers(conn) {
+    clearTimer(conn._signalingReconnectTimer);
+    clearTimer(conn._duplicateSignalRetryTimer);
+    conn._signalingReconnectTimer = null;
+    conn._duplicateSignalRetryTimer = null;
+}
+
+function releaseSignalingConnectLock(conn, socket) {
+    if (conn._signalingConnectSocket === socket) {
+        conn._signalingConnectLocked = false;
+        conn._signalingConnectSocket = null;
+    }
+}
+
+function closeSocketQuietly(socket) {
+    if (!socket) return;
+
+    if (socket.readyState === WebSocket.OPEN || socket.readyState === WebSocket.CONNECTING) {
+        socket.close();
+    }
+}
+
 // Handle POST requests to the webhook endpoint
 app.post(WEBHOOK_PATH, (req, res) => {
     // Respond with HTTP 200 status
@@ -82,41 +123,38 @@ function generateSignature(CLIENT_ID, meetingUuid, streamId, CLIENT_SECRET) {
 function connectToSignalingWebSocket(meetingUuid, streamId, serverUrl) {
     console.log(`Connecting to signaling WebSocket for stream ${streamId}`);
 
-    const existingConn = activeConnections.get(streamId);
-    if (existingConn) {
-        existingConn.meetingUuid = meetingUuid;
-        existingConn.streamId = streamId;
-        existingConn.serverUrl = serverUrl;
+    const conn = getOrCreateConnection(streamId);
+    conn.meetingUuid = meetingUuid;
+    conn.streamId = streamId;
+    conn.serverUrl = serverUrl;
+
+    if (conn._signalingConnectLocked) {
+        console.warn(`[Signaling] Connect already in progress for stream ${streamId}. Skipping duplicate connect.`);
+        return;
     }
-    if (existingConn && existingConn.signaling) {
-        const existingState = existingConn.signaling.readyState;
+
+    if (conn.signaling) {
+        const existingState = conn.signaling.readyState;
         if (existingState !== WebSocket.CLOSED) {
             console.warn(`[Signaling] Already connected/connecting for stream ${streamId}. Skipping duplicate connect.`);
             return;
         }
     }
-    if (existingConn && existingConn._signalingHandshakeInFlight) {
-        console.warn(`[Signaling] Handshake already in flight for stream ${streamId}. Skipping duplicate connect.`);
-        return;
-    }
-    if (existingConn && existingConn._signalingReconnectTimer) {
-        clearTimeout(existingConn._signalingReconnectTimer);
-        existingConn._signalingReconnectTimer = null;
-    }
+
+    clearSignalingTimers(conn);
+    conn._signalingConnectLocked = true;
 
     const ws = new WebSocket(serverUrl);
-
-    if (!activeConnections.has(streamId)) {
-        activeConnections.set(streamId, { shouldReconnect: true });
-    }
-    const conn = activeConnections.get(streamId);
+    conn._signalingConnectSocket = ws;
     conn.signaling = ws;
-    conn.meetingUuid = meetingUuid;
-    conn.streamId = streamId;
-    conn.serverUrl = serverUrl;
-    if (typeof conn._duplicateSignalRetryCount !== 'number') conn._duplicateSignalRetryCount = 0;
 
     ws.on('open', () => {
+        if (conn.signaling !== ws) {
+            console.warn(`[Signaling] Opened stale socket for stream ${streamId}; closing it.`);
+            closeSocketQuietly(ws);
+            return;
+        }
+
         console.log(`Signaling WebSocket connection opened for stream ${streamId}`);
         const signature = generateSignature(
             CLIENT_ID,
@@ -140,12 +178,19 @@ function connectToSignalingWebSocket(meetingUuid, streamId, serverUrl) {
     });
 
     ws.on('message', (data) => {
+        if (conn.signaling !== ws) {
+            console.warn(`[Signaling] Ignoring message from stale socket for stream ${streamId}.`);
+            return;
+        }
+
         const msg = JSON.parse(data);
         console.log('Signaling Message:', JSON.stringify(msg, null, 2));
+        const isDuplicateSignalRequest = String(msg.reason || '').toLowerCase().includes('duplicate signal request');
 
         // Handle successful handshake response
         if (msg.msg_type === 2 && msg.status_code === 0) { // SIGNALING_HAND_SHAKE_RESP
             conn._signalingHandshakeInFlight = false;
+            releaseSignalingConnectLock(conn, ws);
             conn._duplicateSignalRetryCount = 0;
             if (conn._duplicateSignalRetryTimer) {
                 clearTimeout(conn._duplicateSignalRetryTimer);
@@ -157,23 +202,26 @@ function connectToSignalingWebSocket(meetingUuid, streamId, serverUrl) {
             }
         } else if (msg.msg_type === 2) {
             conn._signalingHandshakeInFlight = false;
-            if (
-                msg.status_code === 17 &&
-                String(msg.reason || '').toLowerCase().includes('duplicate signal request') &&
-                conn.shouldReconnect
-            ) {
+            releaseSignalingConnectLock(conn, ws);
+            if (isDuplicateSignalRequest && conn.shouldReconnect) {
                 if (conn._duplicateSignalRetryCount < MAX_DUPLICATE_SIGNAL_RETRIES) {
                     const delay = INITIAL_DUPLICATE_SIGNAL_RETRY_DELAY_MS * (2 ** conn._duplicateSignalRetryCount);
                     conn._duplicateSignalRetryCount += 1;
                     if (conn._duplicateSignalRetryTimer) clearTimeout(conn._duplicateSignalRetryTimer);
+                    conn._suppressNextSignalingCloseReconnect = ws;
                     conn._duplicateSignalRetryTimer = setTimeout(() => {
                         conn._duplicateSignalRetryTimer = null;
                         connectToSignalingWebSocket(conn.meetingUuid, streamId, conn.serverUrl);
                     }, delay);
-                    console.warn(`[Signaling] Duplicate signal request for stream ${streamId}, retrying in ${delay}ms`);
+                    closeSocketQuietly(ws);
+                    console.warn(`[Signaling] Duplicate signal request for stream ${streamId} (status ${msg.status_code}), retrying in ${delay}ms`);
                 } else {
-                    console.error(`[Signaling] Duplicate signal retries exhausted for stream ${streamId}`);
+                    console.error(`[Signaling] Duplicate signal retries exhausted for stream ${streamId} (status ${msg.status_code})`);
                 }
+            } else {
+                conn._suppressNextSignalingCloseReconnect = ws;
+                console.error(`[Signaling] Handshake failed for stream ${streamId}:`, msg);
+                closeSocketQuietly(ws);
             }
         }
 
@@ -189,23 +237,37 @@ function connectToSignalingWebSocket(meetingUuid, streamId, serverUrl) {
     });
 
     ws.on('error', (err) => {
-        const conn = activeConnections.get(streamId);
-        if (conn) conn._signalingHandshakeInFlight = false;
+        const activeConn = activeConnections.get(streamId);
+        if (activeConn) {
+            activeConn._signalingHandshakeInFlight = false;
+            releaseSignalingConnectLock(activeConn, ws);
+        }
         console.error('Signaling socket error:', err);
     });
 
     ws.on('close', () => {
         console.log('Signaling socket closed');
-        const conn = activeConnections.get(streamId);
-        if (conn) {
-            conn._signalingHandshakeInFlight = false;
-            delete conn.signaling;
-            if (conn.shouldReconnect) {
+        const activeConn = activeConnections.get(streamId);
+        if (activeConn) {
+            activeConn._signalingHandshakeInFlight = false;
+            releaseSignalingConnectLock(activeConn, ws);
+
+            if (activeConn.signaling === ws) {
+                delete activeConn.signaling;
+            }
+
+            const suppressReconnect = activeConn._suppressNextSignalingCloseReconnect === ws;
+            if (suppressReconnect) {
+                activeConn._suppressNextSignalingCloseReconnect = null;
+                return;
+            }
+
+            if (activeConn.shouldReconnect) {
                 console.log(`🔄 Signaling reconnecting in ${RECONNECT_DELAY}ms...`);
-                conn._signalingReconnectTimer = setTimeout(() => {
-                    conn._signalingReconnectTimer = null;
-                    if (conn.shouldReconnect) {
-                        connectToSignalingWebSocket(conn.meetingUuid, streamId, conn.serverUrl);
+                activeConn._signalingReconnectTimer = setTimeout(() => {
+                    activeConn._signalingReconnectTimer = null;
+                    if (activeConn.shouldReconnect) {
+                        connectToSignalingWebSocket(activeConn.meetingUuid, streamId, activeConn.serverUrl);
                     }
                 }, RECONNECT_DELAY);
             }
@@ -345,6 +407,9 @@ function stopStreaming(streamId) {
     if (!conn) return;
 
     conn.shouldReconnect = false;
+    conn._suppressNextSignalingCloseReconnect = conn.signaling || null;
+    clearSignalingTimers(conn);
+    releaseSignalingConnectLock(conn, conn._signalingConnectSocket);
 
     if (conn.media) {
         conn.media.close();

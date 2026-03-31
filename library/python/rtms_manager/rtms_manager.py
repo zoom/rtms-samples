@@ -47,6 +47,12 @@ class StreamConnection:
     signaling_status8_failures: int = 0
     video_on_participants: Dict[str, Dict[str, Any]] = field(default_factory=dict)
     current_video_subscription_user_id: Optional[Any] = None
+    _signaling_connect_locked: bool = False
+    _signaling_connect_ws: Optional[Any] = None
+    _suppress_next_signaling_close_reconnect: Optional[Any] = None
+    _signaling_reconnect_task: Optional[asyncio.Task] = None
+    _duplicate_signal_retry_task: Optional[asyncio.Task] = None
+    _duplicate_signal_retry_count: int = 0
 
     def to_dict(self) -> Dict[str, Any]:
         return {
@@ -374,6 +380,16 @@ class RTMSManager:
         FileLogger.info(f'[RTMSManager] Stopping {conn.rtms_type} {conn.rtms_id} stream {stream_id}')
         
         conn.should_reconnect = False
+
+        if getattr(conn, '_signaling_reconnect_task', None):
+            conn._signaling_reconnect_task.cancel()
+            conn._signaling_reconnect_task = None
+        if getattr(conn, '_duplicate_signal_retry_task', None):
+            conn._duplicate_signal_retry_task.cancel()
+            conn._duplicate_signal_retry_task = None
+        conn._signaling_connect_locked = False
+        conn._signaling_connect_ws = None
+        conn._suppress_next_signaling_close_reconnect = conn.signaling.get('socket')
 
         if conn.signaling.get('socket'):
             try:

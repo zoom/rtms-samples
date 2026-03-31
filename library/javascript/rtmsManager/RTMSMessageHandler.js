@@ -54,6 +54,11 @@ export class RTMSMessageHandler {
     this.signaling = { socket: null, state: 'connecting', lastKeepAlive: null };
     this._signalingReconnectTimer = null;
     this._signalingHandshakeInFlight = false;
+    this._signalingConnectLocked = false;
+    this._signalingConnectSocket = null;
+    this._suppressNextSignalingCloseReconnect = null;
+    this._duplicateSignalRetryCount = 0;
+    this._duplicateSignalRetryTimer = null;
     
     // Split mode only - each media type gets its own socket
     this.media = {};
@@ -162,6 +167,13 @@ export class RTMSMessageHandler {
       clearTimeout(this._signalingReconnectTimer);
       this._signalingReconnectTimer = null;
     }
+    if (this._duplicateSignalRetryTimer) {
+      clearTimeout(this._duplicateSignalRetryTimer);
+      this._duplicateSignalRetryTimer = null;
+    }
+    this._signalingConnectLocked = false;
+    this._signalingConnectSocket = null;
+    this._suppressNextSignalingCloseReconnect = null;
 
     if (this.audioFiller) {
       this.audioFiller.stop(this._lastPacketTimestamp);

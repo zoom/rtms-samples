@@ -5,6 +5,21 @@ import { handleSignalingMessage } from './signalingSocketMessageHandler.js';
 import { FileLogger } from './utils/FileLogger.js';
 import { RTMSError } from './utils/RTMSError.js';
 
+function releaseSignalingConnectLock(conn, socket) {
+  if (conn._signalingConnectSocket === socket) {
+    conn._signalingConnectLocked = false;
+    conn._signalingConnectSocket = null;
+  }
+}
+
+function closeSocketQuietly(socket) {
+  if (!socket) return;
+
+  if (socket.readyState === WebSocket.OPEN || socket.readyState === WebSocket.CONNECTING) {
+    socket.close();
+  }
+}
+
 /**
  * Connect to the RTMS signaling WebSocket
  * Uses split mode only - each media type gets its own connection
@@ -26,6 +41,11 @@ export function connectToSignalingWebSocket(
   conn.serverUrls = serverUrls;
   if (!conn.mediaTypesFlag) conn.mediaTypesFlag = mediaTypesFlag;
 
+  if (conn._signalingConnectLocked) {
+    FileLogger.warn(`[Signaling] [${conn.rtmsType},${meetingUuid},${streamId}] Duplicate connect attempt blocked (connect already in progress).`);
+    return;
+  }
+
   // Guard: prevent duplicate signaling connections
   if (conn.signaling && conn.signaling.socket) {
     const existingState = conn.signaling.socket.readyState;
@@ -35,15 +55,14 @@ export function connectToSignalingWebSocket(
     }
   }
 
-  if (conn._signalingHandshakeInFlight) {
-    FileLogger.warn(`[Signaling] [${conn.rtmsType},${meetingUuid},${streamId}] Duplicate connect attempt blocked (handshake already in flight).`);
-    return;
-  }
-
   // Clear any pending reconnect timer to prevent overlapping reconnects
   if (conn._signalingReconnectTimer) {
     clearTimeout(conn._signalingReconnectTimer);
     conn._signalingReconnectTimer = null;
+  }
+  if (conn._duplicateSignalRetryTimer) {
+    clearTimeout(conn._duplicateSignalRetryTimer);
+    conn._duplicateSignalRetryTimer = null;
   }
 
   if (!serverUrls || typeof serverUrls !== 'string' || !serverUrls.startsWith('ws')) {
@@ -59,8 +78,12 @@ export function connectToSignalingWebSocket(
 
   let signalingWs;
   try {
+    conn._signalingConnectLocked = true;
     signalingWs = new WebSocket(serverUrls);
+    conn._signalingConnectSocket = signalingWs;
   } catch (err) {
+    conn._signalingConnectLocked = false;
+    conn._signalingConnectSocket = null;
     const error = new RTMSError('CONNECTION_FAILED', `Failed to create WebSocket: ${err.message}`, {
       meetingId: meetingUuid,
       streamId,
@@ -77,6 +100,12 @@ export function connectToSignalingWebSocket(
 
   signalingWs.on('open', () => {
     try {
+      if (conn.signaling.socket !== signalingWs) {
+        FileLogger.warn(`[Signaling] [${conn.rtmsType},${meetingUuid},${streamId}] Opened stale signaling socket; closing it.`);
+        closeSocketQuietly(signalingWs);
+        return;
+      }
+
       FileLogger.log(`[Signaling] [${conn.rtmsType},${meetingUuid},${streamId}] Connected, sending handshake`);
       
       if (!conn.shouldReconnect) {
@@ -114,6 +143,10 @@ export function connectToSignalingWebSocket(
   });
 
   signalingWs.on('message', (data) => {
+    if (conn.signaling.socket !== signalingWs) {
+      FileLogger.warn(`[Signaling] [${conn.rtmsType},${meetingUuid},${streamId}] Ignoring message from stale signaling socket.`);
+      return;
+    }
     handleSignalingMessage(data, meetingUuid, streamId, signalingWs, conn, emit, mediaTypesFlag, clientId, clientSecret);
   });
 
@@ -121,6 +154,16 @@ export function connectToSignalingWebSocket(
     FileLogger.log(`[Signaling] [${conn.rtmsType},${meetingUuid},${streamId}] Closed (code: ${code})`);
     conn._signalingHandshakeInFlight = false;
     conn.signaling.state = 'closed';
+    releaseSignalingConnectLock(conn, signalingWs);
+
+    if (conn.signaling.socket === signalingWs) {
+      conn.signaling.socket = null;
+    }
+
+    if (conn._suppressNextSignalingCloseReconnect === signalingWs) {
+      conn._suppressNextSignalingCloseReconnect = null;
+      return;
+    }
 
     if (conn.shouldReconnect) {
       FileLogger.log(`[Signaling] [${conn.rtmsType},${meetingUuid},${streamId}] Reconnecting in 3s...`);
@@ -152,5 +195,6 @@ export function connectToSignalingWebSocket(
     emit('error', error);
     conn._signalingHandshakeInFlight = false;
     conn.signaling.state = 'error';
+    releaseSignalingConnectLock(conn, signalingWs);
   });
 }
