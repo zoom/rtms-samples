@@ -10,6 +10,9 @@ import {
 } from './utils/rtmsEventLookup.js';
 
 const signalingLocksByStreamId = new Set();
+const duplicateSignalRetryCountByStreamId = new Map();
+const MAX_DUPLICATE_SIGNAL_RETRIES = Number(process.env.MAX_DUPLICATE_SIGNAL_RETRIES || 3);
+const INITIAL_DUPLICATE_SIGNAL_RETRY_DELAY_MS = Number(process.env.INITIAL_DUPLICATE_SIGNAL_RETRY_DELAY_MS || 1500);
 
 
 export function connectToSignalingWebSocket(
@@ -55,6 +58,11 @@ export function connectToSignalingWebSocket(
      return;
    }
 
+   if (currentConn?._signalingConnectLocked) {
+     console.warn(`[Signaling] ⚠️ Connect already in progress for stream ${streamId}.`);
+     return;
+   }
+
    for (const existingConn of activeConnections.values()) {
      if (existingConn.streamId !== streamId) continue;
      if (
@@ -67,6 +75,17 @@ export function connectToSignalingWebSocket(
    }
 
    signalingLocksByStreamId.add(streamId);
+   if (currentConn) {
+     currentConn._signalingConnectLocked = true;
+     if (currentConn._signalingReconnectTimer) {
+       clearTimeout(currentConn._signalingReconnectTimer);
+       currentConn._signalingReconnectTimer = null;
+     }
+     if (currentConn._duplicateSignalRetryTimer) {
+       clearTimeout(currentConn._duplicateSignalRetryTimer);
+       currentConn._duplicateSignalRetryTimer = null;
+     }
+   }
 
    let signalingWs;
    try {
@@ -92,8 +111,15 @@ export function connectToSignalingWebSocket(
   const conn = activeConnections.get(meetingUuid);
   conn.signaling.socket = signalingWs;
   conn.signaling.state = 'connecting';
+  conn._signalingConnectLocked = true;
 
   signalingWs.on('open', () => {
+    if (conn.signaling.socket !== signalingWs) {
+      console.warn(`[Signaling] Closing stale signaling socket for ${meetingUuid}`);
+      signalingWs.close();
+      return;
+    }
+
     if (!conn.shouldReconnect) {
       console.warn(`[Signaling] Aborting open: RTMS stopped for ${meetingUuid}`);
       signalingWs.close();
@@ -123,6 +149,11 @@ export function connectToSignalingWebSocket(
     conn.signaling.state = 'authenticated';
   });
   signalingWs.on('message', (data) => {
+    if (conn.signaling.socket !== signalingWs) {
+      console.warn(`[Signaling] Ignoring stale signaling message for ${meetingUuid}`);
+      return;
+    }
+
     let msg;
     try {
       msg = JSON.parse(data.toString());
@@ -151,8 +182,10 @@ export function connectToSignalingWebSocket(
 
       case 2: // SIGNALING_HAND_SHAKE_RESP
         signalingLocksByStreamId.delete(streamId);
+        conn._signalingConnectLocked = false;
         console.log("case 2");
         if (msg.status_code === 0) {
+          duplicateSignalRetryCountByStreamId.set(streamId, 0);
           const mediaUrl = msg.media_server?.server_urls?.all;
           console.log(`[Signaling] Handshake OK. Media URL: ${mediaUrl}`);
           conn.signaling.state = 'ready';
@@ -185,6 +218,33 @@ export function connectToSignalingWebSocket(
           console.log(`[Signaling] Sent event subscription payload`);
 
         } else {
+          const isDuplicateSignalRequest = String(msg.reason || '').toLowerCase().includes('duplicate signal request');
+          if (isDuplicateSignalRequest && conn.shouldReconnect) {
+            const retryCount = duplicateSignalRetryCountByStreamId.get(streamId) || 0;
+            if (retryCount < MAX_DUPLICATE_SIGNAL_RETRIES) {
+              const delay = INITIAL_DUPLICATE_SIGNAL_RETRY_DELAY_MS * (2 ** retryCount);
+              duplicateSignalRetryCountByStreamId.set(streamId, retryCount + 1);
+              conn._suppressNextSignalingCloseReconnect = signalingWs;
+              conn._duplicateSignalRetryTimer = setTimeout(() => {
+                conn._duplicateSignalRetryTimer = null;
+                connectToSignalingWebSocket(
+                  meetingUuid,
+                  streamId,
+                  conn.serverUrls,
+                  activeConnections,
+                  clientId,
+                  clientSecret,
+                  broadcastToFrontendClients,
+                  sharedServices
+                );
+              }, delay);
+              console.warn(`[Signaling] Duplicate signal request for stream ${streamId} (status ${msg.status_code}), retrying in ${delay}ms`);
+              signalingWs.close();
+              break;
+            }
+
+            console.error(`[Signaling] Duplicate signal retries exhausted for stream ${streamId}`);
+          }
           console.warn(`[Signaling] Handshake failed: status_code = ${msg.status_code}`);
           logRtmsStatusCode(msg.status_code);
           logRtmsStopReason(msg.reason);
@@ -302,39 +362,46 @@ export function connectToSignalingWebSocket(
 
 
    signalingWs.on('close', () => {
+     if (conn.signaling.socket === signalingWs) {
+       conn.signaling.socket = null;
+     }
      signalingLocksByStreamId.delete(streamId);
+     conn._signalingConnectLocked = false;
      console.log(`[Signaling] Closed for ${meetingUuid}`);
 
-     const conn = activeConnections.get(meetingUuid);
-     if (conn) {
-       conn.signaling.state = 'closed';
+     if (conn._suppressNextSignalingCloseReconnect === signalingWs) {
+       conn._suppressNextSignalingCloseReconnect = null;
+       return;
+     }
 
-       if (conn.shouldReconnect) {
-         console.log(`[Signaling] Will reconnect for ${meetingUuid} in 3s...`);
-         conn._signalingReconnectTimer = setTimeout(() => {
-           conn._signalingReconnectTimer = null;
-           if (conn.shouldReconnect) {
-             connectToSignalingWebSocket(
-               meetingUuid,
-               streamId,
-               conn.serverUrls,
-               activeConnections,
-               clientId,
-               clientSecret,
-               broadcastToFrontendClients,
-               sharedServices
-             );
-           }
-         }, 3000);
-      } else {
-        console.log(`[Signaling] Not reconnecting — RTMS was stopped.`);
-      }
-    }
-  });
+     conn.signaling.state = 'closed';
+
+     if (conn.shouldReconnect) {
+       console.log(`[Signaling] Will reconnect for ${meetingUuid} in 3s...`);
+       conn._signalingReconnectTimer = setTimeout(() => {
+         conn._signalingReconnectTimer = null;
+         if (conn.shouldReconnect) {
+           connectToSignalingWebSocket(
+             meetingUuid,
+             streamId,
+             conn.serverUrls,
+             activeConnections,
+             clientId,
+             clientSecret,
+             broadcastToFrontendClients,
+             sharedServices
+           );
+         }
+       }, 3000);
+     } else {
+       console.log(`[Signaling] Not reconnecting — RTMS was stopped.`);
+     }
+   });
 
 
   signalingWs.on('error', (err) => {
     signalingLocksByStreamId.delete(streamId);
+    conn._signalingConnectLocked = false;
     console.error(`[Signaling] Error: ${err.message}`);
     conn.signaling.state = 'error';
   });

@@ -248,7 +248,7 @@ def connect_to_signaling_ws(meeting_uuid, stream_id, server_url):
                     f"[Signaling] handshake_failed stream_id={stream_id} status_code={msg.get('status_code')} "
                     f"reason={msg.get('reason')} raw={msg}"
                 )
-                if status_code == 17 and "duplicate signal request" in reason.lower():
+                if "duplicate signal request" in reason.lower():
                     schedule_duplicate_signal_retry(meeting_uuid, stream_id, server_url)
             elif msg.get("msg_type") == 12:
                 ws.send(json.dumps({

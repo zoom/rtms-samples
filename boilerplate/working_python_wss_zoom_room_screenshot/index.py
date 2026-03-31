@@ -36,6 +36,11 @@ active_connections = {}
 stream_locks_guard = threading.Lock()
 stream_locks = {}
 signaling_handshakes_in_flight = set()
+duplicate_signal_retry_counts = {}
+duplicate_signal_retry_timers = {}
+
+MAX_DUPLICATE_SIGNAL_RETRIES = int(os.getenv("MAX_DUPLICATE_SIGNAL_RETRIES", "3"))
+INITIAL_DUPLICATE_SIGNAL_RETRY_DELAY_SEC = float(os.getenv("INITIAL_DUPLICATE_SIGNAL_RETRY_DELAY_SEC", "1.5"))
 
 def get_stream_lock(stream_id):
     with stream_locks_guard:
@@ -53,6 +58,38 @@ def generate_signature(client_id, meeting_uuid, stream_id, client_secret):
     message = f"{client_id},{meeting_uuid},{stream_id}"
     signature = hmac.new(client_secret.encode(), message.encode(), hashlib.sha256).hexdigest()
     return signature
+
+def clear_duplicate_retry_state(stream_id):
+    timer = duplicate_signal_retry_timers.pop(stream_id, None)
+    if timer:
+        timer.cancel()
+    duplicate_signal_retry_counts.pop(stream_id, None)
+
+def schedule_duplicate_signal_retry(meeting_uuid, stream_id, server_url):
+    stream_lock = get_stream_lock(stream_id)
+    with stream_lock:
+        retry_count = duplicate_signal_retry_counts.get(stream_id, 0)
+        if retry_count >= MAX_DUPLICATE_SIGNAL_RETRIES:
+            logger.error(f"[Signaling] Duplicate signal retries exhausted for stream {stream_id}")
+            return
+
+        duplicate_signal_retry_counts[stream_id] = retry_count + 1
+        delay = INITIAL_DUPLICATE_SIGNAL_RETRY_DELAY_SEC * (2 ** retry_count)
+
+        old_timer = duplicate_signal_retry_timers.get(stream_id)
+        if old_timer:
+            old_timer.cancel()
+
+        def _retry():
+            logger.warning(
+                f"[Signaling] Duplicate signal request for stream {stream_id}, retrying in {delay:.1f}s"
+            )
+            connect_to_signaling_ws(meeting_uuid, stream_id, server_url)
+
+        timer = threading.Timer(delay, _retry)
+        timer.daemon = True
+        duplicate_signal_retry_timers[stream_id] = timer
+        timer.start()
 
 def connect_to_media_ws(media_url, meeting_uuid, stream_id, signaling_socket):
     logger.info(f"Connecting to media WebSocket at {media_url}")
@@ -189,12 +226,15 @@ def connect_to_signaling_ws(meeting_uuid, stream_id, server_url):
             if msg.get("msg_type") == 2 and msg.get("status_code") == 0:
                 with stream_lock:
                     signaling_handshakes_in_flight.discard(stream_id)
+                clear_duplicate_retry_state(stream_id)
                 media_url = msg.get("media_server", {}).get("server_urls", {}).get("all")
                 if media_url:
                     connect_to_media_ws(media_url, meeting_uuid, stream_id, ws)
             elif msg.get("msg_type") == 2:
                 with stream_lock:
                     signaling_handshakes_in_flight.discard(stream_id)
+                if "duplicate signal request" in str(msg.get("reason") or "").lower():
+                    schedule_duplicate_signal_retry(meeting_uuid, stream_id, server_url)
             elif msg.get("msg_type") == 12:
                 ws.send(json.dumps({
                     "msg_type": 13,
@@ -320,6 +360,7 @@ def start_zoom_event_websocket():
                             if stream_id:
                                 with get_stream_lock(stream_id):
                                     signaling_handshakes_in_flight.discard(stream_id)
+                                clear_duplicate_retry_state(stream_id)
                             logger.info(f"🛑 Closing signaling for {meeting_uuid}")
                             for conn in active_connections[meeting_uuid].values():
                                 try:

@@ -15,6 +15,9 @@ load_dotenv()
 app = Flask(__name__)
 stream_lock_guard = threading.Lock()
 signaling_handshakes_in_flight = set()
+active_signaling_sockets = {}
+duplicate_signal_retry_counts = {}
+MAX_DUPLICATE_SIGNAL_RETRIES = int(os.getenv("MAX_DUPLICATE_SIGNAL_RETRIES", "3"))
 
 # Webhook endpoint configuration
 WEBHOOK_PATH = os.getenv("WEBHOOK_PATH", "/webhook")
@@ -142,6 +145,13 @@ async def connect_to_signaling_websocket(meeting_uuid, stream_id, server_urls):
         ssl_context.verify_mode = ssl.CERT_NONE
         
         async with websockets.connect(server_urls, ssl=ssl_context) as signaling_ws:
+            with stream_lock_guard:
+                existing_socket = active_signaling_sockets.get(stream_id)
+                if existing_socket is not None and existing_socket is not signaling_ws:
+                    print(f'Closing stale signaling socket for stream {stream_id}')
+                    await signaling_ws.close()
+                    return
+                active_signaling_sockets[stream_id] = signaling_ws
             print('Signaling WebSocket opened')
             
             # Send handshake
@@ -155,13 +165,41 @@ async def connect_to_signaling_websocket(meeting_uuid, stream_id, server_urls):
             
             # Handle incoming signaling messages
             async for message in signaling_ws:
+                with stream_lock_guard:
+                    if active_signaling_sockets.get(stream_id) is not signaling_ws:
+                        print(f'Ignoring stale signaling message for stream {stream_id}')
+                        continue
                 msg = json.loads(message)
                 print(f'Signaling message: {msg}')
+                is_duplicate_signal_request = 'duplicate signal request' in str(msg.get('reason', '')).lower()
 
                 # If handshake is successful, proceed to media connection
                 if msg.get('msg_type') == 2 and msg.get('status_code') == 0:
+                    with stream_lock_guard:
+                        duplicate_signal_retry_counts[stream_id] = 0
                     media_url = msg['media_server']['server_urls']['transcript']
                     await connect_to_media_websocket(media_url, meeting_uuid, stream_id, signaling_ws)
+
+                if msg.get('msg_type') == 2 and is_duplicate_signal_request:
+                    with stream_lock_guard:
+                        retry_count = duplicate_signal_retry_counts.get(stream_id, 0)
+                    if retry_count < MAX_DUPLICATE_SIGNAL_RETRIES:
+                        delay = 1.5 * (2 ** retry_count)
+                        with stream_lock_guard:
+                            duplicate_signal_retry_counts[stream_id] = retry_count + 1
+                        print(f'Duplicate signal request for stream {stream_id} (status {msg.get("status_code")}), retrying in {delay:.1f}s')
+                        await signaling_ws.close()
+                        await asyncio.sleep(delay)
+                        with stream_lock_guard:
+                            if active_signaling_sockets.get(stream_id) is None:
+                                signaling_handshakes_in_flight.discard(stream_id)
+                        with stream_lock_guard:
+                            if stream_id not in signaling_handshakes_in_flight:
+                                signaling_handshakes_in_flight.add(stream_id)
+                        await connect_to_signaling_websocket(meeting_uuid, stream_id, server_urls)
+                    else:
+                        print(f'Duplicate signal retries exhausted for stream {stream_id}')
+                    return
 
                 # If keep-alive request is received, respond with ACK
                 if msg.get('msg_type') == 12:
@@ -175,6 +213,8 @@ async def connect_to_signaling_websocket(meeting_uuid, stream_id, server_urls):
         print(f'Signaling WebSocket error: {error}')
     finally:
         with stream_lock_guard:
+            if active_signaling_sockets.get(stream_id) is signaling_ws:
+                active_signaling_sockets.pop(stream_id, None)
             signaling_handshakes_in_flight.discard(stream_id)
         print('Signaling WebSocket closed')
 

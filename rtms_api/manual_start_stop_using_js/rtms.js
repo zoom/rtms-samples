@@ -10,6 +10,11 @@ dotenv.config();
 const app = express();
 app.use(express.json()); // Parse incoming JSON payloads
 const signalingLocksByStreamId = new Set();
+const activeSignalingSocketsByStreamId = new Map();
+const signalingRetryTimersByStreamId = new Map();
+const duplicateSignalRetryCountByStreamId = new Map();
+const MAX_DUPLICATE_SIGNAL_RETRIES = Number(process.env.MAX_DUPLICATE_SIGNAL_RETRIES || 3);
+const INITIAL_DUPLICATE_SIGNAL_RETRY_DELAY_MS = Number(process.env.INITIAL_DUPLICATE_SIGNAL_RETRY_DELAY_MS || 1500);
 
 // Webhook endpoint configuration
 const WEBHOOK_PATH = process.env.WEBHOOK_PATH || '/webhook';
@@ -112,12 +117,31 @@ function connectToSignalingWebSocket(meetingUuid, streamId, serverUrls) {
     return;
   }
 
+  const existingSocket = activeSignalingSocketsByStreamId.get(streamId);
+  if (existingSocket && existingSocket.readyState !== WebSocket.CLOSED) {
+    console.warn(`Active signaling socket already exists for stream ${streamId}`);
+    return;
+  }
+
+  const retryTimer = signalingRetryTimersByStreamId.get(streamId);
+  if (retryTimer) {
+    clearTimeout(retryTimer);
+    signalingRetryTimersByStreamId.delete(streamId);
+  }
+
   signalingLocksByStreamId.add(streamId);
   console.log(`Connecting to signaling WebSocket: ${serverUrls}`);
   const signalingWs = new WebSocket(serverUrls);
+  activeSignalingSocketsByStreamId.set(streamId, signalingWs);
 
   // Once signaling WebSocket is open, send handshake
   signalingWs.on('open', () => {
+    if (activeSignalingSocketsByStreamId.get(streamId) !== signalingWs) {
+      console.warn(`Closing stale signaling socket for stream ${streamId}`);
+      signalingWs.close();
+      return;
+    }
+
     console.log('Signaling WebSocket opened');
     signalingWs.send(JSON.stringify({
       msg_type: 1, // HANDSHAKE_REQUEST
@@ -129,17 +153,44 @@ function connectToSignalingWebSocket(meetingUuid, streamId, serverUrls) {
 
   // Handle incoming signaling messages
   signalingWs.on('message', (data) => {
+    if (activeSignalingSocketsByStreamId.get(streamId) !== signalingWs) {
+      console.warn(`Ignoring stale signaling message for stream ${streamId}`);
+      return;
+    }
+
     const msg = JSON.parse(data);
     console.log('Signaling message:', msg);
+    const isDuplicateSignalRequest = String(msg.reason || '').toLowerCase().includes('duplicate signal request');
 
-    if (msg.msg_type === 2 && msg.status_code !== 0) {
+    if (msg.msg_type === 2 && msg.status_code !== 0 && !isDuplicateSignalRequest) {
       signalingLocksByStreamId.delete(streamId);
     }
 
     // If handshake is successful, proceed to media connection
     if (msg.msg_type === 2 && msg.status_code === 0) {
+      signalingLocksByStreamId.delete(streamId);
+      duplicateSignalRetryCountByStreamId.set(streamId, 0);
       const mediaUrl = msg.media_server.server_urls.transcript;
       connectToMediaWebSocket(mediaUrl, meetingUuid, streamId, signalingWs);
+    }
+
+    if (msg.msg_type === 2 && isDuplicateSignalRequest) {
+      const retryCount = duplicateSignalRetryCountByStreamId.get(streamId) || 0;
+      if (retryCount < MAX_DUPLICATE_SIGNAL_RETRIES) {
+        const delay = INITIAL_DUPLICATE_SIGNAL_RETRY_DELAY_MS * (2 ** retryCount);
+        duplicateSignalRetryCountByStreamId.set(streamId, retryCount + 1);
+        const retryTimerId = setTimeout(() => {
+          signalingRetryTimersByStreamId.delete(streamId);
+          connectToSignalingWebSocket(meetingUuid, streamId, serverUrls);
+        }, delay);
+        signalingRetryTimersByStreamId.set(streamId, retryTimerId);
+        console.warn(`Duplicate signal request for stream ${streamId} (status ${msg.status_code}), retrying in ${delay}ms`);
+      } else {
+        console.error(`Duplicate signal retries exhausted for stream ${streamId}`);
+      }
+
+      signalingWs.close();
+      return;
     }
 
     // If keep-alive request is received, respond with ACK
@@ -153,13 +204,18 @@ function connectToSignalingWebSocket(meetingUuid, streamId, serverUrls) {
 
   // Log signaling errors
   signalingWs.on('error', (error) => {
-    signalingLocksByStreamId.delete(streamId);
+    if (activeSignalingSocketsByStreamId.get(streamId) === signalingWs) {
+      signalingLocksByStreamId.delete(streamId);
+    }
     console.error('Signaling WebSocket error:', error);
   });
 
   // Log signaling WebSocket closure
   signalingWs.on('close', () => {
-    signalingLocksByStreamId.delete(streamId);
+    if (activeSignalingSocketsByStreamId.get(streamId) === signalingWs) {
+      activeSignalingSocketsByStreamId.delete(streamId);
+      signalingLocksByStreamId.delete(streamId);
+    }
     console.log('Signaling WebSocket closed');
   });
 }

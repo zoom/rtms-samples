@@ -145,7 +145,7 @@ function connectToSignalingWebSocket(meetingUuid: string, streamId: string, serv
         }
         const mediaUrl = msg.media_server?.server_urls?.all;
         if (mediaUrl) connectToMediaWebSocket(mediaUrl, meetingUuid, streamId, ws);
-      } else if (msg.status_code === 17 && String(msg.reason || '').toLowerCase().includes('duplicate signal request')) {
+      } else if (String(msg.reason || '').toLowerCase().includes('duplicate signal request')) {
         signalingLocksByStreamId.delete(streamId);
         const retryCount = duplicateSignalRetryCounts.get(streamId) ?? 0;
         if (retryCount < MAX_DUPLICATE_SIGNAL_RETRIES) {
