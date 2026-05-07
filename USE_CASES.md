@@ -52,7 +52,7 @@ RTMSManager.on('transcript', async ({ text, userName }) => {
 
 | Sample | Description |
 |--------|-------------|
-| [`send_audio_to_deepgram_transcribe_service_js`](./audio/send_audio_to_deepgram_transcribe_service_js/) | Deepgram real-time transcription |
+| [`send_audio_to_zoom_scribe_transcribe_service_js`](./audio/send_audio_to_zoom_scribe_transcribe_service_js/) | Zoom Scribe speech-to-text |
 | [`send_audio_to_assemblyai_transcribe_service_js`](./audio/send_audio_to_assemblyai_transcribe_service_js/) | AssemblyAI transcription |
 | [`send_audio_to_aws_transcribe_service_js`](./audio/send_audio_to_aws_transcribe_service_js/) | AWS Transcribe integration |
 | [`send_audio_to_azure_speech_to_text_service_js`](./audio/send_audio_to_azure_speech_to_text_service_js/) | Azure Speech-to-Text |

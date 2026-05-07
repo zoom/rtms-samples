@@ -67,7 +67,7 @@ This guide covers distributed architecture patterns for deploying RTMS applicati
 │  │   Audio     │  │   Video     │  │ Transcript  │  │   Chat      │                 │
 │  │  Pipeline   │  │  Pipeline   │  │  Pipeline   │  │  Pipeline   │                 │
 │  │             │  │             │  │             │  │             │                 │
-│  │ - Deepgram  │  │ - S3 Store  │  │ - OpenAI    │  │ - Slack     │                 │
+│  │ - Zoom      │  │ - S3 Store  │  │ - OpenAI    │  │ - Slack     │                 │
 │  │ - Assembly  │  │ - Rekognit. │  │ - Claude    │  │ - Webhook   │                 │
 │  │ - Whisper   │  │ - Kinesis   │  │ - DB Store  │  │ - Archive   │                 │
 │  └─────────────┘  └─────────────┘  └─────────────┘  └─────────────┘                 │
@@ -343,7 +343,7 @@ Worker receives media packet
         │
         ├──► Audio Pipeline (async)
         │     ├── Buffer 100ms chunks
-        │     ├── Send to Deepgram
+        │     ├── Send to Zoom Scribe
         │     └── Store transcript in DB
         │
         ├──► Video Pipeline (async)

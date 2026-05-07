@@ -63,9 +63,8 @@ app.listen(3000);
 │   ├── send_audio_to_aws_transcribe_service_sdk/
 │   ├── send_audio_to_azure_speech_to_text_service_js/
 │   ├── send_audio_to_azure_speech_to_text_service_sdk/
-│   ├── send_audio_to_deepgram_transcribe_service_js/
-│   ├── send_audio_to_deepgram_transcribe_service_sdk/
-│   └── send_audio_to_whisper_local_transcribe_service_js/
+│   ├── send_audio_to_whisper_local_transcribe_service_js/
+│   └── send_audio_to_zoom_scribe_transcribe_service_js/
 ├── boilerplate/                    # Starter templates for various languages
 │   ├── working_cplusplus_wss/
 │   ├── working_dotnetcore/
@@ -127,7 +126,7 @@ app.listen(3000);
 
 | Category | Description | Count |
 |----------|-------------|-------|
-| [`audio/`](./audio/) | Transcription services (AWS, Azure, Deepgram, AssemblyAI, Whisper) | 10 |
+| [`audio/`](./audio/) | Transcription services (AWS, Azure, Zoom Scribe, AssemblyAI, Whisper) | 8 |
 | [`boilerplate/`](./boilerplate/) | Starter templates (JS, Python, Go, Java, C++, .NET, SDK) | 11 |
 | [`streaming/`](./streaming/) | Live streaming (AWS IVS, Kinesis, YouTube, custom) | 6 |
 | [`storage/`](./storage/) | Cloud & local storage (S3, Azure Blob, local) | 6 |

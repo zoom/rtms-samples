@@ -13,7 +13,7 @@ Thank you for your interest in contributing! This document provides guidelines f
 ### Naming Conventions
 
 - **Folders**: Use `snake_case` with language suffix
-  - `send_audio_to_deepgram_transcribe_service_js`
+  - `send_audio_to_zoom_scribe_transcribe_service_js`
   - `save_transcript_sdk`
 - **Files**: Use `camelCase` for JavaScript, `snake_case` for Python
 - **Language suffixes**: `_js`, `_sdk`, `_python`, `_go`, `_java`
