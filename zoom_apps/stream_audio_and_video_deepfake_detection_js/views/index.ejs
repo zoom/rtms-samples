@@ -1,0 +1,159 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>RTMS Deepfake Detection</title>
+  <link rel="stylesheet" href="/styles.css?v=<%= config.assetVersion %>">
+</head>
+<body>
+  <main class="shell app-surface">
+    <section class="hero">
+      <div>
+        <p class="eyebrow">Zoom App RTMS Monitor</p>
+        <h1>Media Verification Console</h1>
+        <p>
+          Select a participant, open the individual media stream, then run video
+          and audio checks from the backend services.
+        </p>
+      </div>
+      <div class="hero-panel" aria-label="Current system status">
+        <span class="panel-kicker">Current Mode</span>
+        <strong id="heroInferenceMode">Video inference <%= config.frameFps %> fps</strong>
+        <span id="heroMediaMode">RTMS <%= config.videoFps %> fps video · <%= config.clipSeconds %>s video clips · <%= config.audioClipSeconds %>s individual audio</span>
+        <span id="heroModelName">Video: <%= config.vendorName %> · Audio: <%= config.audioVendorName %></span>
+      </div>
+    </section>
+
+    <section class="grid">
+      <article class="card controls">
+        <div class="card-heading">
+          <span class="step-pill">01</span>
+          <div>
+            <h2>Meeting Control</h2>
+            <p>Start RTMS, choose the media source, and track participant states.</p>
+          </div>
+        </div>
+        <div class="button-row">
+          <button id="startRtmsButton">Start RTMS</button>
+          <button id="stopRtmsButton" class="secondary">Stop RTMS</button>
+        </div>
+        <dl class="status-list">
+          <div><dt>Zoom SDK</dt><dd id="zoomSdkStatus" class="status-chip">loading</dd></div>
+          <div><dt>RTMS</dt><dd id="rtmsStatus" class="status-chip muted">stopped</dd></div>
+          <div><dt>Stream</dt><dd id="streamId">none</dd></div>
+          <div><dt>Active speaker</dt><dd id="activeSpeaker">none</dd></div>
+        </dl>
+
+        <label for="rtmsParticipantSelect">RTMS video/audio participant</label>
+        <select id="rtmsParticipantSelect">
+          <option value="">Waiting for PARTICIPANT_VIDEO_ON...</option>
+        </select>
+
+        <label for="zoomParticipantSelect">Zoom participant mapping (optional)</label>
+        <select id="zoomParticipantSelect">
+          <option value="">Load Zoom participants first</option>
+        </select>
+
+        <div class="button-row">
+          <button id="loadVideoButton" class="wide-action">Load Individual Video</button>
+        </div>
+
+        <section class="participant-panel" aria-label="Meeting participant verification">
+          <div class="participant-panel-heading">
+            <h3>Meeting Participants</h3>
+            <span id="participantCount">0 loaded</span>
+          </div>
+          <div id="participantStatusList" class="participant-status-list">
+            <div class="participant-empty">Waiting for Zoom participant list...</div>
+          </div>
+        </section>
+      </article>
+
+      <article class="card preview">
+        <div class="card-heading">
+          <span class="step-pill">02</span>
+          <div>
+            <h2>Live Preview</h2>
+            <p>HLS output from the backend ffmpeg pipeline.</p>
+          </div>
+        </div>
+        <div class="video-frame">
+          <video id="videoPlayer" controls autoplay muted playsinline></video>
+        </div>
+        <p id="playbackStatus" class="note playback-note">Waiting for HLS stream...</p>
+      </article>
+
+      <article class="card verdict">
+        <div class="card-heading">
+          <span class="step-pill">03</span>
+          <div>
+            <h2>Detection</h2>
+            <p>Run video and audio verification independently.</p>
+          </div>
+        </div>
+        <section class="verification-section video-verification" aria-label="Video verification">
+          <div class="verification-heading">
+            <h3>Video Verification</h3>
+            <span>H.264 clips</span>
+          </div>
+          <div id="verdictBadge" class="verdict-badge pending">Video no result yet</div>
+          <dl class="status-list">
+            <div><dt>Video model</dt><dd id="modelName"><%= config.vendorName %></dd></div>
+            <div><dt>RTMS fps</dt><dd id="videoFps"><%= config.videoFps %> fps</dd></div>
+            <div><dt>Inference fps</dt><dd id="clipFps"><%= config.frameFps %> fps</dd></div>
+            <div><dt>Video clip</dt><dd id="clipDuration"><%= config.clipSeconds %> s</dd></div>
+            <div><dt>Clip name</dt><dd id="clipName">n/a</dd></div>
+            <div><dt>Processing</dt><dd id="processingTime">n/a</dd></div>
+            <div><dt>Real score</dt><dd id="realScore">n/a</dd></div>
+            <div><dt>Fake score</dt><dd id="fakeScore">n/a</dd></div>
+          </dl>
+          <div class="button-row">
+            <button id="startDetectionButton">Start Video Verification</button>
+            <button id="stopDetectionButton" class="secondary">Stop Video Verification</button>
+          </div>
+        </section>
+
+        <section class="verification-section audio-verification" aria-label="Audio verification">
+          <div class="verification-heading">
+            <h3>Audio Verification</h3>
+            <span>Raw PCM L16 windows</span>
+          </div>
+          <div id="audioVerdictBadge" class="verdict-badge pending">Audio no result yet</div>
+          <dl class="status-list">
+            <div><dt>Audio model</dt><dd id="audioModelName">Audio service</dd></div>
+            <div><dt>Audio clip</dt><dd id="audioClipDuration">n/a</dd></div>
+            <div><dt>Clip name</dt><dd id="audioClipName">n/a</dd></div>
+            <div><dt>Processing</dt><dd id="audioProcessingTime">n/a</dd></div>
+            <div><dt>Real score</dt><dd id="audioRealScore">n/a</dd></div>
+            <div><dt>Fake score</dt><dd id="audioFakeScore">n/a</dd></div>
+          </dl>
+          <div class="button-row">
+            <button id="startAudioDetectionButton">Start Audio Verification</button>
+            <button id="stopAudioDetectionButton" class="secondary">Stop Audio Verification</button>
+          </div>
+        </section>
+      </article>
+
+      <article class="card logs">
+        <div class="card-heading compact">
+          <span class="step-pill">04</span>
+          <div>
+            <h2>Output Logs</h2>
+            <p>Frontend, backend, RTMS, and pipeline status.</p>
+          </div>
+        </div>
+        <pre id="logOutput"></pre>
+      </article>
+    </section>
+  </main>
+
+  <script>
+    window.APP_CONFIG = <%- JSON.stringify(config) %>;
+  </script>
+  <script src="/socket.io/socket.io.js"></script>
+  <script src="/vendor/hls.min.js?v=<%= config.assetVersion %>"></script>
+  <script src="https://appssdk.zoom.us/sdk.js"></script>
+  <script type="module" src="/app.js?v=<%= config.assetVersion %>"></script>
+</body>
+</html>

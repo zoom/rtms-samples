@@ -1,0 +1,19 @@
+{
+  "name": "rtms-stream-audio-video-deepfake-detection",
+  "version": "1.0.0",
+  "type": "module",
+  "private": true,
+  "scripts": {
+    "start": "node index.js",
+    "start:deepfake-service": "cd /var/www/deepfake.asdc.cc && ./.venv/bin/python -m uvicorn app:app --host 127.0.0.1 --port 8012",
+    "check": "node --check index.js && node --check hlsPipeline.js && node --check audioClipBuffer.js && node --check deepfakeClient.js"
+  },
+  "dependencies": {
+    "dotenv": "^16.5.0",
+    "ejs": "^3.1.10",
+    "express": "^4.21.2",
+    "hls.js": "^1.6.15",
+    "rtms-manager": "file:../../library/javascript/rtmsManager",
+    "socket.io": "^4.8.1"
+  }
+}

@@ -1,0 +1,35 @@
+node_modules/
+.env
+.venv/
+
+# Runtime logs
+logs/*
+!logs/.gitkeep
+
+# Generated preview / inference media
+public/hls/*
+!public/hls/.gitkeep
+public/hls/**/*.m3u8
+public/hls/**/*.ts
+public/hls/**/*.mp4
+public/hls/**/*.aac
+public/clips/*
+!public/clips/.gitkeep
+public/clips/**/*.mp4
+public/clips/**/*.json
+public/audio_clips/*
+!public/audio_clips/.gitkeep
+public/audio_clips/**/*.pcm
+public/audio_clips/**/*.wav
+public/audio_clips/**/*.json
+
+data/
+samples/
+sample-data/
+sample_images/
+sample_videos/
+inference/.hf_model_cache/
+blog.md
+*.log
+__pycache__/
+*.pyc
