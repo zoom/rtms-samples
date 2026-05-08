@@ -79,7 +79,7 @@ const DEFAULT_SERVICE_BASE_URL = 'http://127.0.0.1:8012';
 const DEFAULT_VIDEO_CLASSIFY_PATH = '/video/classify';
 const DEFAULT_VIDEO_UPLOAD_PATH = '/video/upload';
 const DEFAULT_VIDEO_HEALTH_PATH = '/video/health';
-const DEFAULT_AUDIO_SERVICE_BASE_URL = 'https://deepfake.asdc.cc';
+const DEFAULT_AUDIO_SERVICE_BASE_URL = 'https://your-deepfake-service.example.com';
 const DEFAULT_AUDIO_CLASSIFY_PATH = '/audio/classify';
 const DEFAULT_AUDIO_UPLOAD_PATH = '/audio/upload';
 const DEFAULT_AUDIO_HEALTH_PATH = '/audio/health';
@@ -229,7 +229,7 @@ export class DeepfakeClient {
     this.pythonBin = options.pythonBin || 'python3';
     this.threshold = Number(options.threshold || 0.75);
     this.vendorName = options.vendorName || this.modelName;
-    this.scriptPath = '/var/www/deepfake.asdc.cc/classify_clip.py';
+    this.scriptPath = '/var/www/your-deepfake-service/classify_clip.py';
   }
 
   async checkHealth() {

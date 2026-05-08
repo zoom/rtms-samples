@@ -5,7 +5,7 @@
   "private": true,
   "scripts": {
     "start": "node index.js",
-    "start:deepfake-service": "cd /var/www/deepfake.asdc.cc && ./.venv/bin/python -m uvicorn app:app --host 127.0.0.1 --port 8012",
+    "start:deepfake-service": "cd /var/www/your-deepfake-service && ./.venv/bin/python -m uvicorn app:app --host 127.0.0.1 --port 8012",
     "check": "node --check index.js && node --check hlsPipeline.js && node --check audioClipBuffer.js && node --check deepfakeClient.js"
   },
   "dependencies": {

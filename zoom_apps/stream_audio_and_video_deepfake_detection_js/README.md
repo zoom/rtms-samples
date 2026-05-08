@@ -18,13 +18,13 @@ Node.js Express backend
   |  PCM window buffer: selected-participant audio inference clips
   v
 Video deepfake inference
-  |  raw video classify URL: https://deepfake.asdc.cc/video/classify
-  |  multipart upload URL: https://deepfake.asdc.cc/video/upload
+  |  raw video classify URL: https://your-deepfake-service.example.com/video/classify
+  |  multipart upload URL: https://your-deepfake-service.example.com/video/upload
   |  same config also accepts: http://127.0.0.1:8012
-  |  on this machine, service code lives in /var/www/deepfake.asdc.cc
+  |  example service folder: /var/www/your-deepfake-service
 
 Audio verification inference
-  |  raw PCM classify URL: https://deepfake.asdc.cc/audio/classify
+  |  raw PCM classify URL: https://your-deepfake-service.example.com/audio/classify
   |  configured separately from the video service
 ```
 
@@ -212,24 +212,23 @@ PUBLIC_BASE_URL=https://your-domain.example.com
 ZOOM_CLIENT_ID=
 ZOOM_CLIENT_SECRET=
 ZOOM_SECRET_TOKEN=
-DEEPFAKE_SERVICE_URL=https://deepfake.asdc.cc/video/classify
-DEEPFAKE_UPLOAD_URL=https://deepfake.asdc.cc/video/upload
+DEEPFAKE_SERVICE_URL=https://your-deepfake-service.example.com/video/classify
+DEEPFAKE_UPLOAD_URL=https://your-deepfake-service.example.com/video/upload
 DEEPFAKE_API_KEY=your_huggingface_api_key_with_gated_repo_read_scope
 AUDIO_STREAM_MODE=multi
 AUDIO_DEEPFAKE_MODE=service
-AUDIO_DEEPFAKE_SERVICE_URL=https://deepfake.asdc.cc/audio/classify
+AUDIO_DEEPFAKE_SERVICE_URL=https://your-deepfake-service.example.com/audio/classify
 AUDIO_DEEPFAKE_API_KEY=
 AUDIO_DEEPFAKE_HEALTHCHECK_ENABLED=false
 ```
 
-The default deployment now uses the standalone inference service:
+In `service` mode, point the sample at a standalone inference service. Example service folder:
 
 ```text
-/var/www/deepfake.asdc.cc
+/var/www/your-deepfake-service
 ```
 
-The sample points to that service in `service` mode. If you need to work on the
-service itself, use the standalone service README in that folder.
+If you need to work on the service itself, keep its README beside that service folder.
 
 ### Set Up The Separate Python Inference Web Service
 
@@ -238,23 +237,23 @@ Use this when you want the Hugging Face deepfake model to run as its own HTTP se
 1. Prepare the service folder:
 
 ```bash
-cd /var/www/deepfake.asdc.cc
+cd /var/www/your-deepfake-service
 cp .env.example .env
 ```
 
-2. Create the virtualenv only if it does not already exist. If this machine already has the moved runtime, skip the first command and just activate it:
+2. Create the virtualenv only if it does not already exist. If your service host already has a runtime, skip the first command and just activate it:
 
 ```bash
-cd /var/www/deepfake.asdc.cc
+cd /var/www/your-deepfake-service
 python3 -m venv .venv
 source .venv/bin/activate
 pip install -r requirements.txt
 ```
 
-3. Edit `/var/www/deepfake.asdc.cc/.env` and set:
+3. Edit `/var/www/your-deepfake-service/.env` and set:
 
 ```env
-PUBLIC_BASE_URL=https://deepfake.asdc.cc
+PUBLIC_BASE_URL=https://your-deepfake-service.example.com
 DEEPFAKE_SERVICE_HOST=127.0.0.1
 DEEPFAKE_SERVICE_PORT=8012
 DEEPFAKE_MODEL_NAME=Naman712/Deep-fake-detection
@@ -274,7 +273,7 @@ curl -i \
 5. Start the service locally:
 
 ```bash
-cd /var/www/deepfake.asdc.cc
+cd /var/www/your-deepfake-service
 source .venv/bin/activate
 .venv/bin/python -m uvicorn app:app --host 127.0.0.1 --port 8012
 ```
@@ -289,8 +288,8 @@ curl http://127.0.0.1:8012/video/health
 
 ```env
 DEEPFAKE_MODE=service
-DEEPFAKE_SERVICE_URL=https://deepfake.asdc.cc/video/classify
-DEEPFAKE_UPLOAD_URL=https://deepfake.asdc.cc/video/upload
+DEEPFAKE_SERVICE_URL=https://your-deepfake-service.example.com/video/classify
+DEEPFAKE_UPLOAD_URL=https://your-deepfake-service.example.com/video/upload
 DEEPFAKE_API_KEY=your_huggingface_api_key_with_gated_repo_read_scope
 ```
 
@@ -300,10 +299,10 @@ For same-machine debugging, you can point the sample directly to localhost inste
 DEEPFAKE_SERVICE_URL=http://127.0.0.1:8012
 ```
 
-8. If you want the service to survive reboots on this machine, use the existing PM2 entry and nginx proxy:
+8. If you want the service to survive reboots, create a PM2 entry and nginx proxy. Example:
 
 ```bash
-pm2 start /var/www/ecosystem.config.js --only deepfake-asdc
+pm2 start /var/www/ecosystem.config.js --only your-deepfake-service
 pm2 save
 sudo systemctl reload nginx
 ```
@@ -311,7 +310,7 @@ sudo systemctl reload nginx
 The PM2 entry runs:
 
 ```text
-/var/www/deepfake.asdc.cc/.venv/bin/python -m uvicorn app:app --host 127.0.0.1 --port 8012
+/var/www/your-deepfake-service/.venv/bin/python -m uvicorn app:app --host 127.0.0.1 --port 8012
 ```
 
 and the sample then talks to the web service over `DEEPFAKE_SERVICE_URL`.
@@ -352,7 +351,7 @@ Recommended terminal layout:
 
 - Terminal 1: `npm run start:deepfake-service`
 - Terminal 2: `npm start`
-- Terminal 3: optional `tail -f /var/www/deepfake.asdc.cc/logs/deepfake-service.log`
+- Terminal 3: optional `tail -f /var/www/your-deepfake-service/logs/deepfake-service.log`
 
 ## Environment Variables
 
@@ -382,8 +381,8 @@ HLS_LIST_SIZE=6
 
 DEEPFAKE_MODE=service
 DEEPFAKE_MODEL_NAME=Naman712/Deep-fake-detection
-DEEPFAKE_SERVICE_URL=https://deepfake.asdc.cc/video/classify
-DEEPFAKE_UPLOAD_URL=https://deepfake.asdc.cc/video/upload
+DEEPFAKE_SERVICE_URL=https://your-deepfake-service.example.com/video/classify
+DEEPFAKE_UPLOAD_URL=https://your-deepfake-service.example.com/video/upload
 DEEPFAKE_API_KEY=your_huggingface_api_key_with_gated_repo_read_scope
 DEEPFAKE_FRAME_FPS=5
 DEEPFAKE_CLIP_SECONDS=2
@@ -398,7 +397,7 @@ PYTHON_BIN=python3
 
 AUDIO_DEEPFAKE_MODE=service
 AUDIO_DEEPFAKE_MODEL_NAME=MelodyMachine/Deepfake-audio-detection-V2
-AUDIO_DEEPFAKE_SERVICE_URL=https://deepfake.asdc.cc/audio/classify
+AUDIO_DEEPFAKE_SERVICE_URL=https://your-deepfake-service.example.com/audio/classify
 AUDIO_DEEPFAKE_API_KEY=
 AUDIO_DEEPFAKE_HEALTHCHECK_ENABLED=false
 AUDIO_DEEPFAKE_CLIP_SECONDS=4
@@ -421,8 +420,8 @@ This is the default and recommended architecture. The backend posts MP4 clip byt
 
 ```env
 DEEPFAKE_MODE=service
-DEEPFAKE_SERVICE_URL=https://deepfake.asdc.cc/video/classify
-DEEPFAKE_UPLOAD_URL=https://deepfake.asdc.cc/video/upload
+DEEPFAKE_SERVICE_URL=https://your-deepfake-service.example.com/video/classify
+DEEPFAKE_UPLOAD_URL=https://your-deepfake-service.example.com/video/upload
 DEEPFAKE_API_KEY=your_huggingface_api_key_with_gated_repo_read_scope
 DEEPFAKE_MODEL_NAME=Naman712/Deep-fake-detection
 ```
@@ -438,7 +437,7 @@ If you provide only the base URL, the sample automatically expands it to `/video
 The service code and runtime now live in:
 
 ```text
-/var/www/deepfake.asdc.cc
+/var/www/your-deepfake-service
 ```
 
 See that folder's README for takeover, PM2, nginx, and HF token setup.
@@ -451,7 +450,7 @@ Audio verification is intentionally separate from video verification. The backen
 AUDIO_STREAM_MODE=multi
 AUDIO_DEEPFAKE_MODE=service
 AUDIO_DEEPFAKE_MODEL_NAME=MelodyMachine/Deepfake-audio-detection-V2
-AUDIO_DEEPFAKE_SERVICE_URL=https://deepfake.asdc.cc/audio/classify
+AUDIO_DEEPFAKE_SERVICE_URL=https://your-deepfake-service.example.com/audio/classify
 AUDIO_DEEPFAKE_API_KEY=
 AUDIO_DEEPFAKE_HEALTHCHECK_ENABLED=false
 AUDIO_DEEPFAKE_CLIP_SECONDS=4
@@ -520,7 +519,7 @@ DEEPFAKE_MODEL_NAME=Naman712/Deep-fake-detection
 CLI path:
 
 ```text
-/var/www/deepfake.asdc.cc/classify_clip.py
+/var/www/your-deepfake-service/classify_clip.py
 ```
 
 Off:
@@ -577,7 +576,7 @@ blog.md                          ignored local blog draft
 Standalone service files now live in:
 
 ```text
-/var/www/deepfake.asdc.cc
+/var/www/your-deepfake-service
 ```
 
 ## Troubleshooting
@@ -628,4 +627,4 @@ If the deepfake service health check fails:
 - Check the backend startup log for either:
   - `Deepfake service is reachable`
   - or `Deepfake service health check failed`
-- If `/video/health` fails on the gated model, confirm you accepted the model access conditions in Hugging Face and set `HF_TOKEN` in `/var/www/deepfake.asdc.cc/.env` before restarting the service. That token should have scope `Read access to contents of all public gated repos you can access`.
+- If `/video/health` fails on the gated model, confirm you accepted the model access conditions in Hugging Face and set `HF_TOKEN` in `/var/www/your-deepfake-service/.env` before restarting the service. That token should have scope `Read access to contents of all public gated repos you can access`.

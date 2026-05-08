@@ -599,7 +599,7 @@ const audioDeepfakeClipSeconds = getAudioDeepfakeClipSeconds();
 const audioDeepfakeMode = normalizeAudioDeepfakeMode(process.env.AUDIO_DEEPFAKE_MODE);
 const audioDeepfakeModelName = process.env.AUDIO_DEEPFAKE_MODEL_NAME || 'MelodyMachine/Deepfake-audio-detection-V2';
 const audioDeepfakeVendorName = process.env.AUDIO_DEEPFAKE_VENDOR_NAME || audioDeepfakeModelName;
-const audioDeepfakeServiceUrl = process.env.AUDIO_DEEPFAKE_SERVICE_URL || 'https://deepfake.asdc.cc/audio/classify';
+const audioDeepfakeServiceUrl = process.env.AUDIO_DEEPFAKE_SERVICE_URL || 'https://your-deepfake-service.example.com/audio/classify';
 const audioDeepfakeUploadUrl = process.env.AUDIO_DEEPFAKE_UPLOAD_URL || '';
 const audioDeepfakeMinRmsDbfs = envNumber('AUDIO_DEEPFAKE_MIN_RMS_DBFS', -65);
 
