@@ -39,6 +39,24 @@ This is one practical way to architect the system, not the only way. Other desig
 
 `shared` contains common envelope, region, HTTP, and signature helpers.
 
+## Architecture Diagram
+
+```mermaid
+flowchart TD
+  Zoom[Zoom RTMS webhook] --> Hub[01 centralized webhook hub<br/>verify, dedupe, route]
+  Hub --> Central[(central SQLite<br/>accepted event, route, global lookup)]
+  Central --> Spoke[03 selected regional webhook spoke]
+  Spoke --> Launcher[04 regional compute launcher]
+  Launcher --> Job[Kubernetes/k3s Job<br/>one pod per stream]
+  Job --> Regional[(regional SQLite<br/>lease and active state)]
+  Job --> Manager[RTMSManager<br/>Zoom signaling and media]
+  Job --> Artifact[08 artifact storage API]
+  Artifact --> Blob[(local disk / MinIO / S3 / Azure / GCS)]
+  Job --> Cache[06 realtime cache<br/>hot state and metrics]
+  Job --> Obs[07 logs, metrics, dashboards]
+  Hub -. stop events use saved route .-> Central
+```
+
 ## Flow
 
 ```text
@@ -427,108 +445,6 @@ PersistentVolumeClaims for SQLite/control store, RabbitMQ, Redis, Loki, Promethe
 ```
 
 This does not mean media bytes should go into the control database. It means the control plane, queues, cache persistence, observability, and any temporary media spool must not be slowed down by HDD latency.
-
-## Well-Architected Review Backlog
-
-This is a documentation-only review of the current sample code and flow. Do not treat these as implemented changes.
-
-The review uses the six AWS Well-Architected pillars: operational excellence, security, reliability, performance efficiency, cost optimization, and sustainability.
-
-### Operational Excellence
-
-Areas to improve:
-
-| Area | Current observation | Recommendation |
-|------|---------------------|----------------|
-| Runtime mode clarity | The sample supports direct HTTP handoff and optional RabbitMQ helpers. The current target is hub-selected regional direct dispatch. | Document RabbitMQ as optional and keep the default path as signed dispatcher-to-spoke HTTP. |
-| Code readability | Env parsing, service startup, and request handlers are mixed inside each server file. | Add small `config.js`, `logger.js`, `deliveryClient.js`, and `controlStore` modules so each layer has clearer responsibilities. |
-| Envelope validation | Layers mostly check only `event` and `streamId`. | Add explicit schema validation for inbound webhook bodies and internal envelopes, including `schemaVersion`, `eventType`, `streamId`, `idempotencyKey`, and known product types. |
-| Operational runbooks | README has architecture notes, but not incident runbooks. | Add runbooks for direct handoff failures, optional queue backlog, DLQ growth, control-store failure, lease-loss storms, RTMS reconnect storms, and blob upload failures. |
-| Observability | Grafana/Loki/Prometheus scaffolding exists, and the compute job now emits structured logs plus batched realtime metrics. RTMS-specific latency metrics still need deeper hooks. | Add stable metric names for handshake latency, media latency, first-packet latency, reconnect reason, and error class. |
-| Testing | Syntax checks and focused hub/route/spoke tests exist. | Add integration tests for start -> route -> claim, stop with no region code, RTMS retry idempotency, stale signature rejection, and lease-loss close behavior. |
-| Documentation drift | RabbitMQ topology is generated, while region parsing still has a hard-coded discovered code list. | Make generated region topology and runtime region config visibly part of the same deployment contract. |
-
-### Security
-
-Areas to improve:
-
-| Area | Current observation | Recommendation |
-|------|---------------------|----------------|
-| Public webhook trust | Webhook signature verification is now required before routing. | Keep this as a hard requirement. Do not reintroduce unsigned bypass flags. |
-| Multiple Zoom apps/secrets | URL validation chooses Video SDK secret via `?type=video`; event verification falls back between Zoom and Video secrets. | Prefer separate webhook endpoints per Zoom app or an explicit app-id/path mapping. Do not rely on caller-controlled query params to choose secrets in production. |
-| Internal service auth | Hub, spoke, compute, and control-store HTTP endpoints do not authenticate each other. | Add service-to-service auth such as mTLS, signed internal JWTs, or private-network policy plus per-service credentials. |
-| Data exposure | Control-store endpoints return local filesystem `path` fields for documents/blobs. | Return only logical `blob_uri` and metadata to clients; keep host paths internal. |
-| PII handling | Transcript/chat/user names may appear in documents, events, logs, and metadata. | Define PII fields, redact logs, encrypt final artifacts, enforce retention/deletion workflows, and avoid user-identifying fields in object keys. |
-| Secrets | `.env` is ignored, but compose defaults contain local demo passwords. | Use Kubernetes Secrets or cloud secret managers for real deployments. Rotate secrets and avoid placing production credentials in generated topology files. |
-| Data at rest | Local bind mounts are convenient but depend on host disk security. | Use encrypted disks locally when real data is present; use KMS-backed encryption for cloud blob storage and managed databases. |
-| Dashboard access | Grafana is password-protected locally, but dashboards can expose meeting metadata. | Put dashboards behind SSO/RBAC and separate operator views from customer/user-facing views. |
-
-### Reliability
-
-Areas to improve:
-
-| Area | Current observation | Recommendation |
-|------|---------------------|----------------|
-| Durable ingress | The sample HTTP path sends `204` to Zoom before the internal handoff finishes. | For must-not-lose deployments, commit idempotency, selected route, and dispatch intent before returning success to Zoom, then publish the direct spoke handoff after commit. |
-| Direct handoff | Spoke and compute workers use HTTP handlers. | Keep direct handoff for the sample; add a real queue only when replay/backpressure is required. |
-| Idempotency | Envelopes include `idempotencyKey`, but processing does not persist processed keys. | Store processed idempotency keys with TTL or unique constraints so retries and duplicate deliveries are safe. |
-| Lease authority | SQLite now owns local leases with transactions. A single SQLite writer is still a scaling boundary. | Keep lease writes conditional/transactional. If multiple writer replicas are required, swap to Postgres, distributed SQL, or another transactional store. |
-| Fencing | Compute nodes hold `leaseVersion`, but downstream writes do not consistently require it. | Include `leaseVersion` on state/artifact writes so stale owners cannot overwrite newer owners after takeover. |
-| Lease renewal loop | Renewals run on a fixed interval and can overlap if a previous renewal stalls. | Track in-flight renewals per stream and record missed-renewal counters. Close RTMS quickly when ownership cannot be proven. |
-| Stop event routing | Stop events depend on route lookup because the stop payload lacks region code. | Keep route writes durable before forwarding starts; alert on stop events with missing route. |
-| RabbitMQ client lifecycle | RabbitMQ helper publishes with confirms, but does not handle connection close/blocked events or channel recreation. | Add connection lifecycle handling, blocked-connection metrics, and controlled process restart if the broker connection is unhealthy. |
-| DLQ behavior | Queues dead-letter, but no consumer records why a message died. | Store DLQ reason, source queue, routing key, retry count, and idempotency key in the control store for operator triage. |
-| RTMS reconnect budget | Signaling and media reconnect windows are 60 seconds. | Keep lease TTL below 60 seconds, use fast reconnect attempts, and alert when reconnect elapsed time approaches deadline. |
-
-### Performance Efficiency
-
-Areas to improve:
-
-| Area | Current observation | Recommendation |
-|------|---------------------|----------------|
-| Media hot path | Compute now batches audio/video/share counters to the realtime cache and disables per-packet control-store writes by default. | Keep `WRITE_MEDIA_PACKET_EVENTS=false` for real streams. Enable it only for short debug runs. |
-| SQLite writes | SQLite is much better than rewriting `state.json`, but still has one writer at a time. | Keep transactions short, use WAL mode, and move to a client/server store when write latency proves it is needed. |
-| Large request bodies | Control-store endpoints accept up to 25 MB JSON and support base64 blob writes. | Avoid base64 media uploads through JSON APIs. Use direct multipart/object-storage uploads and write metadata separately. |
-| Query endpoints | `/streams` returns all streams and document/blob APIs have no pagination. | Add pagination, filtering, and time-window queries before real load tests. |
-| Routing strategy | Regional spoke uses round-robin over configured compute endpoints. | For Docker workers this is enough for testing. For Kubernetes, point the spoke at a worker service that creates one deterministic Job per stream. |
-| Region parser | Region extraction assumes a specific Zoom hostname shape. | Add parser tests with real observed signaling URLs and keep `UNKNOWN` routing visible in dashboards. |
-| Backpressure | HTTP handlers accept work then process in background. | Add max in-flight limits, worker handoff latency metrics, and readiness behavior so overload becomes visible backpressure. |
-| Metrics cardinality | Per-stream metrics can explode at 10,000 streams. | Use per-stream data for debug views, but aggregate high-volume metrics by region/node/product/state. |
-
-### Cost Optimization
-
-Areas to improve:
-
-| Area | Current observation | Recommendation |
-|------|---------------------|----------------|
-| Media selection | Default media flag is now audio + video for the recording sample path. | Request only the RTMS media types needed by the use case; use `MEDIA_TYPES_FLAG=9` for audio + transcript when video artifacts are not required. |
-| Optional queue topology | Generated RabbitMQ topology creates start/stop/recovery queues for every discovered region. | If RabbitMQ is enabled later, generate queues only for deployed regions plus `UNKNOWN`; avoid unused regional infrastructure. |
-| Storage growth | Blob and log retention are documented, but lifecycle policies are not scaffolded. | Add lifecycle policies for blob tiers, debug artifacts, logs, metrics, and final media retention by customer/product. |
-| Control-store load | Lease renewals are predictable write load. | Keep renewal intervals as long as safely possible within the 60-second reconnect budget, and keep write paths narrow. |
-| Observability volume | Detailed logs and per-stream events can become expensive. | Use structured sampling for verbose logs and retain high-cardinality debug details for short windows only. |
-| Optional layers | Observability/dashboarding and realtime cache may not be needed for every deployment. | Make optional layers deployable independently so small deployments do not pay for unused read-side infrastructure. |
-
-### Sustainability
-
-Areas to improve:
-
-| Area | Current observation | Recommendation |
-|------|---------------------|----------------|
-| Data minimization | The design avoids per-packet blob storage and now keeps media-packet control-store writes off by default. | Keep only the data needed for the product outcome. Prefer summaries, final artifacts, and aggregate telemetry over raw event exhaust. |
-| Compute efficiency | Compute nodes are the likely first bottleneck at high stream counts. | Autoscale by active streams, socket count, CPU, memory, worker handoff latency, and reconnect pressure; scale optional workers down when idle. |
-| Storage lifecycle | Final artifacts, logs, and metrics have different useful lifetimes. | Apply tiering and expiration by artifact type: summaries longer, debug logs shorter, final media according to compliance/customer policy. |
-| Network transfer | Cross-region routing can increase latency, cost, and energy use. | Keep RTMS compute close to Zoom media region where possible, then sync only metadata/final artifacts. |
-| Media processing | Video/screen share processing is heavier than transcript/summary paths. | Disable unused media types and avoid transcoding unless it is required by the product. |
-
-### Highest Priority Documentation-Only Findings
-
-1. Production direct handoff needs measured retry, timeout, alert, and failure-table behavior before load testing.
-2. Production should preserve conditional lease/idempotency writes; SQLite is fine for this sample, and larger deployments can swap the store backend.
-3. Internal APIs need authentication/authorization, not only private ports.
-4. Keep per-media-packet HTTP writes disabled for real streams; use batched realtime-cache metrics instead.
-5. Persist idempotency keys and use fencing tokens with `leaseVersion`.
-6. Add structured operational metrics before scaling tests: worker handoff latency, failed direct handoff count, optional queue age/DLQ count if a queue is enabled, lease failures, reconnect elapsed time, first packet latency, and blob upload failures.
-7. Keep PII out of logs and response payloads; expose `blob_uri` instead of filesystem paths.
 
 ## Merged Earlier Draft Notes
 
