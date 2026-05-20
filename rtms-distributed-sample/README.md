@@ -19,12 +19,13 @@ This is still a sample, not a production blueprint. The important shape is fanou
 ```mermaid
 flowchart TD
   Zoom[Zoom RTMS webhook] --> Hub[01 centralized webhook hub<br/>verify, dedupe, route]
-  Hub --> Central[(central SQLite<br/>accepted event, route, global lookup)]
+  Hub --> Dispatcher[02 central route dispatcher<br/>selected-spoke handoff]
+  Dispatcher --> Central[(05 control store<br/>central SQLite<br/>accepted event, route, global lookup)]
   Central --> Spoke[03 selected regional webhook spoke]
   Spoke --> Launcher[04 regional compute launcher]
   Launcher --> Job[Kubernetes/k3s Job<br/>one pod per stream]
-  Job --> Regional[(regional SQLite<br/>lease and active state)]
-  Job --> Manager[RTMSManager<br/>Zoom signaling and media]
+  Job --> Regional[(05 control store<br/>regional SQLite<br/>lease and active state)]
+  Job --> Manager[04 regional compute job<br/>RTMSManager signaling and media]
   Job --> Artifact[08 artifact storage API]
   Artifact --> Blob[(local disk / MinIO / S3 / Azure / GCS)]
   Job --> Cache[06 realtime cache<br/>hot state and metrics]
@@ -37,11 +38,13 @@ flowchart TD
 ```text
 Zoom RTMS webhook
   -> 01 centralized webhook hub
-  -> central route/control state
+  -> 02 central route dispatcher
+  -> 05 control store, central route/control state
   -> selected 03 regional webhook spoke
   -> 04 regional compute launcher
   -> Kubernetes Job, one pod per stream
   -> 04 regional compute job / RTMSManager
+  -> 05 control store, regional lease/active state
   -> 08 artifact storage for final files
   -> 06 realtime cache for active state
   -> 07 observability for logs and dashboards
