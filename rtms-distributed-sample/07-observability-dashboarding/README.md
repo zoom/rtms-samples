@@ -30,7 +30,8 @@ Initial dashboard ideas:
 - Active streams by region.
 - Node capacity and active stream count.
 - Stream lifecycle state.
-- RTMS signaling/media latency.
+- Webhook ingress latency from Zoom signed timestamp to hub receive time.
+- RTMS signaling ping RTT from the regional worker to Zoom's signaling WebSocket.
 - First packet latency.
 - Reconnect and interruption count.
 - Lease failures and takeover events.
@@ -63,10 +64,14 @@ RTMS_LOG_CONSOLE=true
 
 Grafana does not receive logs directly. Grafana reads Loki for logs and Prometheus for metrics.
 
+The hub, dispatcher, regional spoke, compute launcher, control store, realtime cache, artifact storage service, compute job, and RTMSManager lower-level logs all use the same logger path. Set `LOKI_PUSH_URL` for local services and `COMPUTE_LOKI_PUSH_URL` for Kubernetes compute Jobs when the pod needs a different Loki URL.
+
+The logger redacts common token, secret, signature, and query-string values before pushing to Loki. Still keep PII and meeting-sensitive fields out of log messages where possible.
+
 For metrics, the first sample path is:
 
 ```text
 RTMSManager events -> compute job aggregation -> realtime cache API -> /metrics -> Prometheus -> Grafana
 ```
 
-That keeps high-frequency media packets from turning into one network call per packet. The compute job batches counters such as audio bytes, video bytes, stream state changes, and session state changes before sending them to the realtime cache service.
+That keeps high-frequency media packets from turning into one network call per packet. The compute job batches counters such as audio bytes, video bytes, stream state changes, and session state changes before sending them to the realtime cache service. Low-frequency latency samples, such as `webhook_ingress_latency_ms` and `signaling_ping_rtt_ms`, are sent as samples so the cache can maintain lowest, highest, average, and count.

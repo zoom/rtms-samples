@@ -6,6 +6,8 @@ This is the public Zoom-facing entry point.
 
 It receives RTMS webhooks, verifies Zoom signatures, rejects stale requests, suppresses duplicate RTMS retries, and hands accepted events to the route dispatcher.
 
+For accepted RTMS webhooks, it also sends `webhook_ingress_latency_ms` to the realtime cache. That value is calculated from Zoom's signed `x-zm-request-timestamp` against the hub's current receive time. Duplicate retries, unsigned requests, and stale requests are not recorded as accepted latency samples.
+
 ## Endpoints
 
 | Endpoint | Purpose |
@@ -34,6 +36,8 @@ npm run test:webhook -- --region IAD --send-stop
 | `WEBHOOK_PATH` | Webhook path, default `/webhook` |
 | `HUB_DELIVERY_MODE` | `http` by default; `rabbitmq` is optional |
 | `CENTRAL_ROUTE_DISPATCHER_URL` | Dispatcher target for accepted webhooks |
+| `REALTIME_CACHE_URL` | Optional realtime cache target for webhook latency samples |
+| `LOKI_PUSH_URL` | Optional Loki push endpoint for structured service logs |
 | `ZOOM_SECRET_TOKEN` | Meeting/webinar webhook secret |
 | `VIDEO_SECRET_TOKEN` | Video SDK webhook secret |
 | `HUB_SQLITE_DB_PATH` | SQLite idempotency database |

@@ -14,7 +14,7 @@ export function createRtmsObservabilityLogger(options = {}) {
 
 class RtmsObservabilityLogger {
   constructor(options = {}) {
-    this.level = normalizeLevel(options.level || process.env.RTMS_LOG_LEVEL || 'info');
+    this.level = normalizeLevel(options.level || process.env.SERVICE_LOG_LEVEL || process.env.RTMS_LOG_LEVEL || 'info');
     this.consoleEnabled = options.console !== false;
     this.lokiUrl = options.lokiUrl || process.env.LOKI_PUSH_URL || '';
     this.labels = sanitizeLabels({
@@ -23,6 +23,7 @@ class RtmsObservabilityLogger {
       node: options.nodeId || process.env.SPOKE_NODE_ID || 'unknown',
       ...options.labels
     });
+    this.job = sanitizeLabelValue(options.job || process.env.LOKI_JOB || options.service || 'rtms-distributed-sample');
     this.buffer = [];
     this.flushIntervalMs = Number(options.flushIntervalMs || process.env.LOKI_FLUSH_INTERVAL_MS || 2000);
     this.maxBufferSize = Number(options.maxBufferSize || 100);
@@ -106,7 +107,7 @@ class RtmsObservabilityLogger {
           {
             stream: {
               ...this.labels,
-              job: 'rtms-compute'
+              job: this.job
             },
             values
           }
@@ -136,16 +137,23 @@ function normalizeLevel(value) {
 
 function formatMessage(args) {
   return args.map((value) => {
-    if (value instanceof Error) return value.stack || value.message;
+    if (value instanceof Error) return redactLogText(value.stack || value.message);
     if (typeof value === 'object' && value !== null) {
       try {
-        return JSON.stringify(value);
+        return redactLogText(JSON.stringify(value));
       } catch {
-        return String(value);
+        return redactLogText(String(value));
       }
     }
-    return String(value);
+    return redactLogText(String(value));
   }).join(' ');
+}
+
+function redactLogText(value) {
+  return String(value)
+    .replace(/\b(wss?:\/\/[^\s"'`]+)\?[^"'`\s]+/gi, '$1?[redacted]')
+    .replace(/\b(https?:\/\/[^\s"'`]+)\?[^"'`\s]+/gi, '$1?[redacted]')
+    .replace(/(["']?(?:authorization|client_secret|clientSecret|secret|signature|token)["']?\s*[:=]\s*)["']?[^"',\s}]+["']?/gi, '$1[redacted]');
 }
 
 function sanitizeLabels(labels) {

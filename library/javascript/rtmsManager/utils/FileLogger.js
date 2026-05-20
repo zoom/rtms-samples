@@ -36,6 +36,7 @@ export class FileLogger {
   static flushInterval = 100; // Flush every 100ms
   static maxBufferSize = 50; // Or when buffer reaches 50 entries
   static isShuttingDown = false;
+  static sinks = new Map();
 
   static getLogFilePath() {
     if (!logDir) return null;
@@ -100,6 +101,34 @@ export class FileLogger {
 
   static setFileOutput(enabled) {
     this.fileEnabled = !!enabled;
+  }
+
+  static addSink(name, sink = null) {
+    const sinkName = sink ? String(name) : `sink-${this.sinks.size + 1}`;
+    const target = sink || name;
+    if (!target) return;
+    this.sinks.set(sinkName, target);
+  }
+
+  static removeSink(name) {
+    this.sinks.delete(String(name));
+  }
+
+  static emitToSinks(level, args) {
+    if (this.sinks.size === 0) return;
+
+    for (const [name, sink] of this.sinks.entries()) {
+      try {
+        const method = sink[level] || (level === 'info' ? sink.log : null) || sink.info || sink.log;
+        if (typeof method === 'function') {
+          method.call(sink, ...args);
+        }
+      } catch (error) {
+        if (this.consoleEnabled) {
+          console.warn(`[FileLogger] sink=${name} failed: ${error.message}`);
+        }
+      }
+    }
   }
 
   static addToBuffer(logMessage) {
@@ -180,6 +209,7 @@ export class FileLogger {
     if (this.consoleEnabled) {
       console.log(logMessage);
     }
+    this.emitToSinks('debug', args);
     this.addToBuffer(logMessage + '\n');
   }
 
@@ -196,6 +226,7 @@ export class FileLogger {
     if (this.consoleEnabled) {
       console.log(logMessage);
     }
+    this.emitToSinks('info', args);
     this.addToBuffer(logMessage + '\n');
   }
 
@@ -219,6 +250,7 @@ export class FileLogger {
     if (this.consoleEnabled) {
       console.warn(logMessage);
     }
+    this.emitToSinks('warn', args);
     this.addToBuffer(logMessage + '\n');
   }
 
@@ -235,6 +267,7 @@ export class FileLogger {
     if (this.consoleEnabled) {
       console.error(logMessage);
     }
+    this.emitToSinks('error', args);
 
     // For errors, write immediately if shutting down, otherwise batch
     if (this.isShuttingDown) {

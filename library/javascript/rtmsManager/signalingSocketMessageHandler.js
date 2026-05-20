@@ -90,16 +90,26 @@ function shouldSubscribeToIndividualVideoEvents(conn, mediaTypesFlag) {
 
 function buildEventSubscriptionPayload(conn, mediaTypesFlag) {
   const protocol = getProtocolDefinitions(conn.config);
+  const subscribeAllKnownEvents = conn.config?.subscribeAllKnownEvents === true;
+  const knownEventTypes = [
+    2, // ACTIVE_SPEAKER_CHANGE
+    3, // PARTICIPANT_JOIN
+    4, // PARTICIPANT_LEAVE
+    5, // SHARING_START
+    6, // SHARING_STOP
+    7, // MEDIA_CONNECTION_INTERRUPTED
+    protocol.eventTypes.PARTICIPANT_VIDEO_ON,
+    protocol.eventTypes.PARTICIPANT_VIDEO_OFF
+  ];
+  const eventTypes = subscribeAllKnownEvents
+    ? [...new Set(knownEventTypes)]
+    : [2, 3, 4];
   const payload = {
     msg_type: 5,
-    events: [
-      { event_type: 2, subscribe: true }, // ACTIVE_SPEAKER_CHANGE
-      { event_type: 3, subscribe: true }, // PARTICIPANT_JOIN
-      { event_type: 4, subscribe: true }  // PARTICIPANT_LEAVE
-    ]
+    events: eventTypes.map((eventType) => ({ event_type: eventType, subscribe: true }))
   };
 
-  if (shouldSubscribeToIndividualVideoEvents(conn, mediaTypesFlag)) {
+  if (!subscribeAllKnownEvents && shouldSubscribeToIndividualVideoEvents(conn, mediaTypesFlag)) {
     payload.events.push(
       { event_type: 5, subscribe: true }, // SHARING_START
       { event_type: 6, subscribe: true }, // SHARING_STOP

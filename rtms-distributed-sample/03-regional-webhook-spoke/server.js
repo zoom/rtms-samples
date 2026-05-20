@@ -4,6 +4,7 @@ import { fireAndForget, postJson, putJson } from '../shared/http.js';
 import { verifyInternalSignedRequest } from '../shared/internalSignature.js';
 import { isStartEvent, isStopEvent } from '../shared/regions.js';
 import { captureRawBody } from '../shared/zoomSignature.js';
+import { createRtmsObservabilityLogger } from '../shared/rtmsObservabilityLogger.js';
 
 dotenv.config();
 
@@ -16,6 +17,13 @@ const internalTimestampToleranceSeconds = Number(process.env.INTERNAL_WEBHOOK_TI
 const computeEndpoints = parseComputeEndpoints();
 const localEvents = [];
 let nextComputeIndex = 0;
+const logger = createRtmsObservabilityLogger({
+  service: 'regional-webhook-spoke',
+  regionCode,
+  nodeId: process.env.NODE_ID || `spoke-${regionCode}-${process.pid}`,
+  level: process.env.SERVICE_LOG_LEVEL || process.env.RTMS_LOG_LEVEL || 'info',
+  console: process.env.SERVICE_LOG_CONSOLE !== 'false'
+});
 
 app.use(express.json({ verify: captureRawBody, limit: '10mb' }));
 
@@ -43,7 +51,7 @@ app.post('/spoke/webhook', (req, res) => {
 
   if (!verification.ok) {
     const status = verification.reason === 'missing_internal_webhook_secret' ? 500 : 401;
-    console.warn(`[03-regional-webhook-spoke] rejected internal webhook reason=${verification.reason}`);
+    logger.warn(`[03-regional-webhook-spoke] rejected internal webhook reason=${verification.reason}`);
     return res.status(status).json({ error: 'invalid_internal_webhook', reason: verification.reason });
   }
 
@@ -92,7 +100,7 @@ async function dispatchToCompute(envelope) {
   const endpoint = computeEndpoints[nextComputeIndex % computeEndpoints.length];
   nextComputeIndex += 1;
 
-  console.log(`[03-regional-webhook-spoke] stream=${envelope.streamId} -> ${endpoint}`);
+  logger.info(`[03-regional-webhook-spoke] stream=${envelope.streamId} -> ${endpoint}`);
   await postJson(endpoint, envelope, { timeoutMs: 3000 });
 }
 
@@ -122,5 +130,5 @@ function parseComputeEndpoints() {
 }
 
 app.listen(port, () => {
-  console.log(`[03-regional-webhook-spoke] ${regionCode} listening on http://127.0.0.1:${port}/spoke/webhook`);
+  logger.info(`[03-regional-webhook-spoke] ${regionCode} listening on http://127.0.0.1:${port}/spoke/webhook`);
 });

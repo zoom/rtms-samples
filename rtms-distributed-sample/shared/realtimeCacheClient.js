@@ -24,11 +24,27 @@ export async function postRealtimeMetrics(realtimeCacheUrl, streamId, metrics, o
   });
 }
 
+export async function postRealtimeLatencySample(realtimeCacheUrl, streamId, latency, options = {}) {
+  if (!realtimeCacheUrl || !streamId) return null;
+  return postJson(`${baseUrl(realtimeCacheUrl)}/streams/${encodeURIComponent(streamId)}/latency`, latency, {
+    timeoutMs: options.timeoutMs || 1500,
+    retryPolicy: options.retryPolicy || { maxAttempts: 2, baseDelayMs: 100, maxDelayMs: 500 }
+  });
+}
+
 export async function postRealtimeEvent(realtimeCacheUrl, streamId, event, options = {}) {
   if (!realtimeCacheUrl || !streamId) return null;
   return postJson(`${baseUrl(realtimeCacheUrl)}/streams/${encodeURIComponent(streamId)}/events`, event, {
     timeoutMs: options.timeoutMs || 1500,
     retryPolicy: options.retryPolicy || { maxAttempts: 2, baseDelayMs: 100, maxDelayMs: 500 }
+  });
+}
+
+export async function postWebhookObservation(realtimeCacheUrl, observation, options = {}) {
+  if (!realtimeCacheUrl) return null;
+  return postJson(`${baseUrl(realtimeCacheUrl)}/webhooks/observations`, observation || {}, {
+    timeoutMs: options.timeoutMs || 1000,
+    retryPolicy: options.retryPolicy || { maxAttempts: 2, baseDelayMs: 50, maxDelayMs: 250 }
   });
 }
 
@@ -74,6 +90,19 @@ export class RealtimeMetricsReporter {
     const metrics = this.buffer.get(key) || {};
     increment(metrics, name, value);
     this.buffer.set(key, metrics);
+  }
+
+  recordLatency(streamId, name, valueMs, options = {}) {
+    if (!this.url || !streamId || !name || !Number.isFinite(Number(valueMs))) return;
+    fireAndForget(postRealtimeLatencySample(this.url, streamId, {
+      name,
+      valueMs: Number(valueMs),
+      source: options.source || 'regional-compute-job',
+      regionCode: options.regionCode,
+      nodeId: options.nodeId,
+      at: options.at || new Date().toISOString(),
+      labels: options.labels || undefined
+    }), `realtime latency ${name}`);
   }
 
   async flush() {

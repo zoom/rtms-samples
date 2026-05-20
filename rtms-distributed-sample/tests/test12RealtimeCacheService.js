@@ -34,6 +34,27 @@ try {
       video_bytes_total: 2400
     }
   });
+  await postJson(`${baseUrl}/streams/${encodeURIComponent(streamId)}/latency`, {
+    name: 'webhook_ingress_latency_ms',
+    valueMs: 120,
+    source: 'test',
+    regionCode: 'amer-east',
+    nodeId: 'test-node'
+  });
+  await postJson(`${baseUrl}/streams/${encodeURIComponent(streamId)}/latency`, {
+    name: 'webhook_ingress_latency_ms',
+    valueMs: 80,
+    source: 'test',
+    regionCode: 'amer-east',
+    nodeId: 'test-node'
+  });
+  await postJson(`${baseUrl}/streams/${encodeURIComponent(streamId)}/latency`, {
+    name: 'signaling_ping_rtt_ms',
+    valueMs: 35,
+    source: 'test',
+    regionCode: 'amer-east',
+    nodeId: 'test-node'
+  });
   await postJson(`${baseUrl}/streams/${encodeURIComponent(streamId)}/summary`, {
     text: 'live summary',
     userName: 'Tester'
@@ -46,17 +67,24 @@ try {
   const stream = await waitForJson(`${baseUrl}/streams/${encodeURIComponent(streamId)}`, 'realtime stream read');
   assert(stream.state?.state === 'connected', 'state was not stored');
   assert(stream.metrics?.audio_bytes_total === 1200, 'metrics were not stored');
+  assert(stream.latency?.webhook_ingress_latency_ms?.minMs === 80, 'webhook latency min was not stored');
+  assert(stream.latency?.webhook_ingress_latency_ms?.maxMs === 120, 'webhook latency max was not stored');
+  assert(stream.latency?.webhook_ingress_latency_ms?.avgMs === 100, 'webhook latency average was not stored');
+  assert(stream.latency?.signaling_ping_rtt_ms?.avgMs === 35, 'signaling latency average was not stored');
   assert(stream.summary?.text === 'live summary', 'summary was not stored');
   assert(stream.events?.[0]?.type === 'first_packet', 'event was not stored');
   console.log('PASS realtime_cache_readback');
 
   const dashboard = await fetchText(`${baseUrl}/dashboard`);
   assert(dashboard.includes('RTMS Realtime Cache'), 'dashboard html missing title');
+  assert(dashboard.includes('Latency Summary'), 'dashboard html missing latency summary');
   console.log('PASS realtime_cache_dashboard');
 
   const metrics = await fetchText(`${baseUrl}/metrics`);
   assert(metrics.includes('rtms_realtime_active_streams 1'), 'prometheus active stream metric missing');
   assert(metrics.includes('metric="audio_bytes_total"'), 'prometheus summed metric missing');
+  assert(metrics.includes('rtms_realtime_latency_avg_ms'), 'prometheus latency average metric missing');
+  assert(metrics.includes('metric="webhook_ingress_latency_ms"'), 'prometheus webhook latency metric missing');
   console.log('PASS realtime_cache_prometheus_metrics');
 
   console.log('12 realtime cache tester passed: 5/5');

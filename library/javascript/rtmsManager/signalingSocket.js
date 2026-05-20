@@ -20,6 +20,72 @@ function closeSocketQuietly(socket) {
   }
 }
 
+function getWebSocketHost(url) {
+  try {
+    return new URL(url).host;
+  } catch (_error) {
+    return 'unknown';
+  }
+}
+
+function measureSignalingPingRtt(socket, meetingUuid, streamId, serverUrls, conn, emit) {
+  if (!socket || typeof socket.ping !== 'function') return;
+
+  const startedAt = Date.now();
+  const host = getWebSocketHost(serverUrls);
+  const timeoutMs = Number(conn.config?.signalingPingTimeoutMs || 5000);
+  let finished = false;
+
+  const cleanup = () => {
+    socket.off?.('pong', onPong);
+    socket.off?.('close', onClose);
+    clearTimeout(timer);
+  };
+  const finish = (callback) => {
+    if (finished) return;
+    finished = true;
+    cleanup();
+    callback();
+  };
+  const onPong = () => {
+    finish(() => {
+      const rttMs = Date.now() - startedAt;
+      conn.setPingRtt?.(rttMs);
+      FileLogger.log(`[Signaling] [${conn.rtmsType},${meetingUuid},${streamId}] Ping RTT ${rttMs}ms host=${host}`);
+      emit('signaling_ping_rtt', {
+        type: 'signaling_ping_rtt',
+        rtmsId: meetingUuid,
+        meetingId: meetingUuid,
+        streamId,
+        productType: conn.rtmsType,
+        rttMs,
+        signalingHost: host,
+        at: new Date().toISOString(),
+        timestamp: Date.now()
+      });
+    });
+  };
+  const onClose = () => {
+    finish(() => {});
+  };
+  const timer = setTimeout(() => {
+    finish(() => {
+      FileLogger.warn(`[Signaling] [${conn.rtmsType},${meetingUuid},${streamId}] Ping RTT probe timed out after ${timeoutMs}ms host=${host}`);
+    });
+  }, timeoutMs);
+
+  socket.once('pong', onPong);
+  socket.once('close', onClose);
+
+  try {
+    socket.ping();
+  } catch (error) {
+    finish(() => {
+      FileLogger.warn(`[Signaling] [${conn.rtmsType},${meetingUuid},${streamId}] Ping RTT probe failed: ${error.message}`);
+    });
+  }
+}
+
 /**
  * Connect to the RTMS signaling WebSocket
  * Uses split mode only - each media type gets its own connection
@@ -107,6 +173,7 @@ export function connectToSignalingWebSocket(
       }
 
       FileLogger.log(`[Signaling] [${conn.rtmsType},${meetingUuid},${streamId}] Connected, sending handshake`);
+      measureSignalingPingRtt(signalingWs, meetingUuid, streamId, serverUrls, conn, emit);
       
       if (!conn.shouldReconnect) {
         FileLogger.warn(`[Signaling] [${conn.rtmsType},${meetingUuid},${streamId}] Aborting - RTMS stopped`);

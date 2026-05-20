@@ -10,6 +10,8 @@ import {
 } from '../shared/zoomSignature.js';
 import { isStartEvent, isStopEvent } from '../shared/regions.js';
 import { SqliteRoutingStore } from '../shared/sqliteRoutingStore.js';
+import { postRealtimeEvent, postWebhookObservation } from '../shared/realtimeCacheClient.js';
+import { createRtmsObservabilityLogger } from '../shared/rtmsObservabilityLogger.js';
 
 dotenv.config();
 
@@ -25,7 +27,15 @@ const ingressRoutingKey = process.env.RABBITMQ_INGRESS_ROUTING_KEY || 'webhook.r
 const idempotencyTtlMs = Number(process.env.WEBHOOK_IDEMPOTENCY_TTL_MS || 65 * 60 * 1000);
 const idempotencySweepIntervalMs = Number(process.env.WEBHOOK_IDEMPOTENCY_SWEEP_INTERVAL_MS || 60 * 1000);
 const sqliteDbPath = process.env.HUB_SQLITE_DB_PATH || process.env.SQLITE_DB_PATH || '.data/hub.sqlite';
+const realtimeCacheUrl = process.env.REALTIME_CACHE_URL || '';
 const routingStore = new SqliteRoutingStore(sqliteDbPath);
+const logger = createRtmsObservabilityLogger({
+  service: 'centralized-webhook-hub',
+  regionCode: 'central',
+  nodeId: process.env.NODE_ID || `hub-${process.pid}`,
+  level: process.env.SERVICE_LOG_LEVEL || process.env.RTMS_LOG_LEVEL || 'info',
+  console: process.env.SERVICE_LOG_CONSOLE !== 'false'
+});
 let rabbitChannel = null;
 
 if (deliveryMode === 'rabbitmq') {
@@ -65,7 +75,7 @@ app.post(webhookPath, async (req, res) => {
     try {
       return res.json(buildUrlValidationResponse(payload.plainToken, secretToken));
     } catch (error) {
-      console.error(`[01-centralized-webhook-hub] URL validation failed: ${error.message}`);
+      logger.error(`[01-centralized-webhook-hub] URL validation failed: ${error.message}`);
       return res.status(500).json({ error: 'webhook_secret_not_configured' });
     }
   }
@@ -80,16 +90,28 @@ app.post(webhookPath, async (req, res) => {
 
   if (!verification.ok) {
     const status = verification.reason === 'missing_webhook_secret_token' ? 500 : 401;
-    console.warn(`[01-centralized-webhook-hub] rejected webhook event=${event} reason=${verification.reason}`);
+    logger.warn(`[01-centralized-webhook-hub] rejected webhook event=${event} reason=${verification.reason}`);
+    recordWebhookObservation('unverified', { event, reason: verification.reason });
     return res.status(status).json({ error: 'invalid_zoom_webhook', reason: verification.reason });
   }
 
   const envelope = buildEnvelope(event, payload, 'centralized-webhook-hub', req.body);
   const duplicate = isRtmsEvent(event) ? acceptWebhookIdempotency(envelope).duplicate : false;
   if (duplicate) {
-    console.log(`[01-centralized-webhook-hub] duplicate RTMS webhook dropped event=${event} stream=${envelope.streamId} key=${envelope.idempotencyKey}`);
+    logger.info(`[01-centralized-webhook-hub] duplicate RTMS webhook dropped event=${event} stream=${envelope.streamId} key=${envelope.idempotencyKey}`);
+    recordWebhookObservation('duplicate', { envelope });
     return res.set('x-rtms-duplicate', 'true').sendStatus(204);
   }
+
+  recordWebhookObservation('accepted', { envelope });
+  recordAcceptedWebhookLatency(envelope, verification);
+  logger.info('[01-centralized-webhook-hub] accepted webhook', {
+    event,
+    eventType: envelope.eventType,
+    streamId: envelope.streamId,
+    regionCode: envelope.regionCode || 'UNKNOWN',
+    deliveryMode
+  });
 
   if (deliveryMode === 'rabbitmq') {
     if (!rabbitChannel) {
@@ -106,7 +128,7 @@ app.post(webhookPath, async (req, res) => {
       return res.sendStatus(204);
     } catch (error) {
       routingStore.forgetWebhookIdempotency(envelope.idempotencyKey);
-      console.error(`[01-centralized-webhook-hub] durable queue publish failed: ${error.message}`);
+      logger.error(`[01-centralized-webhook-hub] durable queue publish failed: ${error.message}`);
       return res.status(503).json({ error: 'webhook_queue_publish_failed' });
     }
   }
@@ -116,7 +138,7 @@ app.post(webhookPath, async (req, res) => {
 });
 
 app.listen(port, () => {
-  console.log(`[01-centralized-webhook-hub] listening on http://127.0.0.1:${port}${webhookPath} deliveryMode=${deliveryMode}`);
+  logger.info(`[01-centralized-webhook-hub] listening on http://127.0.0.1:${port}${webhookPath} deliveryMode=${deliveryMode}`);
 });
 
 function getSecretTokenForEvent(event = '') {
@@ -141,9 +163,57 @@ function acceptWebhookIdempotency(envelope) {
   });
 }
 
+function recordAcceptedWebhookLatency(envelope, verification) {
+  if (!realtimeCacheUrl || !envelope.streamId || !isRtmsEvent(envelope.event)) return;
+
+  const latencyMs = verification.timestampMs
+    ? Math.max(0, Date.now() - Number(verification.timestampMs))
+    : null;
+  if (!Number.isFinite(latencyMs)) return;
+
+  const common = {
+    source: 'centralized-webhook-hub',
+    regionCode: envelope.regionCode || 'UNKNOWN',
+    nodeId: process.env.NODE_ID || `hub-${process.pid}`,
+    at: envelope.receivedAt,
+    labels: {
+      event: envelope.event,
+      eventType: envelope.eventType,
+      productType: envelope.productType || 'unknown'
+    }
+  };
+
+  fireAndForget(postRealtimeEvent(realtimeCacheUrl, envelope.streamId, {
+    type: 'webhook_accepted',
+    event: envelope.event,
+    eventType: envelope.eventType,
+    productType: envelope.productType || 'unknown',
+    webhookIngressLatencyMs: latencyMs,
+    regionCode: common.regionCode,
+    nodeId: common.nodeId,
+    at: envelope.receivedAt
+  }), 'realtime webhook accepted event');
+}
+
+function recordWebhookObservation(category, details = {}) {
+  if (!realtimeCacheUrl) return;
+  const envelope = details.envelope || null;
+  fireAndForget(postWebhookObservation(realtimeCacheUrl, {
+    category,
+    source: 'centralized-webhook-hub',
+    nodeId: process.env.NODE_ID || `hub-${process.pid}`,
+    event: envelope?.event || details.event || 'unknown',
+    eventType: envelope?.eventType || details.eventType || '',
+    reason: details.reason || '',
+    regionCode: envelope?.regionCode || details.regionCode || 'UNKNOWN',
+    streamId: envelope?.streamId || details.streamId || '',
+    at: envelope?.receivedAt || details.at || new Date().toISOString()
+  }), `webhook ${category} observation`);
+}
+
 setInterval(() => {
   const deleted = routingStore.cleanupExpiredWebhookIdempotency();
   if (deleted > 0) {
-    console.log(`[01-centralized-webhook-hub] expired ${deleted} RTMS idempotency key(s)`);
+    logger.info(`[01-centralized-webhook-hub] expired ${deleted} RTMS idempotency key(s)`);
   }
 }, idempotencySweepIntervalMs).unref();

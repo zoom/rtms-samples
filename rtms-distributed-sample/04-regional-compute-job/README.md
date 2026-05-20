@@ -4,6 +4,8 @@
 
 This is the per-stream worker. It claims the stream lease, starts `RTMSManager`, receives media/lifecycle events, records final media artifacts, updates live state, and exits after stop.
 
+It also forwards RTMSManager logs to Loki when `LOKI_PUSH_URL` is set. The worker records `signaling_ping_rtt_ms` in the realtime cache after the signaling WebSocket answers a ping.
+
 Model:
 
 ```text
@@ -64,6 +66,8 @@ The compute pod does not need to know whether final storage is local disk, MinIO
 | `LEASE_RENEW_INTERVAL_MS` | Lease renewal interval, default `15000` |
 | `ARTIFACT_STORAGE_URL` | Artifact API URL |
 | `REALTIME_CACHE_URL` | Realtime cache URL |
+| `LOKI_PUSH_URL` | Loki push URL for worker and RTMSManager logs |
+| `RTMS_LOG_LEVEL` | Worker and RTMSManager log level |
 | `RTMS_SECRET_DIR` | Mounted secret directory for Zoom credentials |
 
 ## Related

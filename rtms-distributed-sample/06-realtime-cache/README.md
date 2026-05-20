@@ -12,6 +12,7 @@ It is for active-meeting views only:
 - active stream state by region
 - node health snapshots
 - latency, reconnect, media-byte, and media-gap counters
+- lowest, highest, and average latency for selected measurements
 - dashboard data for current calls
 
 It is not the source of truth after the meeting. Durable state belongs in the control store, and media bytes belong in artifact storage.
@@ -53,6 +54,10 @@ curl -X POST http://127.0.0.1:4560/streams/stream-123/metrics \
   -H 'content-type: application/json' \
   -d '{"metrics":{"audio_bytes_total":4096,"video_bytes_total":8192}}'
 
+curl -X POST http://127.0.0.1:4560/streams/stream-123/latency \
+  -H 'content-type: application/json' \
+  -d '{"name":"webhook_ingress_latency_ms","valueMs":120,"source":"centralized-webhook-hub","regionCode":"amer-east"}'
+
 curl -X POST http://127.0.0.1:4560/streams/stream-123/summary \
   -H 'content-type: application/json' \
   -d '{"text":"Customer is asking about a billing issue","userName":"Alice"}'
@@ -60,7 +65,14 @@ curl -X POST http://127.0.0.1:4560/streams/stream-123/summary \
 curl http://127.0.0.1:4560/streams/stream-123
 ```
 
-The compute job uses `REALTIME_CACHE_URL` to send state, events, and aggregated media metrics. It buffers media counters and flushes them every few seconds so it does not make an HTTP call for every media packet.
+The hub uses `REALTIME_CACHE_URL` to send accepted webhook ingress latency. The compute job uses `REALTIME_CACHE_URL` to send state, events, signaling ping RTT, and aggregated media metrics. It buffers media counters and flushes them every few seconds so it does not make an HTTP call for every media packet.
+
+Current latency keys:
+
+| Metric | Meaning |
+|--------|---------|
+| `webhook_ingress_latency_ms` | Zoom signed webhook timestamp to hub receive time |
+| `signaling_ping_rtt_ms` | Regional RTMSManager worker to Zoom signaling WebSocket ping RTT |
 
 Suggested keys stay readable:
 
@@ -79,4 +91,4 @@ REALTIME_CACHE_TTL_SECONDS=7200
 REALTIME_CACHE_MAX_EVENTS=100
 ```
 
-Prometheus can scrape `/metrics`; Grafana can read Prometheus for active stream counts and metric sums.
+Prometheus can scrape `/metrics`; Grafana can read Prometheus for active stream counts, metric sums, and latency min/max/average gauges.

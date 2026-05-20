@@ -2,6 +2,7 @@ import dotenv from 'dotenv';
 import express from 'express';
 import path from 'path';
 import { SQLiteControlStore } from './sqliteControlStore.js';
+import { createRtmsObservabilityLogger } from '../shared/rtmsObservabilityLogger.js';
 
 dotenv.config();
 
@@ -12,6 +13,13 @@ const regionCode = process.env.STORE_REGION || process.env.SPOKE_REGION || null;
 const dataDir = process.env.CONTROL_DATA_DIR || process.env.CENTRAL_DATA_DIR || `.data/${storeRole}${regionCode ? `-${regionCode}` : ''}`;
 const dbPath = process.env.CONTROL_SQLITE_DB_PATH || path.join(dataDir, 'control.sqlite');
 const store = new SQLiteControlStore({ rootDir: dataDir, dbPath });
+const logger = createRtmsObservabilityLogger({
+  service: 'control-store',
+  regionCode: regionCode || storeRole,
+  nodeId: process.env.NODE_ID || `control-store-${storeRole}-${process.pid}`,
+  level: process.env.SERVICE_LOG_LEVEL || process.env.RTMS_LOG_LEVEL || 'info',
+  console: process.env.SERVICE_LOG_CONSOLE !== 'false'
+});
 
 app.use(express.json({ limit: '25mb' }));
 
@@ -51,22 +59,28 @@ app.get('/artifacts/:artifactId', (req, res) => {
 
 app.put('/streams/:streamId/route', (req, res) => {
   const stream = store.upsertRoute(req.params.streamId, req.body || {});
+  logger.info(`[05-control-store] route upserted stream=${req.params.streamId} role=${storeRole}`);
   res.json(stream);
 });
 
 app.post('/streams/:streamId/claim', (req, res) => {
   const result = store.claimStream(req.params.streamId, req.body || {});
+  logger.info(`[05-control-store] claim stream=${req.params.streamId} role=${storeRole} claimed=${result.claimed}`);
   res.status(result.claimed ? 200 : 409).json(result);
 });
 
 app.post('/streams/:streamId/lease-renew', (req, res) => {
   const result = store.renewLease(req.params.streamId, req.body || {});
+  if (!result.renewed) {
+    logger.warn(`[05-control-store] lease renew rejected stream=${req.params.streamId} role=${storeRole}`);
+  }
   res.status(result.renewed ? 200 : 409).json(result);
 });
 
 app.post('/streams/:streamId/release', (req, res) => {
   const stream = store.releaseStream(req.params.streamId, req.body || {});
   if (!stream) return res.status(404).json({ error: 'stream_not_found' });
+  logger.info(`[05-control-store] release stream=${req.params.streamId} role=${storeRole}`);
   return res.json(stream);
 });
 
@@ -91,5 +105,5 @@ app.post('/streams/:streamId/blobs', (req, res) => {
 });
 
 app.listen(port, () => {
-  console.log(`[05-control-store] ${storeRole} store listening on http://127.0.0.1:${port}`);
+  logger.info(`[05-control-store] ${storeRole} store listening on http://127.0.0.1:${port}`);
 });

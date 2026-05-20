@@ -143,6 +143,7 @@ npm run test:12:realtime-cache
 ```
 
 This starts `06-realtime-cache` in memory mode, writes stream state, summary, metrics, and events through the HTTP API, verifies the dashboard route, and checks the Prometheus `/metrics` output.
+It also writes sample webhook and signaling latency values and verifies lowest, highest, average, and Prometheus latency output.
 
 ## Optional RabbitMQ Queue Smoke Test
 

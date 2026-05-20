@@ -9,6 +9,7 @@ import {
   parseSpokeGroupMapping
 } from '../shared/regions.js';
 import { SqliteRoutingStore } from '../shared/sqliteRoutingStore.js';
+import { createRtmsObservabilityLogger } from '../shared/rtmsObservabilityLogger.js';
 
 dotenv.config();
 
@@ -19,6 +20,13 @@ const routingStore = new SqliteRoutingStore(sqliteDbPath);
 const spokeEndpoints = parseRegionalSpokeEndpoints();
 const spokeGroupByCode = parseSpokeGroupMapping();
 const internalWebhookSecret = process.env.INTERNAL_WEBHOOK_SECRET || process.env.SPOKE_WEBHOOK_SECRET;
+const logger = createRtmsObservabilityLogger({
+  service: 'central-route-dispatcher',
+  regionCode: 'central',
+  nodeId: process.env.NODE_ID || `dispatcher-${process.pid}`,
+  level: process.env.SERVICE_LOG_LEVEL || process.env.RTMS_LOG_LEVEL || 'info',
+  console: process.env.SERVICE_LOG_CONSOLE !== 'false'
+});
 
 app.use(express.json({ limit: '10mb' }));
 
@@ -41,7 +49,7 @@ app.post('/orchestrate/webhook', (req, res) => {
 
 async function orchestrate(envelope) {
   if (!envelope.streamId || !envelope.event) {
-    console.warn('[02-central-route-dispatcher] ignoring malformed envelope');
+    logger.warn('[02-central-route-dispatcher] ignoring malformed envelope');
     return;
   }
 
@@ -82,7 +90,7 @@ async function routeStop(envelope) {
   if (route) {
     regionCode = route.spokeGroup || route.regionCode;
   } else {
-    console.warn(`[02-central-route-dispatcher] no route for stop ${envelope.streamId}; using UNKNOWN fallback`);
+    logger.warn(`[02-central-route-dispatcher] no route for stop ${envelope.streamId}; using UNKNOWN fallback`);
   }
 
   routingStore.writeStreamState(envelope.streamId, {
@@ -111,7 +119,7 @@ async function forwardToSpoke(regionCode, envelope) {
     throw new Error(`No regional spoke endpoint configured for code=${normalizedCode} spokeGroup=${spokeGroup}`);
   }
 
-  console.log(`[02-central-route-dispatcher] ${envelope.event} stream=${envelope.streamId} code=${normalizedCode} spokeGroup=${spokeGroup} -> ${endpoint}`);
+  logger.info(`[02-central-route-dispatcher] ${envelope.event} stream=${envelope.streamId} code=${normalizedCode} spokeGroup=${spokeGroup} -> ${endpoint}`);
   await postJson(endpoint, envelope, {
     timeoutMs: 3000,
     signingSecret: internalWebhookSecret
@@ -131,5 +139,5 @@ function parseRegionalSpokeEndpoints() {
 }
 
 app.listen(port, () => {
-  console.log(`[02-central-route-dispatcher] listening on http://127.0.0.1:${port}/orchestrate/webhook`);
+  logger.info(`[02-central-route-dispatcher] listening on http://127.0.0.1:${port}/orchestrate/webhook`);
 });

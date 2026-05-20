@@ -301,6 +301,10 @@ export class RTMSManager extends EventEmitter {
       FileLogger.setLevel('off');
     }
 
+    if (options.logger && typeof FileLogger.addSink === 'function') {
+      FileLogger.addSink('rtms-manager-custom-logger', options.logger);
+    }
+
     // Handle the master gap filler flag
     if (config.enableRealTimeAudioVideoGapFiller) {
       config.enableGapFilling = true;
@@ -576,7 +580,12 @@ export class RTMSManager extends EventEmitter {
 
       this.connectionManager.remove(streamId);
     } else {
-      this.logger.warn(`[RTMSManager] No handler found for streamId ${streamId}`);
+      const archived = RTMSManager.instance?.streamHistory?.get(streamId);
+      if (archived) {
+        this.logger.log(`[RTMSManager] Stream ${streamId} was already stopped and archived`);
+        return;
+      }
+      this.logger.log(`[RTMSManager] Ignoring stop for unknown streamId ${streamId}`);
     }
   }
 

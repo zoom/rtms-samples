@@ -10,7 +10,8 @@ The short version:
 - the worker runs `RTMSManager`
 - final audio/video/manifest files go through the artifact storage API
 - live state goes to the realtime cache
-- logs and metrics go to the observability layer
+- accepted webhook latency and Zoom signaling RTT go to the realtime cache
+- service and RTMSManager logs go to the observability layer
 
 This is still a sample, not a production blueprint. The important shape is fanout to the right region, then fanin through storage, cache, logs, and cleanup.
 
@@ -18,18 +19,24 @@ This is still a sample, not a production blueprint. The important shape is fanou
 
 ```mermaid
 flowchart TD
-  Zoom[Zoom RTMS webhook] --> Hub[01 centralized webhook hub<br/>verify, dedupe, route]
+  Zoom[Zoom RTMS webhook] --> Hub[01 centralized webhook hub<br/>verify signature, reject stale, dedupe]
   Hub --> Dispatcher[02 central route dispatcher<br/>selected-spoke handoff]
-  Dispatcher --> Central[(05 control store<br/>central SQLite<br/>accepted event, route, global lookup)]
-  Central --> Spoke[03 selected regional webhook spoke]
+  Hub -->|webhook latency and rolling counts| Cache[06 realtime cache<br/>active state, latency, webhook counters, media byte counters]
+  Hub -->|structured logs| Obs[07 observability<br/>Prometheus, Loki, Grafana]
+  Dispatcher --> Central[(05 central control store<br/>accepted event, route, global lookup)]
+  Central -->|selected route| Spoke[03 selected regional webhook spoke]
+  Spoke -->|structured logs| Obs
   Spoke --> Launcher[04 regional compute launcher]
   Launcher --> Job[Kubernetes/k3s Job<br/>one pod per stream]
-  Job --> Regional[(05 control store<br/>regional SQLite<br/>lease and active state)]
+  Launcher -->|structured logs| Obs
+  Job --> Regional[(05 regional control store<br/>lease, owner, active state)]
   Job --> Manager[04 regional compute job<br/>RTMSManager signaling and media]
+  Job -->|RTT, state, packet and byte counters| Cache
+  Job -->|structured logs| Obs
   Job --> Artifact[08 artifact storage API]
   Artifact --> Blob[(local disk / MinIO / S3 / Azure / GCS)]
-  Job --> Cache[06 realtime cache<br/>hot state and metrics]
-  Job --> Obs[07 logs, metrics, dashboards]
+  Artifact -->|metadata pointer| Central
+  Cache -->|/metrics scrape| Obs
   Hub -. stop events use saved route .-> Central
 ```
 
@@ -46,13 +53,19 @@ Zoom RTMS webhook
   -> 04 regional compute job / RTMSManager
   -> 05 control store, regional lease/active state
   -> 08 artifact storage for final files
-  -> 06 realtime cache for active state
+  -> 06 realtime cache for active state and latency stats
   -> 07 observability for logs and dashboards
 ```
 
 For `rtms_started`, the hub reads the Zoom signaling URL hint and maps it to a spoke group such as `amer-east`, `amer-west`, `europe`, or `apac-hub`.
 
 For `rtms_stopped`, the hub uses the saved route for the `rtms_stream_id`. Stop events should go back to the same selected region.
+
+For accepted RTMS webhooks, the hub records `webhook_ingress_latency_ms` as the time between Zoom's signed `x-zm-request-timestamp` and the hub receive time. For live RTMS connections, `RTMSManager` emits `signaling_ping_rtt_ms` after the signaling WebSocket answers a ping. The realtime cache dashboard shows lowest, highest, and average values for both.
+
+The realtime cache dashboard also shows active streams, media volume in MiB, and rolling webhook counts for the past minute, 60 minutes, and 24 hours. The webhook counters separate total, accepted, unverified, and duplicate attempts.
+
+Media volume is stored as byte counters and displayed as MiB. The compute job increments counters from the received RTMS media event buffer and flushes the totals to the realtime cache in batches, instead of writing one cache record per media packet.
 
 ## Folder Guide
 
@@ -126,11 +139,21 @@ Fill these groups first:
 | Kubernetes launcher | `KUBECONFIG`, `KUBECONFIG_INLINE_B64`, `K8S_COMPUTE_IMAGE`, `K8S_NAMESPACE` |
 | Artifact storage | `ARTIFACT_STORAGE_PROVIDER`, `ARTIFACT_BUCKET`, `ARTIFACT_S3_ENDPOINT`, `AWS_ACCESS_KEY_ID`, `AWS_SECRET_ACCESS_KEY` |
 | Realtime cache | `REDIS_PASSWORD`, `REALTIME_CACHE_REDIS_URL`, `REALTIME_CACHE_REDIS_PASSWORD` |
+| Observability | `LOKI_PUSH_URL`, `COMPUTE_LOKI_PUSH_URL`, `SERVICE_LOG_LEVEL`, `RTMS_LOG_LEVEL` |
 | Media request | `MEDIA_TYPES_FLAG`, `AUDIO_STREAM_MODE`, `VIDEO_STREAM_MODE` |
 
 `MEDIA_TYPES_FLAG=32` requests all available RTMS media. Use `3` for audio + video or `9` for audio + transcript.
 
 For Kubernetes Jobs, changing the host `.env` is not enough. Update the Kubernetes Secret and recreate old failed Jobs so new pods receive current credentials.
+
+For a local k3s cluster using a DNS endpoint, keep the kubeconfig server and TLS server name aligned. For example:
+
+```yaml
+server: https://proxmox-ubuntu-k3s.home.arpa:6443
+tls-server-name: proxmox-ubuntu-k3s
+```
+
+`tls-server-name` is only needed when the API endpoint DNS name is not present in the k3s certificate SAN list. If you use `KUBECONFIG_INLINE_B64`, regenerate it after changing the kubeconfig file.
 
 ## Media And Artifacts
 
@@ -156,6 +179,7 @@ Keep these rules in mind while changing the sample:
 - keep lease TTL below the RTMS reconnect window
 - keep realtime cache disposable
 - put large final files in object storage, not SQLite
+- send service logs to Loki and active latency stats to the realtime cache
 - keep `blog.md`, `.env`, recordings, `.data`, and `node_modules` out of git
 
 ## Useful Links

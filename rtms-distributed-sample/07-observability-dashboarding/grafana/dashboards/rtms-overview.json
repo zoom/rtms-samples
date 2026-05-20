@@ -39,6 +39,7 @@
       "targets": [
         {
           "expr": "rtms_realtime_active_streams",
+          "legendFormat": "active streams",
           "refId": "A"
         }
       ],
@@ -52,7 +53,7 @@
       },
       "fieldConfig": {
         "defaults": {
-          "unit": "bytes"
+          "unit": "short"
         },
         "overrides": []
       },
@@ -79,11 +80,12 @@
       },
       "targets": [
         {
-          "expr": "sum(rtms_realtime_metric_sum{metric=~\"audio_bytes_total|video_bytes_total\"})",
+          "expr": "sum(rtms_realtime_metric_sum{metric=~\"audio_bytes_total|video_bytes_total\"}) / 1024 / 1024",
+          "legendFormat": "media MiB",
           "refId": "A"
         }
       ],
-      "title": "Realtime Media Bytes",
+      "title": "Realtime Media MiB",
       "type": "stat"
     },
     {
@@ -118,6 +120,7 @@
       "targets": [
         {
           "expr": "rtms_realtime_active_streams_by_region",
+          "legendFormat": "{{region}}",
           "refId": "A"
         }
       ],
@@ -154,10 +157,50 @@
       "targets": [
         {
           "expr": "up",
+          "legendFormat": "{{job}}",
           "refId": "A"
         }
       ],
       "title": "Scrape Health",
+      "type": "timeseries"
+    },
+    {
+      "datasource": {
+        "type": "prometheus",
+        "uid": "Prometheus"
+      },
+      "fieldConfig": {
+        "defaults": {
+          "unit": "short"
+        },
+        "overrides": []
+      },
+      "gridPos": {
+        "h": 8,
+        "w": 12,
+        "x": 12,
+        "y": 8
+      },
+      "id": 5,
+      "options": {
+        "legend": {
+          "displayMode": "list",
+          "placement": "bottom",
+          "showLegend": true
+        },
+        "tooltip": {
+          "mode": "single",
+          "sort": "none"
+        }
+      },
+      "targets": [
+        {
+          "expr": "rtms_webhook_observations_window",
+          "legendFormat": "{{category}} {{window}}",
+          "refId": "A"
+        }
+      ],
+      "title": "Webhook Rolling Counts",
       "type": "timeseries"
     }
   ],
@@ -175,5 +218,5 @@
   },
   "title": "RTMS Overview",
   "uid": "rtms-overview",
-  "version": 2
+  "version": 4
 }

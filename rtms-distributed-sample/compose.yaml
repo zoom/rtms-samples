@@ -90,7 +90,7 @@ services:
       - --storage.tsdb.path=/prometheus
       - --storage.tsdb.retention.time=${PROMETHEUS_RETENTION:-15d}
     ports:
-      - "127.0.0.1:${PROMETHEUS_PORT:-9090}:9090"
+      - "${OBSERVABILITY_BIND_ADDR:-127.0.0.1}:${PROMETHEUS_PORT:-9090}:9090"
     volumes:
       - type: bind
         source: ./07-observability-dashboarding/prometheus/prometheus.yml
@@ -107,7 +107,7 @@ services:
     command:
       - -config.file=/etc/loki/local-config.yaml
     ports:
-      - "127.0.0.1:${LOKI_PORT:-3100}:3100"
+      - "${OBSERVABILITY_BIND_ADDR:-127.0.0.1}:${LOKI_PORT:-3100}:3100"
     volumes:
       - type: bind
         source: ./07-observability-dashboarding/loki/loki.yml
@@ -124,9 +124,9 @@ services:
     command:
       - --config=/etc/otelcol-contrib/config.yaml
     ports:
-      - "127.0.0.1:${OTEL_GRPC_PORT:-4317}:4317"
-      - "127.0.0.1:${OTEL_HTTP_PORT:-4318}:4318"
-      - "127.0.0.1:${OTEL_METRICS_PORT:-8889}:8889"
+      - "${OBSERVABILITY_BIND_ADDR:-127.0.0.1}:${OTEL_GRPC_PORT:-4317}:4317"
+      - "${OBSERVABILITY_BIND_ADDR:-127.0.0.1}:${OTEL_HTTP_PORT:-4318}:4318"
+      - "${OBSERVABILITY_BIND_ADDR:-127.0.0.1}:${OTEL_METRICS_PORT:-8889}:8889"
     volumes:
       - type: bind
         source: ./07-observability-dashboarding/otel/otel-collector.yml
@@ -148,7 +148,7 @@ services:
       GF_SECURITY_ADMIN_PASSWORD: ${GRAFANA_ADMIN_PASSWORD:-admin}
       GF_USERS_ALLOW_SIGN_UP: "false"
     ports:
-      - "127.0.0.1:${GRAFANA_PORT:-3001}:3000"
+      - "${OBSERVABILITY_BIND_ADDR:-127.0.0.1}:${GRAFANA_PORT:-3001}:3000"
     volumes:
       - type: bind
         source: ./.data/grafana

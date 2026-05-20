@@ -103,7 +103,7 @@ setInterval(() => {
 
 async function handleEnvelope(envelope) {
   if (!envelope.streamId || !envelope.event) {
-    console.warn('[regional-compute-job] ignoring malformed envelope');
+    rtmsLogger.warn('[regional-compute-job] ignoring malformed envelope');
     return;
   }
 
@@ -237,7 +237,7 @@ async function renewLease(stream) {
   }, { timeoutMs: 2000 });
 
   if (!renewal.renewed) {
-    console.warn(`[regional-compute-job] lease lost for ${stream.streamId}; closing local RTMS connection`);
+    rtmsLogger.warn(`[regional-compute-job] lease lost for ${stream.streamId}; closing local RTMS connection`);
     localStreams.delete(stream.streamId);
     if (!dryRun) {
       await closeRtmsStream(stream.streamId);
@@ -252,7 +252,7 @@ async function renewLease(stream) {
       return;
     }
 
-    console.warn(`[regional-compute-job] stop requested for ${stream.streamId} but no stop envelope was stored`);
+    rtmsLogger.warn(`[regional-compute-job] stop requested for ${stream.streamId} but no stop envelope was stored`);
   }
 }
 
@@ -355,6 +355,23 @@ async function initializeRtmsManager() {
   RTMSManager.on('error', (error) => {
     console.error('[regional-compute-job] RTMS error:', error.toString ? error.toString() : error);
     rtmsLogger.error('[regional-compute-job] RTMS error:', error.toString ? error.toString() : error);
+  });
+
+  RTMSManager.on('signaling_ping_rtt', (event) => {
+    if (!event?.streamId || !Number.isFinite(Number(event.rttMs))) return;
+    const rttMs = Number(event.rttMs);
+    rtmsLogger.info('[regional-compute-job] signaling ping rtt', {
+      streamId: event.streamId,
+      rttMs,
+      signalingHost: event.signalingHost || 'unknown'
+    });
+    fireAndForget(writeRealtimeEvent(event.streamId, {
+      type: 'signaling_ping_rtt',
+      rttMs,
+      signalingHost: event.signalingHost || 'unknown',
+      productType: event.productType || 'unknown',
+      at: event.at || new Date().toISOString()
+    }), 'realtime signaling ping event');
   });
 
   RTMSManager.on('stream_state_changed', (event) => {
@@ -470,7 +487,7 @@ async function closeRtmsStream(streamId) {
   try {
     RTMSManager.requestStreamClose(streamId);
   } catch (error) {
-    console.warn(`[regional-compute-job] RTMS stream close request failed for ${streamId}; stopping RTMSManager: ${error.message}`);
+    rtmsLogger.warn(`[regional-compute-job] RTMS stream close request failed for ${streamId}; stopping RTMSManager: ${error.message}`);
   }
 
   await RTMSManager.stop();
@@ -526,7 +543,7 @@ async function finalizeMediaArtifacts(envelope, stream = null) {
 
     return artifacts;
   } catch (error) {
-    console.warn(`[regional-compute-job] media artifact finalize/upload failed stream=${envelope.streamId}: ${error.message}`);
+    rtmsLogger.warn(`[regional-compute-job] media artifact finalize/upload failed stream=${envelope.streamId}: ${error.message}`);
     fireAndForget(writeRealtimeEvent(envelope.streamId, {
       type: 'artifact_upload_failed',
       reason: error.message,
@@ -589,7 +606,7 @@ async function writeFinalManifest(envelope, stream = null, artifacts = []) {
 
     await writeRegionalBlob(envelope.streamId, toBlobRecord(upload.artifact));
   } catch (error) {
-    console.warn(`[regional-compute-job] final manifest upload failed stream=${envelope.streamId}: ${error.message}`);
+    rtmsLogger.warn(`[regional-compute-job] final manifest upload failed stream=${envelope.streamId}: ${error.message}`);
   }
 }
 
@@ -649,12 +666,12 @@ async function syncToCentralStore(streamId, resource, body) {
       retryPolicy: { maxAttempts: 2, maxDelayMs: 1000 }
     });
   } catch (error) {
-    console.warn(`[regional-compute-job] central sync failed stream=${streamId} resource=${resource}: ${error.message}`);
+    rtmsLogger.warn(`[regional-compute-job] central sync failed stream=${streamId} resource=${resource}: ${error.message}`);
   }
 }
 
 const server = app.listen(port, () => {
-  console.log(`[04-regional-compute-job] ${nodeId} listening on http://127.0.0.1:${port}/compute/webhook dryRun=${dryRun}`);
+  rtmsLogger.info(`[04-regional-compute-job] ${nodeId} listening on http://127.0.0.1:${port}/compute/webhook dryRun=${dryRun}`);
   if (startupEnvelopeFile) {
     fireAndForget(loadAndHandleStartupEnvelopeFile(startupEnvelopeFile), `startup envelope file ${startupEnvelopeFile}`);
     return;
@@ -671,14 +688,14 @@ async function shutdown(signal) {
   if (shutdownStarted) return;
   shutdownStarted = true;
 
-  console.log(`[regional-compute-job] received ${signal}; stopping RTMSManager`);
+  rtmsLogger.info(`[regional-compute-job] received ${signal}; stopping RTMSManager`);
 
   try {
     if (!dryRun) {
       await RTMSManager.stop();
     }
   } catch (error) {
-    console.warn(`[regional-compute-job] RTMSManager stop failed: ${error.message}`);
+    rtmsLogger.warn(`[regional-compute-job] RTMSManager stop failed: ${error.message}`);
   }
 
   try {
@@ -686,7 +703,7 @@ async function shutdown(signal) {
     realtimeMetrics.stop();
     await rtmsLogger.stop?.();
   } catch (error) {
-    console.warn(`[regional-compute-job] telemetry flush failed: ${error.message}`);
+    rtmsLogger.warn(`[regional-compute-job] telemetry flush failed: ${error.message}`);
   }
 
   server.close(() => process.exit(0));

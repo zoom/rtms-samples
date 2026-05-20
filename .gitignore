@@ -67,6 +67,7 @@ coverage/
 # Temporary files
 tmp/
 temp/
+temp/*
 
 # Cache directories
 .npm
@@ -98,4 +99,3 @@ htmlcov/
 demos/
 boilerplate/working_sdk_zoom_room_screenshot
 boilerplate/working_python_wss_zoom_room_screenshot
-

@@ -41,11 +41,20 @@ export function verifyZoomWebhookRequest(req, secretToken, options = {}) {
     return { ok: false, reason: 'invalid_x_zm_request_timestamp' };
   }
 
+  const nowMs = Date.now();
+  const timestampMs = timestampSeconds * 1000;
+  const ageSeconds = Math.abs(Math.floor(nowMs / 1000) - timestampSeconds);
+
   if (toleranceSeconds > 0) {
-    const nowSeconds = Math.floor(Date.now() / 1000);
-    const ageSeconds = Math.abs(nowSeconds - timestampSeconds);
     if (ageSeconds > toleranceSeconds) {
-      return { ok: false, reason: 'stale_x_zm_request_timestamp', ageSeconds };
+      return {
+        ok: false,
+        reason: 'stale_x_zm_request_timestamp',
+        ageSeconds,
+        timestampSeconds,
+        timestampMs,
+        receivedAtMs: nowMs
+      };
     }
   }
 
@@ -57,7 +66,14 @@ export function verifyZoomWebhookRequest(req, secretToken, options = {}) {
     return { ok: false, reason: 'invalid_x_zm_signature' };
   }
 
-  return { ok: true, reason: 'verified' };
+  return {
+    ok: true,
+    reason: 'verified',
+    timestampSeconds,
+    timestampMs,
+    receivedAtMs: nowMs,
+    ageSeconds
+  };
 }
 
 export function buildZoomWebhookSignature(rawBody, secretToken, timestamp) {

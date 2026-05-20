@@ -3,6 +3,7 @@ import express from 'express';
 import { fireAndForget } from '../shared/http.js';
 import { KubernetesJobLauncher, buildKubernetesJobName } from '../shared/kubernetesJobLauncher.js';
 import { isStartEvent, isStopEvent } from '../shared/regions.js';
+import { createRtmsObservabilityLogger } from '../shared/rtmsObservabilityLogger.js';
 
 dotenv.config({ override: true });
 
@@ -18,6 +19,13 @@ const computeRealtimeCacheUrl = process.env.COMPUTE_REALTIME_CACHE_URL || proces
 const jobPrefix = process.env.K8S_JOB_PREFIX || `rtms-${regionCode}`;
 const stopJobDeleteDelayMs = Number(process.env.K8S_STOP_JOB_DELETE_DELAY_MS || 25000);
 const computeImagePullPolicy = process.env.K8S_IMAGE_PULL_POLICY || (process.env.K8S_COMPUTE_IMAGE ? 'Always' : 'IfNotPresent');
+const logger = createRtmsObservabilityLogger({
+  service: 'regional-compute-launcher',
+  regionCode,
+  nodeId: process.env.NODE_ID || `compute-launcher-${regionCode}-${process.pid}`,
+  level: process.env.SERVICE_LOG_LEVEL || process.env.RTMS_LOG_LEVEL || 'info',
+  console: process.env.SERVICE_LOG_CONSOLE !== 'false'
+});
 const launcher = new KubernetesJobLauncher({
   kubeconfig: process.env.KUBECONFIG,
   namespace: process.env.K8S_NAMESPACE || 'rtms'
@@ -61,7 +69,7 @@ app.post('/compute/webhook', async (req, res) => {
 
   res.sendStatus(202);
   handleEnvelope(envelope).catch((error) => {
-    console.error(`[04-regional-compute-launcher] stream=${envelope.streamId} failed: ${error.message}`);
+    logger.error(`[04-regional-compute-launcher] stream=${envelope.streamId} failed: ${error.message}`);
   });
 });
 
@@ -77,7 +85,7 @@ async function handleEnvelope(envelope) {
       stopJobDeleteDelayMs,
       at: new Date().toISOString()
     });
-    console.log(`[04-regional-compute-launcher] stream=${envelope.streamId} stop scheduled -> k8s job=${jobName} delayMs=${stopJobDeleteDelayMs}`);
+    logger.info(`[04-regional-compute-launcher] stream=${envelope.streamId} stop scheduled -> k8s job=${jobName} delayMs=${stopJobDeleteDelayMs}`);
     setTimeout(() => {
       fireAndForget(deleteStoppedJob(jobName, envelopeSecretName, envelope.streamId), `delete stopped job ${jobName}`);
     }, stopJobDeleteDelayMs).unref();
@@ -142,7 +150,7 @@ async function handleEnvelope(envelope) {
     namespace: launched.namespace,
     at: new Date().toISOString()
   });
-  console.log(`[04-regional-compute-launcher] stream=${envelope.streamId} -> k8s job=${launched.jobName} namespace=${launched.namespace}`);
+  logger.info(`[04-regional-compute-launcher] stream=${envelope.streamId} -> k8s job=${launched.jobName} namespace=${launched.namespace}`);
 }
 
 async function deleteStoppedJob(jobName, envelopeSecretName, streamId) {
@@ -156,7 +164,7 @@ async function deleteStoppedJob(jobName, envelopeSecretName, streamId) {
     envelopeSecretName,
     at: new Date().toISOString()
   });
-  console.log(`[04-regional-compute-launcher] stream=${streamId} deleted k8s job=${jobName}`);
+  logger.info(`[04-regional-compute-launcher] stream=${streamId} deleted k8s job=${jobName}`);
 }
 
 function remember(entry) {
@@ -167,5 +175,5 @@ function remember(entry) {
 }
 
 app.listen(port, () => {
-  console.log(`[04-regional-compute-launcher] ${regionCode} listening on http://127.0.0.1:${port}/compute/webhook`);
+  logger.info(`[04-regional-compute-launcher] ${regionCode} listening on http://127.0.0.1:${port}/compute/webhook`);
 });

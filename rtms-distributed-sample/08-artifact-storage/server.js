@@ -5,6 +5,7 @@ import {
   createArtifactStorageProvider
 } from '../shared/artifactStorage.js';
 import { postJson } from '../shared/http.js';
+import { createRtmsObservabilityLogger } from '../shared/rtmsObservabilityLogger.js';
 
 dotenv.config();
 
@@ -13,6 +14,13 @@ const port = Number(process.env.ARTIFACT_STORAGE_PORT || 4550);
 const maxJsonSize = process.env.ARTIFACT_JSON_LIMIT || '100mb';
 const metadataStoreUrl = process.env.ARTIFACT_METADATA_STORE_URL || '';
 const storage = createArtifactStorageProvider();
+const logger = createRtmsObservabilityLogger({
+  service: 'artifact-storage',
+  regionCode: process.env.SPOKE_REGION || process.env.REGION_CODE || 'central',
+  nodeId: process.env.NODE_ID || `artifact-storage-${process.pid}`,
+  level: process.env.SERVICE_LOG_LEVEL || process.env.RTMS_LOG_LEVEL || 'info',
+  console: process.env.SERVICE_LOG_CONSOLE !== 'false'
+});
 
 app.put(
   '/streams/:streamId/artifacts/:artifactType/:fileName',
@@ -32,8 +40,10 @@ app.put(
       });
       const artifact = await storage.put(record);
       await writeMetadataIfConfigured(artifact);
+      logger.info(`[08-artifact-storage] uploaded stream=${artifact.streamId} artifact=${artifact.artifactType} bytes=${artifact.byteSize}`);
       res.status(201).json({ artifact });
     } catch (error) {
+      logger.warn(`[08-artifact-storage] raw upload failed: ${error.message}`);
       res.status(400).json({ error: 'artifact_upload_failed', reason: error.message });
     }
   }
@@ -55,8 +65,10 @@ app.post('/artifacts', async (req, res) => {
     const record = createArtifactRecord(req.body || {});
     const artifact = await storage.put(record);
     await writeMetadataIfConfigured(artifact);
+    logger.info(`[08-artifact-storage] uploaded stream=${artifact.streamId} artifact=${artifact.artifactType} bytes=${artifact.byteSize}`);
     res.status(201).json({ artifact });
   } catch (error) {
+    logger.warn(`[08-artifact-storage] json upload failed: ${error.message}`);
     res.status(400).json({ error: 'artifact_upload_failed', reason: error.message });
   }
 });
@@ -91,7 +103,7 @@ async function writeMetadataIfConfigured(artifact) {
       }
     );
   } catch (error) {
-    console.warn(`[08-artifact-storage] metadata write failed stream=${artifact.streamId}: ${error.message}`);
+    logger.warn(`[08-artifact-storage] metadata write failed stream=${artifact.streamId}: ${error.message}`);
   }
 }
 
@@ -105,5 +117,5 @@ function parseMetadataHeader(value) {
 }
 
 app.listen(port, () => {
-  console.log(`[08-artifact-storage] listening on http://127.0.0.1:${port} provider=${storage.health().provider}`);
+  logger.info(`[08-artifact-storage] listening on http://127.0.0.1:${port} provider=${storage.health().provider}`);
 });
