@@ -15,6 +15,8 @@ The short version:
 
 This is still a sample, not a production blueprint. The important shape is fanout to the right region, then fanin through storage, cache, logs, and cleanup.
 
+The local PM2 and Docker setup runs everything on one host only to make testing easier. In a real deployment, treat these as separate systems: the public hub in the central location, regional spokes and launchers near their target Zoom media regions, regional Kubernetes clusters for compute jobs, durable object storage, and a separate observability stack.
+
 ## Architecture Diagram
 
 ```mermaid
@@ -97,13 +99,13 @@ Create local config:
 cp .env.example .env
 ```
 
-Start local infrastructure:
+Start local single-host infrastructure:
 
 ```bash
 docker compose up -d realtime-cache object-storage prometheus loki otel-collector grafana
 ```
 
-Start the core Node services in separate terminals:
+Start the core Node services in separate terminals. This is the local test shape; production should split these services across the central and regional systems described above.
 
 ```bash
 npm run start:central-store
