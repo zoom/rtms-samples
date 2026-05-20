@@ -1,0 +1,11 @@
+node_modules
+.data
+.git
+.env
+*.log
+*.sqlite
+*.sqlite-shm
+*.sqlite-wal
+07-observability-dashboarding/grafana/data
+07-observability-dashboarding/prometheus/data
+07-observability-dashboarding/loki/data

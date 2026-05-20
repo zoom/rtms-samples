@@ -1,0 +1,52 @@
+# syntax=docker/dockerfile:1.7
+
+FROM node:20-bookworm-slim AS deps
+
+WORKDIR /app
+
+RUN apt-get update \
+  && apt-get install -y --no-install-recommends ca-certificates python3 make g++ \
+  && rm -rf /var/lib/apt/lists/*
+
+COPY --from=rtms-manager . /opt/rtms-manager
+COPY --from=rtms-manager . /opt/library/javascript/rtmsManager
+COPY --from=rtms-common-helpers . /opt/library/javascript/commonHelpers
+COPY package.json package-lock.json ./
+
+RUN node -e "const fs = require('fs'); const pkg = JSON.parse(fs.readFileSync('package.json')); pkg.dependencies['rtms-manager'] = 'file:/opt/rtms-manager'; fs.writeFileSync('package.json', JSON.stringify(pkg, null, 2) + '\\n');" \
+  && npm install --omit=dev \
+  && npm cache clean --force
+
+FROM node:20-bookworm-slim AS runtime
+
+ENV NODE_ENV=production \
+  COMPUTE_PORT=4300 \
+  DRY_RUN=true \
+  RTMS_SECRET_DIR=/var/run/rtms/secrets \
+  RTMS_COMMON_HELPERS_MODULE=/opt/library/javascript/commonHelpers/HelperManager.js \
+  MEDIA_TYPES_FLAG=32
+
+WORKDIR /app
+
+RUN apt-get update \
+  && apt-get install -y --no-install-recommends ca-certificates ffmpeg \
+  && rm -rf /var/lib/apt/lists/*
+
+RUN mkdir -p /var/run/rtms/secrets \
+  && chown -R node:node /app /var/run/rtms
+
+COPY --from=deps /opt/rtms-manager /opt/rtms-manager
+COPY --from=deps /opt/library /opt/library
+COPY --from=deps /app/package.json ./package.json
+COPY --from=deps /app/node_modules ./node_modules
+COPY 04-regional-compute-job ./04-regional-compute-job
+COPY shared ./shared
+
+RUN mkdir -p /app/recordings /opt/library/javascript/logs \
+  && chown -R node:node /app/recordings /opt/library/javascript/logs
+
+USER node
+
+EXPOSE 4300
+
+CMD ["node", "04-regional-compute-job/server.js"]

@@ -17,6 +17,7 @@ yarn-error.log*
 dev-docs/
 dev-docs.json
 zoom-rtms-workflow.md
+rtms-distributed-sample/blog.md
 
 # Runtime data
 pids

@@ -1,0 +1,725 @@
+{
+  "metadata": {
+    "generatedBy": "02-central-route-dispatcher/rabbitmq/generateDefinitions.js",
+    "regions": [
+      "SJC",
+      "IAD",
+      "AMS",
+      "FRA",
+      "MEL",
+      "SYD",
+      "YYZ",
+      "SIN",
+      "NRT",
+      "HKG",
+      "UNKNOWN"
+    ],
+    "startMessageTtlMs": 60000
+  },
+  "vhosts": [
+    {
+      "name": "rtms"
+    }
+  ],
+  "exchanges": [
+    {
+      "name": "rtms.ingress",
+      "vhost": "rtms",
+      "type": "topic",
+      "durable": true,
+      "auto_delete": false,
+      "internal": false,
+      "arguments": {}
+    },
+    {
+      "name": "rtms.webhooks",
+      "vhost": "rtms",
+      "type": "topic",
+      "durable": true,
+      "auto_delete": false,
+      "internal": false,
+      "arguments": {}
+    },
+    {
+      "name": "rtms.dead",
+      "vhost": "rtms",
+      "type": "topic",
+      "durable": true,
+      "auto_delete": false,
+      "internal": false,
+      "arguments": {}
+    }
+  ],
+  "queues": [
+    {
+      "name": "rtms.webhooks.inbox",
+      "vhost": "rtms",
+      "durable": true,
+      "auto_delete": false,
+      "arguments": {
+        "x-queue-type": "quorum",
+        "x-dead-letter-exchange": "rtms.dead"
+      }
+    },
+    {
+      "name": "rtms.start.region.sjc",
+      "vhost": "rtms",
+      "durable": true,
+      "auto_delete": false,
+      "arguments": {
+        "x-queue-type": "quorum",
+        "x-dead-letter-exchange": "rtms.dead",
+        "x-dead-letter-routing-key": "start.expired.region.sjc",
+        "x-message-ttl": 60000
+      }
+    },
+    {
+      "name": "rtms.stop.region.sjc",
+      "vhost": "rtms",
+      "durable": true,
+      "auto_delete": false,
+      "arguments": {
+        "x-queue-type": "quorum",
+        "x-dead-letter-exchange": "rtms.dead"
+      }
+    },
+    {
+      "name": "rtms.recovery.region.sjc",
+      "vhost": "rtms",
+      "durable": true,
+      "auto_delete": false,
+      "arguments": {
+        "x-queue-type": "quorum",
+        "x-dead-letter-exchange": "rtms.dead"
+      }
+    },
+    {
+      "name": "rtms.start.region.iad",
+      "vhost": "rtms",
+      "durable": true,
+      "auto_delete": false,
+      "arguments": {
+        "x-queue-type": "quorum",
+        "x-dead-letter-exchange": "rtms.dead",
+        "x-dead-letter-routing-key": "start.expired.region.iad",
+        "x-message-ttl": 60000
+      }
+    },
+    {
+      "name": "rtms.stop.region.iad",
+      "vhost": "rtms",
+      "durable": true,
+      "auto_delete": false,
+      "arguments": {
+        "x-queue-type": "quorum",
+        "x-dead-letter-exchange": "rtms.dead"
+      }
+    },
+    {
+      "name": "rtms.recovery.region.iad",
+      "vhost": "rtms",
+      "durable": true,
+      "auto_delete": false,
+      "arguments": {
+        "x-queue-type": "quorum",
+        "x-dead-letter-exchange": "rtms.dead"
+      }
+    },
+    {
+      "name": "rtms.start.region.ams",
+      "vhost": "rtms",
+      "durable": true,
+      "auto_delete": false,
+      "arguments": {
+        "x-queue-type": "quorum",
+        "x-dead-letter-exchange": "rtms.dead",
+        "x-dead-letter-routing-key": "start.expired.region.ams",
+        "x-message-ttl": 60000
+      }
+    },
+    {
+      "name": "rtms.stop.region.ams",
+      "vhost": "rtms",
+      "durable": true,
+      "auto_delete": false,
+      "arguments": {
+        "x-queue-type": "quorum",
+        "x-dead-letter-exchange": "rtms.dead"
+      }
+    },
+    {
+      "name": "rtms.recovery.region.ams",
+      "vhost": "rtms",
+      "durable": true,
+      "auto_delete": false,
+      "arguments": {
+        "x-queue-type": "quorum",
+        "x-dead-letter-exchange": "rtms.dead"
+      }
+    },
+    {
+      "name": "rtms.start.region.fra",
+      "vhost": "rtms",
+      "durable": true,
+      "auto_delete": false,
+      "arguments": {
+        "x-queue-type": "quorum",
+        "x-dead-letter-exchange": "rtms.dead",
+        "x-dead-letter-routing-key": "start.expired.region.fra",
+        "x-message-ttl": 60000
+      }
+    },
+    {
+      "name": "rtms.stop.region.fra",
+      "vhost": "rtms",
+      "durable": true,
+      "auto_delete": false,
+      "arguments": {
+        "x-queue-type": "quorum",
+        "x-dead-letter-exchange": "rtms.dead"
+      }
+    },
+    {
+      "name": "rtms.recovery.region.fra",
+      "vhost": "rtms",
+      "durable": true,
+      "auto_delete": false,
+      "arguments": {
+        "x-queue-type": "quorum",
+        "x-dead-letter-exchange": "rtms.dead"
+      }
+    },
+    {
+      "name": "rtms.start.region.mel",
+      "vhost": "rtms",
+      "durable": true,
+      "auto_delete": false,
+      "arguments": {
+        "x-queue-type": "quorum",
+        "x-dead-letter-exchange": "rtms.dead",
+        "x-dead-letter-routing-key": "start.expired.region.mel",
+        "x-message-ttl": 60000
+      }
+    },
+    {
+      "name": "rtms.stop.region.mel",
+      "vhost": "rtms",
+      "durable": true,
+      "auto_delete": false,
+      "arguments": {
+        "x-queue-type": "quorum",
+        "x-dead-letter-exchange": "rtms.dead"
+      }
+    },
+    {
+      "name": "rtms.recovery.region.mel",
+      "vhost": "rtms",
+      "durable": true,
+      "auto_delete": false,
+      "arguments": {
+        "x-queue-type": "quorum",
+        "x-dead-letter-exchange": "rtms.dead"
+      }
+    },
+    {
+      "name": "rtms.start.region.syd",
+      "vhost": "rtms",
+      "durable": true,
+      "auto_delete": false,
+      "arguments": {
+        "x-queue-type": "quorum",
+        "x-dead-letter-exchange": "rtms.dead",
+        "x-dead-letter-routing-key": "start.expired.region.syd",
+        "x-message-ttl": 60000
+      }
+    },
+    {
+      "name": "rtms.stop.region.syd",
+      "vhost": "rtms",
+      "durable": true,
+      "auto_delete": false,
+      "arguments": {
+        "x-queue-type": "quorum",
+        "x-dead-letter-exchange": "rtms.dead"
+      }
+    },
+    {
+      "name": "rtms.recovery.region.syd",
+      "vhost": "rtms",
+      "durable": true,
+      "auto_delete": false,
+      "arguments": {
+        "x-queue-type": "quorum",
+        "x-dead-letter-exchange": "rtms.dead"
+      }
+    },
+    {
+      "name": "rtms.start.region.yyz",
+      "vhost": "rtms",
+      "durable": true,
+      "auto_delete": false,
+      "arguments": {
+        "x-queue-type": "quorum",
+        "x-dead-letter-exchange": "rtms.dead",
+        "x-dead-letter-routing-key": "start.expired.region.yyz",
+        "x-message-ttl": 60000
+      }
+    },
+    {
+      "name": "rtms.stop.region.yyz",
+      "vhost": "rtms",
+      "durable": true,
+      "auto_delete": false,
+      "arguments": {
+        "x-queue-type": "quorum",
+        "x-dead-letter-exchange": "rtms.dead"
+      }
+    },
+    {
+      "name": "rtms.recovery.region.yyz",
+      "vhost": "rtms",
+      "durable": true,
+      "auto_delete": false,
+      "arguments": {
+        "x-queue-type": "quorum",
+        "x-dead-letter-exchange": "rtms.dead"
+      }
+    },
+    {
+      "name": "rtms.start.region.sin",
+      "vhost": "rtms",
+      "durable": true,
+      "auto_delete": false,
+      "arguments": {
+        "x-queue-type": "quorum",
+        "x-dead-letter-exchange": "rtms.dead",
+        "x-dead-letter-routing-key": "start.expired.region.sin",
+        "x-message-ttl": 60000
+      }
+    },
+    {
+      "name": "rtms.stop.region.sin",
+      "vhost": "rtms",
+      "durable": true,
+      "auto_delete": false,
+      "arguments": {
+        "x-queue-type": "quorum",
+        "x-dead-letter-exchange": "rtms.dead"
+      }
+    },
+    {
+      "name": "rtms.recovery.region.sin",
+      "vhost": "rtms",
+      "durable": true,
+      "auto_delete": false,
+      "arguments": {
+        "x-queue-type": "quorum",
+        "x-dead-letter-exchange": "rtms.dead"
+      }
+    },
+    {
+      "name": "rtms.start.region.nrt",
+      "vhost": "rtms",
+      "durable": true,
+      "auto_delete": false,
+      "arguments": {
+        "x-queue-type": "quorum",
+        "x-dead-letter-exchange": "rtms.dead",
+        "x-dead-letter-routing-key": "start.expired.region.nrt",
+        "x-message-ttl": 60000
+      }
+    },
+    {
+      "name": "rtms.stop.region.nrt",
+      "vhost": "rtms",
+      "durable": true,
+      "auto_delete": false,
+      "arguments": {
+        "x-queue-type": "quorum",
+        "x-dead-letter-exchange": "rtms.dead"
+      }
+    },
+    {
+      "name": "rtms.recovery.region.nrt",
+      "vhost": "rtms",
+      "durable": true,
+      "auto_delete": false,
+      "arguments": {
+        "x-queue-type": "quorum",
+        "x-dead-letter-exchange": "rtms.dead"
+      }
+    },
+    {
+      "name": "rtms.start.region.hkg",
+      "vhost": "rtms",
+      "durable": true,
+      "auto_delete": false,
+      "arguments": {
+        "x-queue-type": "quorum",
+        "x-dead-letter-exchange": "rtms.dead",
+        "x-dead-letter-routing-key": "start.expired.region.hkg",
+        "x-message-ttl": 60000
+      }
+    },
+    {
+      "name": "rtms.stop.region.hkg",
+      "vhost": "rtms",
+      "durable": true,
+      "auto_delete": false,
+      "arguments": {
+        "x-queue-type": "quorum",
+        "x-dead-letter-exchange": "rtms.dead"
+      }
+    },
+    {
+      "name": "rtms.recovery.region.hkg",
+      "vhost": "rtms",
+      "durable": true,
+      "auto_delete": false,
+      "arguments": {
+        "x-queue-type": "quorum",
+        "x-dead-letter-exchange": "rtms.dead"
+      }
+    },
+    {
+      "name": "rtms.start.region.unknown",
+      "vhost": "rtms",
+      "durable": true,
+      "auto_delete": false,
+      "arguments": {
+        "x-queue-type": "quorum",
+        "x-dead-letter-exchange": "rtms.dead",
+        "x-dead-letter-routing-key": "start.expired.region.unknown",
+        "x-message-ttl": 60000
+      }
+    },
+    {
+      "name": "rtms.stop.region.unknown",
+      "vhost": "rtms",
+      "durable": true,
+      "auto_delete": false,
+      "arguments": {
+        "x-queue-type": "quorum",
+        "x-dead-letter-exchange": "rtms.dead"
+      }
+    },
+    {
+      "name": "rtms.recovery.region.unknown",
+      "vhost": "rtms",
+      "durable": true,
+      "auto_delete": false,
+      "arguments": {
+        "x-queue-type": "quorum",
+        "x-dead-letter-exchange": "rtms.dead"
+      }
+    },
+    {
+      "name": "rtms.warning.start_expired",
+      "vhost": "rtms",
+      "durable": true,
+      "auto_delete": false,
+      "arguments": {
+        "x-queue-type": "quorum"
+      }
+    },
+    {
+      "name": "rtms.dead_letter",
+      "vhost": "rtms",
+      "durable": true,
+      "auto_delete": false,
+      "arguments": {
+        "x-queue-type": "quorum"
+      }
+    }
+  ],
+  "bindings": [
+    {
+      "source": "rtms.ingress",
+      "vhost": "rtms",
+      "destination": "rtms.webhooks.inbox",
+      "destination_type": "queue",
+      "routing_key": "webhook.received",
+      "arguments": {}
+    },
+    {
+      "source": "rtms.webhooks",
+      "vhost": "rtms",
+      "destination": "rtms.start.region.sjc",
+      "destination_type": "queue",
+      "routing_key": "start.region.sjc",
+      "arguments": {}
+    },
+    {
+      "source": "rtms.webhooks",
+      "vhost": "rtms",
+      "destination": "rtms.stop.region.sjc",
+      "destination_type": "queue",
+      "routing_key": "stop.region.sjc",
+      "arguments": {}
+    },
+    {
+      "source": "rtms.webhooks",
+      "vhost": "rtms",
+      "destination": "rtms.recovery.region.sjc",
+      "destination_type": "queue",
+      "routing_key": "recovery.region.sjc",
+      "arguments": {}
+    },
+    {
+      "source": "rtms.webhooks",
+      "vhost": "rtms",
+      "destination": "rtms.start.region.iad",
+      "destination_type": "queue",
+      "routing_key": "start.region.iad",
+      "arguments": {}
+    },
+    {
+      "source": "rtms.webhooks",
+      "vhost": "rtms",
+      "destination": "rtms.stop.region.iad",
+      "destination_type": "queue",
+      "routing_key": "stop.region.iad",
+      "arguments": {}
+    },
+    {
+      "source": "rtms.webhooks",
+      "vhost": "rtms",
+      "destination": "rtms.recovery.region.iad",
+      "destination_type": "queue",
+      "routing_key": "recovery.region.iad",
+      "arguments": {}
+    },
+    {
+      "source": "rtms.webhooks",
+      "vhost": "rtms",
+      "destination": "rtms.start.region.ams",
+      "destination_type": "queue",
+      "routing_key": "start.region.ams",
+      "arguments": {}
+    },
+    {
+      "source": "rtms.webhooks",
+      "vhost": "rtms",
+      "destination": "rtms.stop.region.ams",
+      "destination_type": "queue",
+      "routing_key": "stop.region.ams",
+      "arguments": {}
+    },
+    {
+      "source": "rtms.webhooks",
+      "vhost": "rtms",
+      "destination": "rtms.recovery.region.ams",
+      "destination_type": "queue",
+      "routing_key": "recovery.region.ams",
+      "arguments": {}
+    },
+    {
+      "source": "rtms.webhooks",
+      "vhost": "rtms",
+      "destination": "rtms.start.region.fra",
+      "destination_type": "queue",
+      "routing_key": "start.region.fra",
+      "arguments": {}
+    },
+    {
+      "source": "rtms.webhooks",
+      "vhost": "rtms",
+      "destination": "rtms.stop.region.fra",
+      "destination_type": "queue",
+      "routing_key": "stop.region.fra",
+      "arguments": {}
+    },
+    {
+      "source": "rtms.webhooks",
+      "vhost": "rtms",
+      "destination": "rtms.recovery.region.fra",
+      "destination_type": "queue",
+      "routing_key": "recovery.region.fra",
+      "arguments": {}
+    },
+    {
+      "source": "rtms.webhooks",
+      "vhost": "rtms",
+      "destination": "rtms.start.region.mel",
+      "destination_type": "queue",
+      "routing_key": "start.region.mel",
+      "arguments": {}
+    },
+    {
+      "source": "rtms.webhooks",
+      "vhost": "rtms",
+      "destination": "rtms.stop.region.mel",
+      "destination_type": "queue",
+      "routing_key": "stop.region.mel",
+      "arguments": {}
+    },
+    {
+      "source": "rtms.webhooks",
+      "vhost": "rtms",
+      "destination": "rtms.recovery.region.mel",
+      "destination_type": "queue",
+      "routing_key": "recovery.region.mel",
+      "arguments": {}
+    },
+    {
+      "source": "rtms.webhooks",
+      "vhost": "rtms",
+      "destination": "rtms.start.region.syd",
+      "destination_type": "queue",
+      "routing_key": "start.region.syd",
+      "arguments": {}
+    },
+    {
+      "source": "rtms.webhooks",
+      "vhost": "rtms",
+      "destination": "rtms.stop.region.syd",
+      "destination_type": "queue",
+      "routing_key": "stop.region.syd",
+      "arguments": {}
+    },
+    {
+      "source": "rtms.webhooks",
+      "vhost": "rtms",
+      "destination": "rtms.recovery.region.syd",
+      "destination_type": "queue",
+      "routing_key": "recovery.region.syd",
+      "arguments": {}
+    },
+    {
+      "source": "rtms.webhooks",
+      "vhost": "rtms",
+      "destination": "rtms.start.region.yyz",
+      "destination_type": "queue",
+      "routing_key": "start.region.yyz",
+      "arguments": {}
+    },
+    {
+      "source": "rtms.webhooks",
+      "vhost": "rtms",
+      "destination": "rtms.stop.region.yyz",
+      "destination_type": "queue",
+      "routing_key": "stop.region.yyz",
+      "arguments": {}
+    },
+    {
+      "source": "rtms.webhooks",
+      "vhost": "rtms",
+      "destination": "rtms.recovery.region.yyz",
+      "destination_type": "queue",
+      "routing_key": "recovery.region.yyz",
+      "arguments": {}
+    },
+    {
+      "source": "rtms.webhooks",
+      "vhost": "rtms",
+      "destination": "rtms.start.region.sin",
+      "destination_type": "queue",
+      "routing_key": "start.region.sin",
+      "arguments": {}
+    },
+    {
+      "source": "rtms.webhooks",
+      "vhost": "rtms",
+      "destination": "rtms.stop.region.sin",
+      "destination_type": "queue",
+      "routing_key": "stop.region.sin",
+      "arguments": {}
+    },
+    {
+      "source": "rtms.webhooks",
+      "vhost": "rtms",
+      "destination": "rtms.recovery.region.sin",
+      "destination_type": "queue",
+      "routing_key": "recovery.region.sin",
+      "arguments": {}
+    },
+    {
+      "source": "rtms.webhooks",
+      "vhost": "rtms",
+      "destination": "rtms.start.region.nrt",
+      "destination_type": "queue",
+      "routing_key": "start.region.nrt",
+      "arguments": {}
+    },
+    {
+      "source": "rtms.webhooks",
+      "vhost": "rtms",
+      "destination": "rtms.stop.region.nrt",
+      "destination_type": "queue",
+      "routing_key": "stop.region.nrt",
+      "arguments": {}
+    },
+    {
+      "source": "rtms.webhooks",
+      "vhost": "rtms",
+      "destination": "rtms.recovery.region.nrt",
+      "destination_type": "queue",
+      "routing_key": "recovery.region.nrt",
+      "arguments": {}
+    },
+    {
+      "source": "rtms.webhooks",
+      "vhost": "rtms",
+      "destination": "rtms.start.region.hkg",
+      "destination_type": "queue",
+      "routing_key": "start.region.hkg",
+      "arguments": {}
+    },
+    {
+      "source": "rtms.webhooks",
+      "vhost": "rtms",
+      "destination": "rtms.stop.region.hkg",
+      "destination_type": "queue",
+      "routing_key": "stop.region.hkg",
+      "arguments": {}
+    },
+    {
+      "source": "rtms.webhooks",
+      "vhost": "rtms",
+      "destination": "rtms.recovery.region.hkg",
+      "destination_type": "queue",
+      "routing_key": "recovery.region.hkg",
+      "arguments": {}
+    },
+    {
+      "source": "rtms.webhooks",
+      "vhost": "rtms",
+      "destination": "rtms.start.region.unknown",
+      "destination_type": "queue",
+      "routing_key": "start.region.unknown",
+      "arguments": {}
+    },
+    {
+      "source": "rtms.webhooks",
+      "vhost": "rtms",
+      "destination": "rtms.stop.region.unknown",
+      "destination_type": "queue",
+      "routing_key": "stop.region.unknown",
+      "arguments": {}
+    },
+    {
+      "source": "rtms.webhooks",
+      "vhost": "rtms",
+      "destination": "rtms.recovery.region.unknown",
+      "destination_type": "queue",
+      "routing_key": "recovery.region.unknown",
+      "arguments": {}
+    },
+    {
+      "source": "rtms.dead",
+      "vhost": "rtms",
+      "destination": "rtms.warning.start_expired",
+      "destination_type": "queue",
+      "routing_key": "start.expired.#",
+      "arguments": {}
+    },
+    {
+      "source": "rtms.dead",
+      "vhost": "rtms",
+      "destination": "rtms.dead_letter",
+      "destination_type": "queue",
+      "routing_key": "#",
+      "arguments": {}
+    }
+  ]
+}

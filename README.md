@@ -63,6 +63,7 @@ app.listen(3000);
 │   ├── send_audio_to_aws_transcribe_service_sdk/
 │   ├── send_audio_to_azure_speech_to_text_service_js/
 │   ├── send_audio_to_azure_speech_to_text_service_sdk/
+│   ├── send_audio_to_openai_realtime_api/
 │   ├── send_audio_to_whisper_local_transcribe_service_js/
 │   └── send_audio_to_zoom_scribe_transcribe_service_js/
 ├── boilerplate/                    # Starter templates for various languages
@@ -71,16 +72,18 @@ app.listen(3000);
 │   ├── working_go/
 │   ├── working_java/
 │   ├── working_js/
-│   ├── working_js_template/
 │   ├── working_python/
 │   ├── working_python_wss/
+│   ├── working_python_wss_zoom_room_screenshot/
 │   └── working_sdk/
 ├── library/                        # Shared libraries
 │   ├── javascript/                 # RTMSManager, WebhookManager, helpers
 │   └── python/                     # Python RTMS utilities
 ├── rtms_api/                       # Manual RTMS start/stop control
 │   ├── manual_start_stop_using_js/
-│   └── manual_start_stop_using_python/
+│   ├── manual_start_stop_using_python/
+│   └── reconnection_and_chaos_mode_js/
+├── rtms-distributed-sample/         # Regional fanout/fanin architecture sample
 ├── rtms_mcp_client/                # Model Context Protocol integration
 ├── screen_share/                   # Screen share capture samples
 │   ├── save_screen_share_js/
@@ -107,7 +110,8 @@ app.listen(3000);
 │   └── send_transcript_to_openrouter_js/
 ├── video/                          # Video analysis samples
 │   ├── detect_emotion_using_amazon_rekognition_js/
-│   └── detect_object_using_tensorflow_js/
+│   ├── detect_object_using_tensorflow_js/
+│   └── individual_video_js/
 ├── video-sdk/                      # Video SDK integration samples
 │   ├── vsdk_working_java/
 │   ├── vsdk_working_js/
@@ -119,23 +123,25 @@ app.listen(3000);
     ├── ai_rag_customer_support_js/
     ├── ai_transcript_analysis_js/
     ├── prompt_for_user_consent_js/
-    └── start_stop_rtms_control_js/
+    ├── start_stop_rtms_control_js/
+    └── stream_audio_and_video_deepfake_detection_js/
 ```
 
 ## Sample Categories
 
 | Category | Description | Count |
 |----------|-------------|-------|
-| [`audio/`](./audio/) | Transcription services (AWS, Azure, Zoom Scribe, AssemblyAI, Whisper) | 8 |
-| [`boilerplate/`](./boilerplate/) | Starter templates (JS, Python, Go, Java, C++, .NET, SDK) | 11 |
+| [`audio/`](./audio/) | Transcription services (AWS, Azure, OpenAI Realtime, Zoom Scribe, AssemblyAI, Whisper) | 9 |
+| [`boilerplate/`](./boilerplate/) | Starter templates (JS, Python, Go, Java, C++, .NET, SDK) | 9 |
 | [`streaming/`](./streaming/) | Live streaming (AWS IVS, Kinesis, YouTube, custom) | 6 |
 | [`storage/`](./storage/) | Cloud & local storage (S3, Azure Blob, local) | 6 |
 | [`transcript/`](./transcript/) | Transcript processing & LLM integration | 5 |
-| [`zoom_apps/`](./zoom_apps/) | Complete Zoom App examples (AI, RAG, games) | 7 |
-| [`video/`](./video/) | Video analysis (TensorFlow, Rekognition) | 2 |
+| [`zoom_apps/`](./zoom_apps/) | Complete Zoom App examples (AI, RAG, games, deepfake detection) | 8 |
+| [`video/`](./video/) | Video analysis and individual video stream samples | 3 |
 | [`video-sdk/`](./video-sdk/) | Video SDK integration | 3 |
 | [`screen_share/`](./screen_share/) | Screen capture & PDF export | 2 |
-| [`rtms_api/`](./rtms_api/) | Manual RTMS session control | 2 |
+| [`rtms_api/`](./rtms_api/) | Manual RTMS session control and reconnection testing | 3 |
+| [`rtms-distributed-sample/`](./rtms-distributed-sample/) | Distributed RTMS fanout/fanin sample with regional compute, control stores, cache, and artifact storage | 1 |
 | [`rtms_mcp_client/`](./rtms_mcp_client/) | Model Context Protocol client | 1 |
 | [`library/`](./library/) | Shared utilities (RTMSManager, helpers) | 2 |
 
