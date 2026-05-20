@@ -1,5 +1,7 @@
 # Observability, Logging, And Dashboarding
 
+[Back to distributed sample overview](../README.md)
+
 This optional layer uses the open-source Grafana observability stack.
 
 Recommended stack:
