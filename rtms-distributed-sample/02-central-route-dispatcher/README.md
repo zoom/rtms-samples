@@ -17,7 +17,8 @@ RabbitMQ files in this folder are optional. The default sample path is signed HT
 
 ```bash
 INTERNAL_WEBHOOK_SECRET=internal-secret \
-REGIONAL_SPOKE_ENDPOINTS='{"IAD":"http://127.0.0.1:4200/spoke/webhook","UNKNOWN":"http://127.0.0.1:4200/spoke/webhook"}' \
+SPOKE_AMER_EAST_URL=https://rtms-spoke-amer-east.internal/spoke/webhook \
+SPOKE_UNKNOWN_URL=https://rtms-spoke-amer-east.internal/spoke/webhook \
 npm run start:dispatcher
 ```
 
@@ -42,9 +43,13 @@ HUB_DELIVERY_MODE=rabbitmq npm run start:hub
 |-----|---------|
 | `CENTRAL_ROUTE_DISPATCHER_PORT` | HTTP port, default `4050` |
 | `ROUTER_SQLITE_DB_PATH` | Route/idempotency SQLite path |
-| `REGIONAL_SPOKE_ENDPOINTS` | JSON map from route code to spoke URL |
+| `SPOKE_AMER_WEST_URL`, `SPOKE_AMER_EAST_URL`, `SPOKE_EUROPE_URL`, `SPOKE_APAC_HUB_URL` | Full spoke URLs for the common spoke groups |
+| `SPOKE_UNKNOWN_URL` | Fallback spoke URL when the Zoom RTMS code is unknown |
+| `REGIONAL_SPOKE_ENDPOINTS` | Optional JSON map from route code/group to spoke URL |
 | `INTERNAL_WEBHOOK_SECRET` | HMAC secret for dispatcher-to-spoke calls |
 | `RABBITMQ_URL` | Optional RabbitMQ URL |
+
+Use full service URLs. Local tests often use `http://127.0.0.1:4611/...`, but real deployments can use FQDNs or private service discovery names such as `https://rtms-spoke-amer-east.internal/spoke/webhook`.
 
 ## Related
 

@@ -25,6 +25,13 @@ K8S_COMPUTE_IMAGE=rtms-distributed-compute:local \
 npm run start:compute-launcher
 ```
 
+For a distributed deployment, the launcher needs two kinds of URLs:
+
+- URLs the launcher can call, such as `REGIONAL_STORE_URL`
+- URLs the Kubernetes compute pod can call, such as `COMPUTE_ARTIFACT_STORAGE_URL`, `COMPUTE_REALTIME_CACHE_URL`, `COMPUTE_LOKI_PUSH_URL`, `COMPUTE_REGIONAL_STORE_URL`, and `COMPUTE_CENTRAL_STORE_URL`
+
+These can be FQDNs, internal load balancers, Kubernetes service DNS names, or service-mesh names. They do not need to expose explicit ports.
+
 Build the compute image from inside `rtms-distributed-sample`:
 
 ```bash
@@ -35,7 +42,7 @@ npm run docker:build:compute
 
 | Key | Purpose |
 |-----|---------|
-| `COMPUTE_LAUNCHER_PORT` | HTTP port, default `4710` |
+| `COMPUTE_LAUNCHER_PORT` | Local listen port, default `4710` |
 | `KUBECONFIG` / `KUBECONFIG_INLINE_B64` | Kubernetes access |
 | `K8S_NAMESPACE` | Namespace for Jobs |
 | `K8S_COMPUTE_IMAGE` | Image used by compute Jobs |

@@ -25,12 +25,14 @@ COMPUTE_ENDPOINTS='["http://127.0.0.1:4710/compute/webhook"]' \
 npm run start:spoke
 ```
 
+For a distributed deployment, `REGIONAL_STORE_URL` and `COMPUTE_ENDPOINTS` should be full URLs reachable from this spoke. They can be FQDNs or private service DNS names, not only `host:port` pairs.
+
 ## Main Config
 
 | Key | Purpose |
 |-----|---------|
 | `SPOKE_REGION` | Region label for this spoke |
-| `SPOKE_PORT` | HTTP port, default `4200` |
+| `SPOKE_PORT` | Local listen port, default `4200` |
 | `REGIONAL_STORE_URL` | Regional control store URL |
 | `COMPUTE_ENDPOINTS` | JSON array of compute launcher/worker URLs |
 | `INTERNAL_WEBHOOK_SECRET` | Required HMAC secret |

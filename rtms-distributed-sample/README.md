@@ -138,11 +138,35 @@ Fill these groups first:
 |-------|------|
 | Zoom webhook verification | `ZOOM_SECRET_TOKEN`, `VIDEO_SECRET_TOKEN` |
 | RTMS credentials | `ZOOM_CLIENT_ID`, `ZOOM_CLIENT_SECRET`, `VIDEO_CLIENT_ID`, `VIDEO_CLIENT_SECRET` |
+| Service URLs | `CENTRAL_ROUTE_DISPATCHER_URL`, `SPOKE_AMER_WEST_URL`, `SPOKE_AMER_EAST_URL`, `SPOKE_EUROPE_URL`, `SPOKE_APAC_HUB_URL`, `COMPUTE_ENDPOINTS`, `REGIONAL_STORE_URL` |
 | Kubernetes launcher | `KUBECONFIG`, `KUBECONFIG_INLINE_B64`, `K8S_COMPUTE_IMAGE`, `K8S_NAMESPACE` |
 | Artifact storage | `ARTIFACT_STORAGE_PROVIDER`, `ARTIFACT_BUCKET`, `ARTIFACT_S3_ENDPOINT`, `AWS_ACCESS_KEY_ID`, `AWS_SECRET_ACCESS_KEY` |
 | Realtime cache | `REDIS_PASSWORD`, `REALTIME_CACHE_REDIS_URL`, `REALTIME_CACHE_REDIS_PASSWORD` |
 | Observability | `LOKI_PUSH_URL`, `COMPUTE_LOKI_PUSH_URL`, `SERVICE_LOG_LEVEL`, `RTMS_LOG_LEVEL` |
 | Media request | `MEDIA_TYPES_FLAG`, `AUDIO_STREAM_MODE`, `VIDEO_STREAM_MODE` |
+
+## Service URL Wiring
+
+Use full URLs for cross-system calls. The local sample uses `127.0.0.1:port` only because every service can run on one host. In production these values should normally be HTTPS FQDNs, internal load balancer URLs, Kubernetes service DNS names, or service-mesh addresses. They do not need to be port-based.
+
+```bash
+CENTRAL_ROUTE_DISPATCHER_URL=https://rtms-dispatcher.us.internal/orchestrate/webhook
+
+SPOKE_AMER_WEST_URL=https://rtms-spoke-amer-west.internal/spoke/webhook
+SPOKE_AMER_EAST_URL=https://rtms-spoke-amer-east.internal/spoke/webhook
+SPOKE_EUROPE_URL=https://rtms-spoke-europe.internal/spoke/webhook
+SPOKE_APAC_HUB_URL=https://rtms-spoke-apac.internal/spoke/webhook
+SPOKE_UNKNOWN_URL=https://rtms-spoke-amer-east.internal/spoke/webhook
+
+REGIONAL_STORE_URL=https://rtms-control-store-amer-west.internal
+COMPUTE_ENDPOINTS='["https://rtms-compute-launcher-amer-west.internal/compute/webhook"]'
+
+COMPUTE_ARTIFACT_STORAGE_URL=https://rtms-artifacts.internal
+COMPUTE_REALTIME_CACHE_URL=https://rtms-cache.internal
+COMPUTE_LOKI_PUSH_URL=https://loki.internal/loki/api/v1/push
+```
+
+The dispatcher reads the readable `SPOKE_*_URL` values for the common four-spoke layout. `REGIONAL_SPOKE_ENDPOINTS` still works as a JSON override when you need custom route keys, extra spoke groups, or temporary failover targets.
 
 `MEDIA_TYPES_FLAG=32` requests all available RTMS media. Use `3` for audio + video or `9` for audio + transcript.
 

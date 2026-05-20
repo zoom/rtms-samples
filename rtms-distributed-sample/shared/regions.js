@@ -25,6 +25,24 @@ export const DEFAULT_SPOKE_GROUP_BY_RTMS_CODE = Object.freeze({
   UNKNOWN: 'us'
 });
 
+export const DEFAULT_SPOKE_GROUPS = Object.freeze([
+  'amer-west',
+  'amer-east',
+  'europe',
+  'apac-hub',
+  'us',
+  'UNKNOWN'
+]);
+
+const SPOKE_GROUP_ENV_KEYS = Object.freeze({
+  'amer-west': ['SPOKE_AMER_WEST_URL', 'REGION_AMER_WEST_SPOKE_URL'],
+  'amer-east': ['SPOKE_AMER_EAST_URL', 'REGION_AMER_EAST_SPOKE_URL'],
+  europe: ['SPOKE_EUROPE_URL', 'REGION_EUROPE_SPOKE_URL'],
+  'apac-hub': ['SPOKE_APAC_HUB_URL', 'REGION_APAC_HUB_SPOKE_URL'],
+  us: ['SPOKE_US_URL', 'REGION_US_SPOKE_URL'],
+  UNKNOWN: ['SPOKE_UNKNOWN_URL', 'REGION_UNKNOWN_SPOKE_URL']
+});
+
 export function isStartEvent(event = '') {
   return event.endsWith('rtms_started');
 }
@@ -104,7 +122,19 @@ export function parseSpokeEndpoints(env = process.env) {
     if (value) endpoints[code] = value;
   }
 
+  for (const group of DEFAULT_SPOKE_GROUPS) {
+    const value = firstConfiguredValue(env, SPOKE_GROUP_ENV_KEYS[group] || []);
+    if (value) endpoints[group] = value;
+  }
+
   return endpoints;
+}
+
+function firstConfiguredValue(env, keys) {
+  for (const key of keys) {
+    if (env[key]) return env[key];
+  }
+  return '';
 }
 
 function firstUrl(serverUrls) {
