@@ -21,24 +21,18 @@ The local PM2 and Docker setup runs everything on one host only to make testing 
 
 ```mermaid
 flowchart TD
-  Zoom[Zoom RTMS webhook] --> Hub[01 centralized webhook hub<br/>verify signature, reject stale, dedupe]
+  Zoom[Zoom RTMS webhook] --> Hub[01 centralized webhook hub<br/>verify, dedupe, route]
   Hub --> Dispatcher[02 central route dispatcher<br/>selected-spoke handoff]
-  Hub -->|webhook latency and rolling counts| Cache[06 realtime cache<br/>active state, latency, webhook counters, media byte counters]
-  Hub -->|structured logs| Obs[07 observability<br/>Prometheus, Loki, Grafana]
-  Dispatcher --> Central[(05 central control store<br/>accepted event, route, global lookup)]
-  Central -->|selected route| Spoke[03 selected regional webhook spoke]
-  Spoke -->|structured logs| Obs
+  Dispatcher --> Central[(05 control store<br/>central SQLite<br/>accepted event, route, global lookup)]
+  Central --> Spoke[03 selected regional webhook spoke]
   Spoke --> Launcher[04 regional compute launcher]
   Launcher --> Job[Kubernetes/k3s Job<br/>one pod per stream]
-  Launcher -->|structured logs| Obs
-  Job --> Regional[(05 regional control store<br/>lease, owner, active state)]
+  Job --> Regional[(05 control store<br/>regional SQLite<br/>lease and active state)]
   Job --> Manager[04 regional compute job<br/>RTMSManager signaling and media]
-  Job -->|RTT, state, packet and byte counters| Cache
-  Job -->|structured logs| Obs
   Job --> Artifact[08 artifact storage API]
   Artifact --> Blob[(local disk / MinIO / S3 / Azure / GCS)]
-  Artifact -->|metadata pointer| Central
-  Cache -->|/metrics scrape| Obs
+  Job --> Cache[06 realtime cache<br/>hot state and metrics]
+  Job --> Obs[07 logs, metrics, dashboards]
   Hub -. stop events use saved route .-> Central
 ```
 
