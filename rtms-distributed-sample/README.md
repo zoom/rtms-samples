@@ -36,6 +36,56 @@ flowchart TD
   Hub -. stop events use saved route .-> Central
 ```
 
+## Message And Artifact Flow
+
+```mermaid
+sequenceDiagram
+  participant Zoom
+  participant Hub as 01 webhook hub
+  participant Dispatcher as 02 route dispatcher
+  participant Central as 05 central control store
+  participant Spoke as 03 regional spoke
+  participant Regional as 05 regional control store
+  participant Launcher as 04 compute launcher
+  participant K8s as regional Kubernetes
+  participant Job as 04 compute job
+  participant RTMS as RTMSManager
+  participant Artifact as 08 artifact API
+  participant Blob as blob storage
+  participant Cache as 06 realtime cache
+  participant Obs as 07 observability
+
+  Zoom->>Hub: RTMS webhook
+  Hub->>Hub: verify Zoom signature, timestamp, payload
+  Hub->>Hub: drop duplicate RTMS retry attempts
+  Hub->>Cache: record webhook latency and counters
+  Hub->>Dispatcher: accepted webhook envelope
+
+  alt rtms_started
+    Dispatcher->>Dispatcher: inspect signaling URL region hint
+    Dispatcher->>Central: save stream route and selected spoke
+    Dispatcher->>Spoke: signed internal handoff
+    Spoke->>Spoke: verify internal signature
+    Spoke->>Regional: append regional handoff state
+    Spoke->>Launcher: full webhook envelope
+    Launcher->>K8s: create one Job and per-job envelope Secret
+    K8s->>Job: start one pod for stream
+    Job->>RTMS: load envelope and connect signaling/media
+    Job->>Regional: claim lease and update active state
+    RTMS->>Cache: stream state, signaling RTT, media counters
+    RTMS->>Obs: structured service and RTMS logs
+    Job->>Artifact: upload final manifest/audio/video/text
+    Artifact->>Blob: write final artifacts
+    Artifact->>Central: save artifact metadata pointer
+  else rtms_stopped
+    Dispatcher->>Central: look up saved route by rtms_stream_id
+    Dispatcher->>Spoke: signed stop handoff to same spoke
+    Spoke->>Launcher: stop envelope
+    Launcher->>K8s: let job finish, then delete Job and envelope Secret
+    Job->>Artifact: flush final artifacts when available
+  end
+```
+
 ## Flow
 
 ```text
