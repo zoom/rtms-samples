@@ -14,7 +14,7 @@ Recommended stack:
 
 Product/report read sources:
 
-- Postgres for durable stream state, route, lease, node, artifact, and meeting metadata.
+- The SQLite control stores in this sample for durable stream state, route, lease, node, artifact, and meeting metadata.
 - Blob storage for final artifacts through signed URLs or backend proxy.
 - Realtime cache for active-meeting summaries and low-latency monitoring.
 

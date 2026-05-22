@@ -8,7 +8,7 @@ import {
   captureRawBody,
   verifyZoomWebhookRequest
 } from '../shared/zoomSignature.js';
-import { isStartEvent, isStopEvent } from '../shared/regions.js';
+import { isInterruptedEvent, isStartEvent, isStopEvent } from '../shared/regions.js';
 import { SqliteRoutingStore } from '../shared/sqliteRoutingStore.js';
 import { postRealtimeEvent, postWebhookObservation } from '../shared/realtimeCacheClient.js';
 import { createRtmsObservabilityLogger } from '../shared/rtmsObservabilityLogger.js';
@@ -150,7 +150,7 @@ function getSecretTokenForEvent(event = '') {
 }
 
 function isRtmsEvent(event = '') {
-  return isStartEvent(event) || isStopEvent(event);
+  return isStartEvent(event) || isStopEvent(event) || isInterruptedEvent(event);
 }
 
 function acceptWebhookIdempotency(envelope) {

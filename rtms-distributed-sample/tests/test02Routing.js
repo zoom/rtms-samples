@@ -106,6 +106,32 @@ async function testRoute(check) {
     ok: seen,
     reason: seen ? undefined : `stream_not_seen_at_${check.eventsUrl}`
   });
+
+  if (seen) {
+    await testRecoveryRoute(check, streamId, webhook.payload.meeting_uuid);
+  }
+}
+
+async function testRecoveryRoute(check, streamId, rtmsId) {
+  const recoveryWebhook = buildDummyRtmsWebhook({
+    event: 'meeting.rtms_interrupted',
+    streamId,
+    rtmsId,
+    eventTs: Date.now()
+  });
+
+  const response = await postSignedWebhook(recoveryWebhook);
+  const seen = response.status === 204 &&
+    await waitForSpokeEvent(check.eventsUrl, streamId, null, 'meeting.rtms_interrupted');
+
+  results.push({
+    name: `recovery_route_${check.code}_to_${check.spoke}`,
+    code: check.code,
+    spoke: check.spoke,
+    status: response.status,
+    ok: seen,
+    reason: seen ? undefined : `recovery_not_seen_at_${check.eventsUrl}`
+  });
 }
 
 async function postSignedWebhook(body) {
@@ -123,7 +149,7 @@ async function postSignedWebhook(body) {
   });
 }
 
-async function waitForSpokeEvent(eventsUrl, streamId, code) {
+async function waitForSpokeEvent(eventsUrl, streamId, code, expectedEvent = null) {
   const deadline = Date.now() + timeoutMs;
 
   while (Date.now() < deadline) {
@@ -132,7 +158,8 @@ async function waitForSpokeEvent(eventsUrl, streamId, code) {
       const body = await response.json();
       const found = Array.isArray(body.events) && body.events.some((event) => (
         event.streamId === streamId &&
-        String(event.regionCode || '').toUpperCase() === code
+        (!code || String(event.regionCode || '').toUpperCase() === code) &&
+        (!expectedEvent || event.event === expectedEvent)
       ));
       if (found) return true;
     } catch {

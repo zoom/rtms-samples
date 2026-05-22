@@ -166,6 +166,10 @@ function buildJobManifest(options = {}) {
   const secretName = options.secretName || process.env.K8S_COMPUTE_SECRET_NAME || null;
   const secretMountPath = options.secretMountPath || process.env.K8S_COMPUTE_SECRET_MOUNT_PATH || null;
   const serviceAccountName = options.serviceAccountName || process.env.K8S_COMPUTE_SERVICE_ACCOUNT || null;
+  const cpuRequest = options.cpuRequest || process.env.K8S_COMPUTE_CPU_REQUEST || '1';
+  const memoryRequest = options.memoryRequest || process.env.K8S_COMPUTE_MEMORY_REQUEST || '4Gi';
+  const cpuLimit = options.cpuLimit || process.env.K8S_COMPUTE_CPU_LIMIT || '2';
+  const memoryLimit = options.memoryLimit || process.env.K8S_COMPUTE_MEMORY_LIMIT || '8Gi';
   const envelopeSecretName = options.envelopeSecretName || null;
   const envelopeFilePath = options.envelopeFilePath || '/var/run/rtms/envelope.json';
   const envelopeRef = options.envelopeRef || `regional-store:/streams/${encodeURIComponent(options.streamId)}`;
@@ -219,6 +223,16 @@ function buildJobManifest(options = {}) {
     name: 'rtms-compute',
     image,
     imagePullPolicy: options.imagePullPolicy || 'IfNotPresent',
+    resources: {
+      requests: {
+        cpu: String(cpuRequest),
+        memory: String(memoryRequest)
+      },
+      limits: {
+        cpu: String(cpuLimit),
+        memory: String(memoryLimit)
+      }
+    },
     env: normalizeEnv({
       RTMS_STREAM_ID: options.streamId,
       RTMS_ENVELOPE_FILE: envelopeSecretName ? envelopeFilePath : '',

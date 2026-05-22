@@ -443,9 +443,19 @@ export class RTMSManager extends EventEmitter {
       this.onStreamStop(rtms_stream_id);
     });
 
+    this.on('meeting.rtms_interrupted', (payload) => {
+      const { rtms_stream_id } = payload;
+      this.onStreamInterrupted(rtms_stream_id);
+    });
+
     this.on('webinar.rtms_stopped', (payload) => {
       const { rtms_stream_id } = payload;
       this.onStreamStop(rtms_stream_id);
+    });
+
+    this.on('webinar.rtms_interrupted', (payload) => {
+      const { rtms_stream_id } = payload;
+      this.onStreamInterrupted(rtms_stream_id);
     });
 
     this.on('session.rtms_stopped', (payload) => {
@@ -453,16 +463,31 @@ export class RTMSManager extends EventEmitter {
       this.onStreamStop(rtms_stream_id);
     });
 
+    this.on('session.rtms_interrupted', (payload) => {
+      const { rtms_stream_id } = payload;
+      this.onStreamInterrupted(rtms_stream_id);
+    });
+
     const handleContactCenterStop = (payload) => {
       const { rtms_stream_id } = payload;
       this.onStreamStop(rtms_stream_id);
     };
+    const handleContactCenterInterrupted = (payload) => {
+      const { rtms_stream_id } = payload;
+      this.onStreamInterrupted(rtms_stream_id);
+    };
 
     this.on('contact_center.voice_rtms_stopped', handleContactCenterStop);
+    this.on('contact_center.voice_rtms_interrupted', handleContactCenterInterrupted);
 
     this.on('phone.rtms_stopped', (payload) => {
       const { rtms_stream_id } = payload;
       this.onStreamStop(rtms_stream_id);
+    });
+
+    this.on('phone.rtms_interrupted', (payload) => {
+      const { rtms_stream_id } = payload;
+      this.onStreamInterrupted(rtms_stream_id);
     });
 
     this.on('stream_state_changed', ({ state, streamId }) => {
@@ -522,14 +547,21 @@ export class RTMSManager extends EventEmitter {
     const existingByRtmsId = this.connectionManager.findByRtmsId(rtmsId);
     if (existingByRtmsId) {
       if (existingByRtmsId.streamId === streamId) {
-        this.logger.warn(`[RTMSManager] Duplicate stream ID ${streamId} for ${rtmsType} ${rtmsId}`);
-        return true;
+        if (hasChangedServerUrls(existingByRtmsId.serverUrls, serverUrls)) {
+          this.logger.warn(
+            `[RTMSManager] Refreshing ${rtmsType} ${rtmsId} stream ${streamId} with new signaling server URLs`
+          );
+          this.onStreamStop(streamId);
+        } else {
+          this.logger.warn(`[RTMSManager] Duplicate stream ID ${streamId} for ${rtmsType} ${rtmsId}`);
+          return true;
+        }
+      } else {
+        this.logger.warn(
+          `[RTMSManager] Replacing stale ${existingByRtmsId.rtmsType} ${rtmsId} stream ${existingByRtmsId.streamId} with new stream ${streamId}`
+        );
+        this.onStreamStop(existingByRtmsId.streamId);
       }
-
-      this.logger.warn(
-        `[RTMSManager] Replacing stale ${existingByRtmsId.rtmsType} ${rtmsId} stream ${existingByRtmsId.streamId} with new stream ${streamId}`
-      );
-      this.onStreamStop(existingByRtmsId.streamId);
     }
 
     if (this.connectionManager.has(streamId)) {
@@ -587,6 +619,18 @@ export class RTMSManager extends EventEmitter {
       }
       this.logger.log(`[RTMSManager] Ignoring stop for unknown streamId ${streamId}`);
     }
+  }
+
+  onStreamInterrupted(streamId) {
+    const handler = this.connectionManager.get(streamId);
+    if (!handler) {
+      this.logger.warn(`[RTMSManager] Ignoring interrupted webhook for unknown streamId ${streamId}`);
+      return false;
+    }
+
+    this.logger.warn(`[RTMSManager] Reconnecting interrupted ${handler.rtmsType} ${handler.rtmsId} stream ${streamId}`);
+    handler.reconnect();
+    return true;
   }
 
   // Get active connections
@@ -741,6 +785,11 @@ export class RTMSManager extends EventEmitter {
     const metadata = RTMSManager.getStreamMetadata(streamId);
     return metadata ? metadata.pingRtt : -1;
   }
+}
+
+function hasChangedServerUrls(previous, next) {
+  if (!next) return false;
+  return JSON.stringify(previous || null) !== JSON.stringify(next || null);
 }
 
 export default RTMSManager;

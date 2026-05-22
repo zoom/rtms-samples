@@ -380,6 +380,17 @@ export interface SignalingEvent {
   timestamp: number;
 }
 
+/** Automatic signaling event emitted when Zoom reports media interruption */
+export interface MediaConnectionInterruptedEvent {
+  type: 'media_connection_interrupted';
+  data: SignalingEventData;
+  rtmsId: string;
+  meetingId: string;
+  streamId: string;
+  productType: ProductType;
+  timestamp: number;
+}
+
 export interface VideoParticipant {
   userId: number | string;
   userName?: string | null;
@@ -515,6 +526,7 @@ export type SharescreenEventHandler = (event: SharescreenEvent) => void;
 export type TranscriptEventHandler = (event: TranscriptEvent) => void;
 export type ChatEventHandler = (event: ChatEvent) => void;
 export type SignalingEventHandler = (event: SignalingEvent) => void;
+export type MediaConnectionInterruptedHandler = (event: MediaConnectionInterruptedEvent) => void;
 export type VideoParticipantStateHandler = (event: VideoParticipantStateEvent) => void;
 export type VideoSubscriptionResponseHandler = (event: VideoSubscriptionResponseEvent) => void;
 export type StreamCloseResponseHandler = (event: StreamCloseResponseEvent) => void;
@@ -599,6 +611,7 @@ export class RTMSManager extends EventEmitter {
   static on(event: 'transcript', handler: TranscriptEventHandler): void;
   static on(event: 'chat', handler: ChatEventHandler): void;
   static on(event: 'event', handler: SignalingEventHandler): void;
+  static on(event: 'media_connection_interrupted', handler: MediaConnectionInterruptedHandler): void;
   static on(event: 'participant_video_on', handler: VideoParticipantStateHandler): void;
   static on(event: 'participant_video_off', handler: VideoParticipantStateHandler): void;
   static on(event: 'video_on_participants_changed', handler: VideoParticipantStateHandler): void;

@@ -4,7 +4,7 @@
 
 The control store is the durable lookup layer for this sample. It uses SQLite locally and keeps the contract simple enough to swap later.
 
-Use it for routes, stream state, leases, documents, and artifact metadata. Do not store raw media bytes here.
+Use it for routes, stream state, leases, documents, artifact metadata, and the small accepted or recovery envelopes that let a regional worker start or reconnect. Do not store raw media bytes here.
 
 ## Endpoints
 
@@ -21,6 +21,8 @@ Use it for routes, stream state, leases, documents, and artifact metadata. Do no
 | `POST /streams/:streamId/events` | Append event |
 | `POST /streams/:streamId/documents` | Save document metadata/content |
 | `POST /streams/:streamId/blobs` | Save artifact/blob metadata |
+
+The central role keeps selected routes and global lookup state. The regional role keeps the full accepted start envelope, lease state, stop state, and recovery envelopes for the compute Job that owns the stream.
 
 ## Run
 

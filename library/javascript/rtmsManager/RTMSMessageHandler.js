@@ -158,6 +158,48 @@ export class RTMSMessageHandler {
     );
   }
 
+  reconnect(serverUrls = null) {
+    FileLogger.warn(`[Handler:${this.streamId.slice(-8)}] Reconnecting interrupted ${this.rtmsType} ${this.rtmsId}`);
+
+    if (serverUrls) {
+      this.serverUrls = serverUrls;
+    }
+
+    if (this._signalingReconnectTimer) {
+      clearTimeout(this._signalingReconnectTimer);
+      this._signalingReconnectTimer = null;
+    }
+    if (this._duplicateSignalRetryTimer) {
+      clearTimeout(this._duplicateSignalRetryTimer);
+      this._duplicateSignalRetryTimer = null;
+    }
+
+    this.shouldReconnect = false;
+    this._lastPacketTimestamp = Date.now();
+    for (const media of Object.values(this.media || {})) {
+      media?.socket?.close?.();
+    }
+
+    const reconnectNow = () => {
+      this.shouldReconnect = true;
+      this.connect();
+    };
+    const signalingSocket = this.signaling?.socket;
+    if (signalingSocket && typeof signalingSocket.close === 'function') {
+      if (signalingSocket.readyState === 3) {
+        reconnectNow();
+        return;
+      }
+
+      this._suppressNextSignalingCloseReconnect = signalingSocket;
+      signalingSocket.once?.('close', reconnectNow);
+      signalingSocket.close();
+      return;
+    }
+
+    reconnectNow();
+  }
+
   stop() {
     FileLogger.log(`[Handler:${this.streamId.slice(-8)}] Stopping for ${this.rtmsType} ${this.rtmsId}`);
     this.shouldReconnect = false;

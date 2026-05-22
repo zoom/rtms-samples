@@ -3,6 +3,7 @@ import express from 'express';
 import { fireAndForget, postJson } from '../shared/http.js';
 import {
   getSpokeGroupForRtmsCode,
+  isInterruptedEvent,
   isStartEvent,
   isStopEvent,
   parseSpokeEndpoints,
@@ -54,26 +55,32 @@ async function orchestrate(envelope) {
   }
 
   if (isStartEvent(envelope.event)) {
-    const spokeGroup = getSpokeGroupForRtmsCode(envelope.regionCode, spokeGroupByCode);
+    const existingRoute = routingStore.getStreamRoute(envelope.streamId);
+    const spokeGroup = existingRoute?.spokeGroup || getSpokeGroupForRtmsCode(envelope.regionCode, spokeGroupByCode);
     routingStore.upsertStreamRoute(envelope.streamId, {
-      regionCode: envelope.regionCode,
+      regionCode: existingRoute?.regionCode || envelope.regionCode,
       spokeGroup,
-      productType: envelope.productType,
-      rtmsId: envelope.rtmsId,
+      productType: existingRoute?.productType || envelope.productType,
+      rtmsId: existingRoute?.rtmsId || envelope.rtmsId,
       envelope
     });
     routingStore.writeStreamState(envelope.streamId, {
-      state: 'routed',
-      regionCode: envelope.regionCode || 'UNKNOWN',
+      state: existingRoute ? 'recovery_start_routed' : 'routed',
+      regionCode: existingRoute?.regionCode || envelope.regionCode || 'UNKNOWN',
       spokeGroup,
       routedAt: new Date().toISOString()
     });
-    await forwardToSpoke(envelope.regionCode || 'UNKNOWN', envelope);
+    await forwardToSpoke(existingRoute?.spokeGroup || envelope.regionCode || 'UNKNOWN', envelope);
     return;
   }
 
   if (isStopEvent(envelope.event)) {
     await routeStop(envelope);
+    return;
+  }
+
+  if (isInterruptedEvent(envelope.event)) {
+    await routeRecovery(envelope);
     return;
   }
 
@@ -105,6 +112,22 @@ async function routeStop(envelope) {
   }
 
   await forwardToSpoke('UNKNOWN', envelope);
+}
+
+async function routeRecovery(envelope) {
+  const route = routingStore.getStreamRoute(envelope.streamId);
+  const regionCode = route?.spokeGroup || route?.regionCode || null;
+  if (!regionCode) {
+    logger.warn(`[02-central-route-dispatcher] no route for recovery ${envelope.streamId}; using UNKNOWN fallback`);
+  }
+
+  routingStore.writeStreamState(envelope.streamId, {
+    state: 'recovery_requested',
+    recoveryEnvelope: envelope,
+    recoveryRequestedAt: new Date().toISOString()
+  });
+
+  await forwardToSpoke(regionCode || 'UNKNOWN', envelope);
 }
 
 async function forwardToSpoke(regionCode, envelope) {

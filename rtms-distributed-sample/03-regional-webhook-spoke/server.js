@@ -2,7 +2,7 @@ import dotenv from 'dotenv';
 import express from 'express';
 import { fireAndForget, postJson, putJson } from '../shared/http.js';
 import { verifyInternalSignedRequest } from '../shared/internalSignature.js';
-import { isStartEvent, isStopEvent } from '../shared/regions.js';
+import { isInterruptedEvent, isStartEvent, isStopEvent } from '../shared/regions.js';
 import { captureRawBody } from '../shared/zoomSignature.js';
 import { createRtmsObservabilityLogger } from '../shared/rtmsObservabilityLogger.js';
 
@@ -88,6 +88,15 @@ async function persistRegionalEnvelope(envelope) {
     await postJson(`${regionalStoreUrl}/streams/${encodeURIComponent(envelope.streamId)}/state`, {
       state: 'stop_requested',
       stopEnvelope: envelope
+    }, { timeoutMs: 3000 });
+    return;
+  }
+
+  if (isInterruptedEvent(envelope.event)) {
+    await postJson(`${regionalStoreUrl}/streams/${encodeURIComponent(envelope.streamId)}/state`, {
+      state: 'recovery_requested',
+      recoveryEnvelope: envelope,
+      recoveryRequestedAt: new Date().toISOString()
     }, { timeoutMs: 3000 });
   }
 }

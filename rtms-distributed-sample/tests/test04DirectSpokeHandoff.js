@@ -79,6 +79,48 @@ try {
   }, 'compute dry-run state');
   pass('start_reached_compute_and_sqlite', `stream=${streamId}`);
 
+  const interruptedWebhook = buildDummyRtmsWebhook({
+    event: 'meeting.rtms_interrupted',
+    streamId,
+    rtmsId
+  });
+  const interruptedEnvelope = buildEnvelope(
+    interruptedWebhook.event,
+    interruptedWebhook.payload,
+    'test04-direct-handoff',
+    interruptedWebhook
+  );
+
+  const interruptedResponse = await postSignedJson(`${spokeUrl}/spoke/webhook`, interruptedEnvelope, secret);
+  assert(interruptedResponse.status === 202, `interrupted handoff returned ${interruptedResponse.status}`);
+  await waitForCondition(async () => {
+    const stream = await fetchStream(storeUrl, streamId);
+    return stream?.events?.some((event) => event.type === 'rtms_interrupted_owner_recovery');
+  }, 'compute interrupted recovery event');
+  pass('interrupted_recovery_reached_owner', `stream=${streamId}`);
+
+  const refreshWebhook = buildDummyRtmsWebhook({
+    event: startWebhook.event,
+    region: 'FRA',
+    streamId,
+    rtmsId,
+    eventTs: Date.now() + 1
+  });
+  const refreshEnvelope = buildEnvelope(
+    refreshWebhook.event,
+    refreshWebhook.payload,
+    'test04-direct-handoff',
+    refreshWebhook
+  );
+
+  const refreshResponse = await postSignedJson(`${spokeUrl}/spoke/webhook`, refreshEnvelope, secret);
+  assert(refreshResponse.status === 202, `recovery start handoff returned ${refreshResponse.status}`);
+  await waitForCondition(async () => {
+    const stream = await fetchStream(storeUrl, streamId);
+    return stream?.events?.some((event) => event.type === 'recovery_start_owner_refresh');
+  }, 'compute recovery start refresh event');
+  pass('fresh_active_start_reached_owner', `stream=${streamId}`);
+
   const stopWebhook = buildDummyRtmsWebhook({
     event: getStopEvent(startWebhook.event),
     streamId,
@@ -101,7 +143,7 @@ try {
   }, 'compute stopped state');
   pass('stop_reached_compute_and_sqlite', `stream=${streamId}`);
 
-  console.log('04 direct spoke handoff tester passed: 7/7');
+  console.log('04 direct spoke handoff tester passed: 9/9');
 } finally {
   shuttingDown = true;
   for (const child of children.reverse()) {

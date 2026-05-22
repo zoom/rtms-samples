@@ -54,7 +54,7 @@ Run the focused `02-central-route-dispatcher` route test against a running hub, 
 npm run test:02 -- --hub-url http://127.0.0.1:4400/webhook --secret testsecrettoken
 ```
 
-This checks hub/dispatcher SQLite health, confirms dispatcher-to-spoke signing is enabled, then sends signed webhooks whose `payload.server_urls` contain RTMS codes and verifies they land on the expected spoke:
+This checks hub/dispatcher SQLite health, confirms dispatcher-to-spoke signing is enabled, then sends signed start webhooks whose `payload.server_urls` contain RTMS codes and verifies they land on the expected spoke:
 
 ```text
 SJC -> amer-west
@@ -63,6 +63,8 @@ FRA -> europe
 NRT -> apac-hub
 LHR -> us fallback
 ```
+
+For each routed start, it also sends `meeting.rtms_interrupted` without a signaling URL and verifies the saved `rtms_stream_id` route sends the recovery event back to the same spoke.
 
 Run the focused `03-regional-webhook-spoke` security test against a running spoke:
 
@@ -78,7 +80,7 @@ Run the focused direct handoff integration test:
 npm run test:04 -- --secret testsecrettoken
 ```
 
-This starts temporary regional store, spoke, and dry-run compute processes on free local ports. It sends signed start/stop envelopes to the spoke and verifies the compute shim writes state through the regional SQLite control store. No SQLite queue is used.
+This starts temporary regional store, spoke, and dry-run compute processes on free local ports. It sends signed start, interrupted, fresh active-stream start, and stop envelopes to the spoke and verifies the compute shim writes state through the regional SQLite control store. No SQLite queue is used.
 
 Run the remote k3s/Kubernetes busybox launch test:
 
@@ -86,7 +88,7 @@ Run the remote k3s/Kubernetes busybox launch test:
 KUBECONFIG=/path/to/k3s-remote.yaml npm run test:05:k8s
 ```
 
-This creates namespace `rtms` if needed, creates a per-Job Secret containing a dummy webhook envelope, submits a short `busybox:1.36` Job that reads `/var/run/rtms/envelope.json`, waits for completion, checks logs, then deletes the Job and Secret. Use `-- --keep` if you want to inspect them afterward.
+This creates namespace `rtms` if needed, creates a per-Job Secret containing a dummy webhook envelope, submits a short `busybox:1.36` Job with the configured compute resource requests and limits, reads `/var/run/rtms/envelope.json`, waits for completion, checks logs, then deletes the Job and Secret. Use `-- --keep` if you want to inspect them afterward.
 
 Run the compute startup-from-store test:
 
@@ -144,6 +146,14 @@ npm run test:12:realtime-cache
 
 This starts `06-realtime-cache` in memory mode, writes stream state, summary, metrics, and events through the HTTP API, verifies the dashboard route, and checks the Prometheus `/metrics` output.
 It also writes sample webhook and signaling latency values and verifies lowest, highest, average, and Prometheus latency output.
+
+Run the RTMSManager recovery test:
+
+```bash
+npm run test:13:rtms-recovery
+```
+
+This checks that `rtms_interrupted` reaches the owned stream reconnect hook and that the signaling media-interruption event is exposed as both the generic RTMS event and a dedicated `media_connection_interrupted` event.
 
 ## Optional RabbitMQ Queue Smoke Test
 

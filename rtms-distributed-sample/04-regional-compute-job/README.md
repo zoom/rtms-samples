@@ -6,6 +6,8 @@ This is the per-stream worker. It claims the stream lease, starts `RTMSManager`,
 
 It also forwards RTMSManager logs to Loki when `LOKI_PUSH_URL` is set. The worker records `signaling_ping_rtt_ms` in the realtime cache after the signaling WebSocket answers a ping.
 
+The current owner handles recovery for its stream. It receives stored `rtms_interrupted` envelopes and fresh active-stream `rtms_started` envelopes through the regional control store during lease renewal, then passes them into `RTMSManager`. Media interruption events from `RTMSManager` stay local to this Job and are reported as realtime/log telemetry while the manager reconnects its sockets.
+
 Model:
 
 ```text

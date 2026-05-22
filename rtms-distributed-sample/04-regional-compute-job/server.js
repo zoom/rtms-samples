@@ -12,7 +12,7 @@ import {
   postRealtimeStreamState,
   postRealtimeSummary
 } from '../shared/realtimeCacheClient.js';
-import { isStartEvent, isStopEvent } from '../shared/regions.js';
+import { isInterruptedEvent, isStartEvent, isStopEvent } from '../shared/regions.js';
 import { createRtmsObservabilityLogger } from '../shared/rtmsObservabilityLogger.js';
 import { readZoomCredentials } from '../shared/secretConfig.js';
 
@@ -117,6 +117,11 @@ async function handleEnvelope(envelope) {
     return;
   }
 
+  if (isInterruptedEvent(envelope.event)) {
+    await handleInterrupted(envelope);
+    return;
+  }
+
   await writeRegionalEvent(envelope.streamId, {
     type: 'spoke_ignored',
     event: envelope.event,
@@ -128,7 +133,7 @@ async function handleStart(envelope) {
   const webhook = getWebhookFromEnvelope(envelope);
 
   if (localStreams.has(envelope.streamId)) {
-    await writeRegionalEvent(envelope.streamId, { type: 'duplicate_local_start', envelope });
+    await handleRecoveryStart(envelope, localStreams.get(envelope.streamId));
     return;
   }
 
@@ -153,7 +158,8 @@ async function handleStart(envelope) {
     nodeId,
     leaseVersion: claim.stream.leaseVersion,
     state: dryRun ? 'dry_run_connected' : 'connecting',
-    startedAt: new Date().toISOString()
+    startedAt: new Date().toISOString(),
+    lastStartEnvelopeKey: getEnvelopeControlKey(envelope)
   };
   localStreams.set(envelope.streamId, stream);
   mediaRecorder.registerStream(envelope.streamId, {
@@ -229,6 +235,66 @@ async function handleStop(envelope) {
   }
 }
 
+async function handleInterrupted(envelope) {
+  const stream = localStreams.get(envelope.streamId);
+  if (!stream) {
+    await writeRegionalEvent(envelope.streamId, {
+      type: 'recovery_owner_missing',
+      event: envelope.event,
+      envelope
+    });
+    return;
+  }
+
+  const envelopeKey = getEnvelopeControlKey(envelope);
+  if (stream.lastRecoveryEnvelopeKey === envelopeKey) return;
+
+  stream.lastRecoveryEnvelopeKey = envelopeKey;
+  stream.state = 'recovering';
+  stream.recoveryRequestedAt = new Date().toISOString();
+  await writeRegionalState(envelope.streamId, stream);
+  await writeRegionalEvent(envelope.streamId, {
+    type: 'rtms_interrupted_owner_recovery',
+    event: envelope.event,
+    envelopeKey
+  });
+  realtimeMetrics.recordCounter(envelope.streamId, 'recovery_webhooks_total', 1);
+  fireAndForget(writeRealtimeEvent(envelope.streamId, {
+    type: 'rtms_interrupted_owner_recovery',
+    event: envelope.event,
+    at: stream.recoveryRequestedAt
+  }), 'realtime interrupted recovery');
+
+  if (!dryRun) {
+    const webhook = getWebhookFromEnvelope(envelope);
+    RTMSManager.handleEvent(webhook.event, webhook.payload);
+  }
+}
+
+async function handleRecoveryStart(envelope, stream) {
+  const envelopeKey = getEnvelopeControlKey(envelope);
+  if (stream.lastStartEnvelopeKey === envelopeKey) return;
+
+  stream.lastStartEnvelopeKey = envelopeKey;
+  stream.lastRecoveryStartAt = new Date().toISOString();
+  await writeRegionalEvent(envelope.streamId, {
+    type: 'recovery_start_owner_refresh',
+    event: envelope.event,
+    envelopeKey
+  });
+  realtimeMetrics.recordCounter(envelope.streamId, 'recovery_start_webhooks_total', 1);
+  fireAndForget(writeRealtimeEvent(envelope.streamId, {
+    type: 'recovery_start_owner_refresh',
+    event: envelope.event,
+    at: stream.lastRecoveryStartAt
+  }), 'realtime recovery start');
+
+  if (!dryRun) {
+    const webhook = getWebhookFromEnvelope(envelope);
+    RTMSManager.handleEvent(webhook.event, webhook.payload);
+  }
+}
+
 async function renewLease(stream) {
   const renewal = await postJson(`${regionalStoreUrl}/streams/${encodeURIComponent(stream.streamId)}/lease-renew`, {
     nodeId,
@@ -253,6 +319,18 @@ async function renewLease(stream) {
     }
 
     rtmsLogger.warn(`[regional-compute-job] stop requested for ${stream.streamId} but no stop envelope was stored`);
+  }
+
+  await handleStoredRecoveryControls(stream, renewal.stream);
+}
+
+async function handleStoredRecoveryControls(stream, storedStream = {}) {
+  if (storedStream?.startEnvelope && isStartEvent(storedStream.startEnvelope.event)) {
+    await handleRecoveryStart(storedStream.startEnvelope, stream);
+  }
+
+  if (storedStream?.recoveryEnvelope && isInterruptedEvent(storedStream.recoveryEnvelope.event)) {
+    await handleInterrupted(storedStream.recoveryEnvelope);
   }
 }
 
@@ -294,6 +372,15 @@ function getStartEnvelopeFromStoredStream(stream) {
   }
 
   throw new Error(`No start webhook envelope found in regional store for stream=${stream?.streamId || 'unknown'}`);
+}
+
+function getEnvelopeControlKey(envelope = {}) {
+  return envelope.idempotencyKey || [
+    envelope.event || 'unknown',
+    envelope.streamId || 'unknown',
+    envelope.eventTs || envelope.payload?.event_ts || 'unknown_event_ts',
+    envelope.receivedAt || 'unknown_received_at'
+  ].join('|');
 }
 
 async function initializeRtmsManager() {
@@ -372,6 +459,25 @@ async function initializeRtmsManager() {
       productType: event.productType || 'unknown',
       at: event.at || new Date().toISOString()
     }), 'realtime signaling ping event');
+  });
+
+  RTMSManager.on('media_connection_interrupted', (event) => {
+    if (!event?.streamId) return;
+    rtmsLogger.warn('[regional-compute-job] RTMS media connection interrupted', {
+      streamId: event.streamId,
+      productType: event.productType || 'unknown'
+    });
+    realtimeMetrics.recordCounter(event.streamId, 'media_connection_interruptions_total', 1);
+    fireAndForget(writeRealtimeEvent(event.streamId, {
+      type: 'rtms_media_connection_interrupted',
+      productType: event.productType || 'unknown',
+      event,
+      at: new Date().toISOString()
+    }), 'realtime media interruption');
+    fireAndForget(writeRegionalEvent(event.streamId, {
+      type: 'rtms_media_connection_interrupted',
+      event
+    }), 'rtms media interruption write');
   });
 
   RTMSManager.on('stream_state_changed', (event) => {

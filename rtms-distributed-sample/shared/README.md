@@ -13,7 +13,7 @@ This folder contains small helpers used by the sample services.
 | [`http.js`](./http.js) | JSON HTTP helpers and fire-and-forget calls |
 | [`idempotency.js`](./idempotency.js) | Stable webhook idempotency key builder |
 | [`internalSignature.js`](./internalSignature.js) | HMAC signing for internal service calls |
-| [`kubernetesJobLauncher.js`](./kubernetesJobLauncher.js) | Kubernetes Job and Secret creation |
+| [`kubernetesJobLauncher.js`](./kubernetesJobLauncher.js) | Kubernetes Job, Secret, and pod resource creation |
 | [`postgresRetry.js`](./postgresRetry.js) | Retry helper for future Postgres swaps |
 | [`rabbitmq.js`](./rabbitmq.js) | Optional RabbitMQ confirm-publish helpers |
 | [`realtimeCacheClient.js`](./realtimeCacheClient.js) | Client for realtime cache state/metrics |

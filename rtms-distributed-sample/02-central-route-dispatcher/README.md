@@ -4,6 +4,8 @@
 
 This local shim receives accepted webhooks from the hub, persists the selected route, signs the internal handoff, and forwards the event to one regional spoke.
 
+Start events choose a spoke from the RTMS signaling URL hint. Stop and interrupted events have no routing hint, so the dispatcher uses the saved `rtms_stream_id` route. A fresh accepted start for an already-routed stream also stays with the saved spoke so recovery does not create a competing regional owner.
+
 RabbitMQ files in this folder are optional. The default sample path is signed HTTP handoff.
 
 ## Endpoints

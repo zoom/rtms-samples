@@ -5,7 +5,7 @@ This sample shows one practical way to run Zoom RTMS across regions without putt
 The short version:
 
 - the public hub receives Zoom RTMS webhooks
-- the hub chooses one regional spoke
+- the dispatcher chooses one regional spoke
 - the spoke starts one worker for the stream
 - the worker runs `RTMSManager`
 - final audio/video/manifest files go through the artifact storage API
@@ -21,7 +21,7 @@ The local PM2 and Docker setup runs everything on one host only to make testing 
 
 ```mermaid
 flowchart TD
-  Zoom[Zoom RTMS webhook] --> Hub[01 centralized webhook hub<br/>verify, dedupe, route]
+  Zoom[Zoom RTMS webhook] --> Hub[01 centralized webhook hub<br/>verify, dedupe, forward]
   Hub --> Dispatcher[02 central route dispatcher<br/>selected-spoke handoff]
   Dispatcher --> Central[(05 control store<br/>central SQLite<br/>accepted event, route, global lookup)]
   Central --> Spoke[03 selected regional webhook spoke]
@@ -83,6 +83,12 @@ sequenceDiagram
     Spoke->>Launcher: stop envelope
     Launcher->>K8s: let job finish, then delete Job and envelope Secret
     Job->>Artifact: flush final artifacts when available
+  else rtms_interrupted or active-stream refresh
+    Dispatcher->>Central: look up saved route by rtms_stream_id
+    Dispatcher->>Spoke: signed recovery handoff to same spoke
+    Spoke->>Regional: save recovery control envelope
+    Job->>Regional: observe recovery during lease renewal
+    Job->>RTMS: reconnect or refresh the owned stream
   end
 ```
 
@@ -103,9 +109,17 @@ Zoom RTMS webhook
   -> 07 observability for logs and dashboards
 ```
 
-For `rtms_started`, the hub reads the Zoom signaling URL hint and maps it to a spoke group such as `amer-east`, `amer-west`, `europe`, or `apac-hub`.
+For `rtms_started`, the dispatcher reads the Zoom signaling URL hint and maps it to a spoke group such as `amer-east`, `amer-west`, `europe`, or `apac-hub`.
 
-For `rtms_stopped`, the hub uses the saved route for the `rtms_stream_id`. Stop events should go back to the same selected region.
+For `rtms_stopped`, the dispatcher uses the saved route for the `rtms_stream_id`. Stop events should go back to the same selected region.
+
+For `rtms_interrupted`, the dispatcher also uses the saved `rtms_stream_id` route. A fresh accepted `rtms_started` for an already-routed stream stays with that existing region instead of creating a second regional owner. The regional control store carries those recovery envelopes to the current stream Job during lease renewal. Media interruption events from `RTMSManager` stay inside the owning Job and are reported to cache/logging as recovery telemetry.
+
+### Recovery Timing And Owner Failure
+
+Recovery is owner-directed in this sample. The regional spoke writes `rtms_interrupted` and fresh active-stream `rtms_started` recovery envelopes to the regional control store, and the current Kubernetes Job observes them during lease renewal. That keeps recovery with the one pod that owns the stream, but it also means recovery handling can wait up to about one lease-renew interval after the regional store write. Keep that interval comfortably inside the RTMS reconnect window and measure it under regional load.
+
+`rtms_interrupted` is not a replacement-pod trigger here. If the owning pod is still alive, it should reconnect the stream. If that pod has already died, this sample records the recovery request but does not launch a second pod from the interrupted webhook alone. A production takeover path must make that decision with lease expiry, fencing, and artifact/state rules so a replacement cannot race the old owner.
 
 For accepted RTMS webhooks, the hub records `webhook_ingress_latency_ms` as the time between Zoom's signed `x-zm-request-timestamp` and the hub receive time. For live RTMS connections, `RTMSManager` emits `signaling_ping_rtt_ms` after the signaling WebSocket answers a ping. The realtime cache dashboard shows lowest, highest, and average values for both.
 
@@ -183,7 +197,7 @@ Fill these groups first:
 | Zoom webhook verification | `ZOOM_SECRET_TOKEN`, `VIDEO_SECRET_TOKEN` |
 | RTMS credentials | `ZOOM_CLIENT_ID`, `ZOOM_CLIENT_SECRET`, `VIDEO_CLIENT_ID`, `VIDEO_CLIENT_SECRET` |
 | Service URLs | `CENTRAL_ROUTE_DISPATCHER_URL`, `SPOKE_AMER_WEST_URL`, `SPOKE_AMER_EAST_URL`, `SPOKE_EUROPE_URL`, `SPOKE_APAC_HUB_URL`, `COMPUTE_ENDPOINTS`, `REGIONAL_STORE_URL` |
-| Kubernetes launcher | `KUBECONFIG`, `KUBECONFIG_INLINE_B64`, `K8S_COMPUTE_IMAGE`, `K8S_NAMESPACE` |
+| Kubernetes launcher | `KUBECONFIG`, `KUBECONFIG_INLINE_B64`, `K8S_COMPUTE_IMAGE`, `K8S_NAMESPACE`, `K8S_COMPUTE_CPU_REQUEST`, `K8S_COMPUTE_MEMORY_REQUEST`, `K8S_COMPUTE_CPU_LIMIT`, `K8S_COMPUTE_MEMORY_LIMIT` |
 | Artifact storage | `ARTIFACT_STORAGE_PROVIDER`, `ARTIFACT_BUCKET`, `ARTIFACT_S3_ENDPOINT`, `AWS_ACCESS_KEY_ID`, `AWS_SECRET_ACCESS_KEY` |
 | Realtime cache | `REDIS_PASSWORD`, `REALTIME_CACHE_REDIS_URL`, `REALTIME_CACHE_REDIS_PASSWORD` |
 | Observability | `LOKI_PUSH_URL`, `COMPUTE_LOKI_PUSH_URL`, `SERVICE_LOG_LEVEL`, `RTMS_LOG_LEVEL` |
@@ -216,6 +230,8 @@ The dispatcher reads the readable `SPOKE_*_URL` values for the common four-spoke
 
 For Kubernetes Jobs, changing the host `.env` is not enough. Update the Kubernetes Secret and recreate old failed Jobs so new pods receive current credentials.
 
+Each per-stream Kubernetes Job has explicit resource sizing. The sample requests `1` CPU and `4Gi` memory and caps the Job at `2` CPUs and `8Gi` memory unless `K8S_COMPUTE_CPU_REQUEST`, `K8S_COMPUTE_MEMORY_REQUEST`, `K8S_COMPUTE_CPU_LIMIT`, or `K8S_COMPUTE_MEMORY_LIMIT` override those values.
+
 For a local k3s cluster using a DNS endpoint, keep the kubeconfig server and TLS server name aligned. For example:
 
 ```yaml
@@ -245,7 +261,9 @@ Keep these rules in mind while changing the sample:
 - verify Zoom webhook signatures before routing
 - accept a repeated RTMS webhook only once
 - route stop events by saved `rtms_stream_id`
+- route recovery events by saved `rtms_stream_id` to the current regional owner
 - let only one pod own a stream lease
+- set per-stream Kubernetes CPU and memory requests/limits from capacity tests
 - keep lease TTL below the RTMS reconnect window
 - keep realtime cache disposable
 - put large final files in object storage, not SQLite

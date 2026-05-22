@@ -51,6 +51,10 @@ export function isStopEvent(event = '') {
   return event.endsWith('rtms_stopped');
 }
 
+export function isInterruptedEvent(event = '') {
+  return event.endsWith('rtms_interrupted');
+}
+
 export function getProductType(event = '') {
   if (event.startsWith('meeting.')) return 'meeting';
   if (event.startsWith('webinar.')) return 'webinar';

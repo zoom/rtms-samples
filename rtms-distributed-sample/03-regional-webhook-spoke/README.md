@@ -2,9 +2,11 @@
 
 [Back to distributed sample overview](../README.md)
 
-The regional spoke receives work already selected by the hub and dispatcher. It verifies the internal signature, writes regional state, and hands the event to local compute.
+The regional spoke receives work already selected by the dispatcher. It verifies the internal signature, writes regional state, and hands start or stop events to local compute.
 
 It should not decide which global region owns the stream. That decision belongs upstream.
+
+Recovery stays with the selected regional owner. When the spoke receives `rtms_interrupted` or a fresh active-stream `rtms_started` for a stream already owned in the region, it writes the recovery envelope into the regional control store so the current compute Job can observe it during lease renewal.
 
 ## Endpoints
 

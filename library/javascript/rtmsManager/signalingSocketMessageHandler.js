@@ -355,6 +355,15 @@ export function handleSignalingMessage(data, meetingUuid, streamId, signalingWs,
 
           case 7: // MEDIA_CONNECTION_INTERRUPTED
             FileLogger.log(`[Signaling] [${conn.rtmsType},${meetingUuid},${streamId}] MEDIA_CONNECTION_INTERRUPTED`);
+            emit('media_connection_interrupted', {
+              type: 'media_connection_interrupted',
+              data: msg.event,
+              rtmsId: meetingUuid,
+              meetingId: meetingUuid,
+              streamId,
+              productType: conn.rtmsType || 'meeting',
+              timestamp: msg.event.timestamp || Date.now()
+            });
             break;
 
           case protocol.eventTypes.PARTICIPANT_VIDEO_ON: {

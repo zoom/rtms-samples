@@ -2,7 +2,7 @@ import dotenv from 'dotenv';
 import express from 'express';
 import { fireAndForget } from '../shared/http.js';
 import { KubernetesJobLauncher, buildKubernetesJobName } from '../shared/kubernetesJobLauncher.js';
-import { isStartEvent, isStopEvent } from '../shared/regions.js';
+import { isInterruptedEvent, isStartEvent, isStopEvent } from '../shared/regions.js';
 import { createRtmsObservabilityLogger } from '../shared/rtmsObservabilityLogger.js';
 
 dotenv.config({ override: true });
@@ -19,6 +19,16 @@ const computeRealtimeCacheUrl = process.env.COMPUTE_REALTIME_CACHE_URL || proces
 const jobPrefix = process.env.K8S_JOB_PREFIX || `rtms-${regionCode}`;
 const stopJobDeleteDelayMs = Number(process.env.K8S_STOP_JOB_DELETE_DELAY_MS || 25000);
 const computeImagePullPolicy = process.env.K8S_IMAGE_PULL_POLICY || (process.env.K8S_COMPUTE_IMAGE ? 'Always' : 'IfNotPresent');
+const computeResources = {
+  requests: {
+    cpu: process.env.K8S_COMPUTE_CPU_REQUEST || '1',
+    memory: process.env.K8S_COMPUTE_MEMORY_REQUEST || '4Gi'
+  },
+  limits: {
+    cpu: process.env.K8S_COMPUTE_CPU_LIMIT || '2',
+    memory: process.env.K8S_COMPUTE_MEMORY_LIMIT || '8Gi'
+  }
+};
 const logger = createRtmsObservabilityLogger({
   service: 'regional-compute-launcher',
   regionCode,
@@ -45,7 +55,8 @@ app.get('/health', (_req, res) => {
       kubeconfig: process.env.KUBECONFIG ? 'configured' : 'default',
       image: process.env.K8S_COMPUTE_IMAGE || process.env.K8S_TEST_IMAGE || 'busybox:1.36',
       imagePullPolicy: computeImagePullPolicy,
-      credentialSecret: process.env.K8S_COMPUTE_SECRET_NAME || null
+      credentialSecret: process.env.K8S_COMPUTE_SECRET_NAME || null,
+      resources: computeResources
     },
     regionalStoreUrl,
     computeJobStoreUrls: {
@@ -96,7 +107,9 @@ async function handleEnvelope(envelope) {
     remember({
       streamId: envelope.streamId,
       event: envelope.event,
-      action: 'ignored_non_rtms_start',
+      action: isInterruptedEvent(envelope.event)
+        ? 'recovery_event_deferred_to_stream_owner'
+        : 'ignored_non_rtms_start',
       at: new Date().toISOString()
     });
     return;
@@ -115,6 +128,10 @@ async function handleEnvelope(envelope) {
     secretName: process.env.K8S_COMPUTE_SECRET_NAME,
     secretMountPath: process.env.K8S_COMPUTE_SECRET_MOUNT_PATH,
     serviceAccountName: process.env.K8S_COMPUTE_SERVICE_ACCOUNT,
+    cpuRequest: computeResources.requests.cpu,
+    memoryRequest: computeResources.requests.memory,
+    cpuLimit: computeResources.limits.cpu,
+    memoryLimit: computeResources.limits.memory,
     terminationGracePeriodSeconds: Number(process.env.K8S_TERMINATION_GRACE_PERIOD_SECONDS || 60),
     ttlSecondsAfterFinished: Number(process.env.K8S_JOB_TTL_SECONDS_AFTER_FINISHED || 900),
     env: {

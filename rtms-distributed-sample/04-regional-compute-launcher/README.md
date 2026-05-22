@@ -47,6 +47,10 @@ npm run docker:build:compute
 | `K8S_NAMESPACE` | Namespace for Jobs |
 | `K8S_COMPUTE_IMAGE` | Image used by compute Jobs |
 | `K8S_COMPUTE_SECRET_NAME` | Optional mounted credentials Secret |
+| `K8S_COMPUTE_CPU_REQUEST` | Per-Job CPU request, default `1` |
+| `K8S_COMPUTE_MEMORY_REQUEST` | Per-Job memory request, default `4Gi` |
+| `K8S_COMPUTE_CPU_LIMIT` | Per-Job CPU limit, default `2` |
+| `K8S_COMPUTE_MEMORY_LIMIT` | Per-Job memory limit, default `8Gi` |
 | `COMPUTE_ARTIFACT_STORAGE_URL` | Artifact API URL reachable from pods |
 | `COMPUTE_REALTIME_CACHE_URL` | Cache API URL reachable from pods |
 | `MEDIA_TYPES_FLAG` | RTMS media request, default `32` |
@@ -54,6 +58,8 @@ npm run docker:build:compute
 ## Notes
 
 For mutable local image tags, use `K8S_IMAGE_PULL_POLICY=Always`. For production-style deployments, prefer immutable tags or image digests.
+
+The launcher puts Kubernetes `resources.requests` and `resources.limits` on every per-stream Job. Treat the defaults as a starting point and adjust them after measuring the actual RTMS media mix and artifact work for one stream.
 
 ## Related
 

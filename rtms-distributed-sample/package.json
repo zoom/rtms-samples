@@ -27,6 +27,7 @@
     "test:10:minio": "node tests/test10MinioArtifactStorage.js",
     "test:11:compute-artifact": "node tests/test11ComputeArtifactManifest.js",
     "test:12:realtime-cache": "node tests/test12RealtimeCacheService.js",
+    "test:13:rtms-recovery": "node tests/test13RtmsManagerRecovery.js",
     "test:webhook": "node tests/sendDummyWebhook.js",
     "test:signature": "node tests/verifyZoomSignature.js",
     "test:queue:publish": "node tests/publishDummyQueueMessage.js",
