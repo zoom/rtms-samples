@@ -482,7 +482,15 @@ async function initializeRtmsManager() {
 
   RTMSManager.on('stream_state_changed', (event) => {
     if (!event?.streamId) return;
+    const rtmsStreamState = rtmsStreamStateName(event.state);
     realtimeMetrics.recordCounter(event.streamId, 'stream_state_changes_total', 1);
+    fireAndForget(writeRealtimeState(event.streamId, {
+      state: rtmsStreamState,
+      rtmsStreamState,
+      streamStateCode: event.state,
+      productType: event.productType || 'unknown',
+      lastStreamStateEventAt: new Date().toISOString()
+    }), 'realtime stream state');
     fireAndForget(writeRealtimeEvent(event.streamId, {
       type: 'rtms_stream_state_changed',
       state: event.state,
@@ -497,7 +505,16 @@ async function initializeRtmsManager() {
 
   RTMSManager.on('session_state_changed', (event) => {
     if (!event?.streamId) return;
+    const rtmsSessionState = rtmsSessionStateName(event.state);
+    const statePatch = {
+      rtmsSessionState,
+      sessionStateCode: event.state,
+      productType: event.productType || 'unknown',
+      lastSessionStateEventAt: new Date().toISOString()
+    };
+    if (rtmsSessionState === 'stopped') statePatch.state = 'stopped';
     realtimeMetrics.recordCounter(event.streamId, 'session_state_changes_total', 1);
+    fireAndForget(writeRealtimeState(event.streamId, statePatch), 'realtime session state');
     fireAndForget(writeRealtimeEvent(event.streamId, {
       type: 'rtms_session_state_changed',
       state: event.state,
@@ -757,6 +774,39 @@ async function writeRealtimeEvent(streamId, event) {
     regionCode: event.regionCode || regionCode,
     nodeId: event.nodeId || nodeId
   });
+}
+
+async function writeRealtimeSummary(streamId, summary) {
+  await postRealtimeSummary(realtimeCacheUrl, streamId, {
+    ...summary,
+    regionCode: summary.regionCode || regionCode,
+    nodeId: summary.nodeId || nodeId
+  });
+}
+
+function rtmsStreamStateName(value) {
+  switch (Number(value)) {
+    case 0: return 'inactive';
+    case 1: return 'active';
+    case 2: return 'interrupted';
+    case 3: return 'terminating';
+    case 4: return 'terminated';
+    case 5: return 'paused';
+    case 6: return 'resumed';
+    default: return `stream_state_${value}`;
+  }
+}
+
+function rtmsSessionStateName(value) {
+  switch (Number(value)) {
+    case 0: return 'inactive';
+    case 1: return 'initializing';
+    case 2: return 'started';
+    case 3: return 'paused';
+    case 4: return 'resumed';
+    case 5: return 'stopped';
+    default: return `session_state_${value}`;
+  }
 }
 
 async function syncToCentralStore(streamId, resource, body) {

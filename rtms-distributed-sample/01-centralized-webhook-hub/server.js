@@ -91,11 +91,25 @@ app.post(webhookPath, async (req, res) => {
   if (!verification.ok) {
     const status = verification.reason === 'missing_webhook_secret_token' ? 500 : 401;
     logger.warn(`[01-centralized-webhook-hub] rejected webhook event=${event} reason=${verification.reason}`);
-    recordWebhookObservation('unverified', { event, reason: verification.reason });
+    recordWebhookObservation(isConcurrencyLimitedEvent(event) ? 'concurrency_limited' : 'unverified', {
+      event,
+      reason: verification.reason,
+      eventType: isConcurrencyLimitedEvent(event) ? 'limit' : ''
+    });
     return res.status(status).json({ error: 'invalid_zoom_webhook', reason: verification.reason });
   }
 
   const envelope = buildEnvelope(event, payload, 'centralized-webhook-hub', req.body);
+  if (isConcurrencyLimitedEvent(event)) {
+    recordWebhookObservation('concurrency_limited', { envelope, eventType: 'limit' });
+    logger.warn('[01-centralized-webhook-hub] RTMS concurrency limited webhook observed', {
+      event,
+      streamId: envelope.streamId || 'none',
+      rtmsId: envelope.rtmsId || 'none'
+    });
+    return res.sendStatus(204);
+  }
+
   const duplicate = isRtmsEvent(event) ? acceptWebhookIdempotency(envelope).duplicate : false;
   if (duplicate) {
     logger.info(`[01-centralized-webhook-hub] duplicate RTMS webhook dropped event=${event} stream=${envelope.streamId} key=${envelope.idempotencyKey}`);
@@ -151,6 +165,10 @@ function getSecretTokenForEvent(event = '') {
 
 function isRtmsEvent(event = '') {
   return isStartEvent(event) || isStopEvent(event) || isInterruptedEvent(event);
+}
+
+function isConcurrencyLimitedEvent(event = '') {
+  return String(event || '').toLowerCase() === 'rtms.concurrency_limited';
 }
 
 function acceptWebhookIdempotency(envelope) {

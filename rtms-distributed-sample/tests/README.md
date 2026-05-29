@@ -155,6 +155,14 @@ npm run test:13:rtms-recovery
 
 This checks that `rtms_interrupted` reaches the owned stream reconnect hook and that the signaling media-interruption event is exposed as both the generic RTMS event and a dedicated `media_connection_interrupted` event.
 
+Run the Pixi Arlo UI smoke test:
+
+```bash
+npm run test:14:phaser-arlo
+```
+
+This starts `09-phaser-arlo` on a temporary port, verifies the single-page UI, Pixi runtime, sprite asset, rejected/reconnect map areas, health endpoint, and realtime-cache proxy fallback. It does not require Zoom webhooks or Redis because the page starts in dummy mode.
+
 ## Optional RabbitMQ Queue Smoke Test
 
 The current sample path does not use SQLite as a queue and does not require RabbitMQ. The hub/dispatcher sends accepted webhook envelopes directly to the selected regional spoke by signed HTTP. Use this section only if you want to test RabbitMQ as a future swap-in for replay/backpressure.

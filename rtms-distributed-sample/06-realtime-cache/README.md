@@ -65,7 +65,7 @@ curl -X POST http://127.0.0.1:4560/streams/stream-123/summary \
 curl http://127.0.0.1:4560/streams/stream-123
 ```
 
-The hub uses `REALTIME_CACHE_URL` to send accepted webhook ingress latency. The compute job uses `REALTIME_CACHE_URL` to send state, events, signaling ping RTT, and aggregated media metrics. It buffers media counters and flushes them every few seconds so it does not make an HTTP call for every media packet.
+The hub uses `REALTIME_CACHE_URL` to send accepted webhook ingress latency and rolling webhook counters, including `rtms.concurrency_limited` observations. The compute job uses `REALTIME_CACHE_URL` to send state, events, signaling ping RTT, and aggregated media metrics. It buffers media counters and flushes them every few seconds so it does not make an HTTP call for every media packet.
 
 Current latency keys:
 
@@ -87,8 +87,11 @@ rtms:node:{nodeId}:health
 Use TTLs aggressively so stale live state disappears after node failures:
 
 ```text
-REALTIME_CACHE_TTL_SECONDS=7200
+REALTIME_CACHE_TTL_SECONDS=300
+REALTIME_CACHE_STREAM_FRESHNESS_SECONDS=180
 REALTIME_CACHE_MAX_EVENTS=100
 ```
+
+`GET /streams` returns fresh/live streams only. Use `GET /streams?include=all` when debugging the raw cache contents.
 
 Prometheus can scrape `/metrics`; Grafana can read Prometheus for active stream counts, metric sums, and latency min/max/average gauges.

@@ -372,7 +372,7 @@ const WEBHOOK_STATS_WINDOWS = [
   { key: '60m', label: 'Past 60 minutes', seconds: 60 * 60 },
   { key: '24h', label: 'Past 24 hours', seconds: 24 * 60 * 60 }
 ];
-const WEBHOOK_STATS_CATEGORIES = ['total', 'accepted', 'unverified', 'duplicate'];
+const WEBHOOK_STATS_CATEGORIES = ['total', 'accepted', 'unverified', 'duplicate', 'concurrency_limited'];
 const WEBHOOK_OBSERVATION_CATEGORIES = [...WEBHOOK_STATS_CATEGORIES, 'all'];
 
 function renderPrometheusMetrics(streams, nodeCount, webhookStats = emptyWebhookStats()) {
@@ -470,7 +470,8 @@ async function buildWebhookStats(countFn) {
     const counts = {
       accepted: Number(await countFn('accepted', cutoffMs, nowMs)) || 0,
       unverified: Number(await countFn('unverified', cutoffMs, nowMs)) || 0,
-      duplicate: Number(await countFn('duplicate', cutoffMs, nowMs)) || 0
+      duplicate: Number(await countFn('duplicate', cutoffMs, nowMs)) || 0,
+      concurrency_limited: Number(await countFn('concurrency_limited', cutoffMs, nowMs)) || 0
     };
     const explicitTotal = Number(await countFn('total', cutoffMs, nowMs)) || 0;
     const allTotal = Number(await countFn('all', cutoffMs, nowMs)) || 0;

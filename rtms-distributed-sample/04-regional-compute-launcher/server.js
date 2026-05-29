@@ -21,12 +21,12 @@ const stopJobDeleteDelayMs = Number(process.env.K8S_STOP_JOB_DELETE_DELAY_MS || 
 const computeImagePullPolicy = process.env.K8S_IMAGE_PULL_POLICY || (process.env.K8S_COMPUTE_IMAGE ? 'Always' : 'IfNotPresent');
 const computeResources = {
   requests: {
-    cpu: process.env.K8S_COMPUTE_CPU_REQUEST || '1',
-    memory: process.env.K8S_COMPUTE_MEMORY_REQUEST || '4Gi'
+    cpu: process.env.K8S_COMPUTE_CPU_REQUEST || '0.25',
+    memory: process.env.K8S_COMPUTE_MEMORY_REQUEST || '200Mi'
   },
   limits: {
-    cpu: process.env.K8S_COMPUTE_CPU_LIMIT || '2',
-    memory: process.env.K8S_COMPUTE_MEMORY_LIMIT || '8Gi'
+    cpu: process.env.K8S_COMPUTE_CPU_LIMIT || '0.5',
+    memory: process.env.K8S_COMPUTE_MEMORY_LIMIT || '1Gi'
   }
 };
 const logger = createRtmsObservabilityLogger({

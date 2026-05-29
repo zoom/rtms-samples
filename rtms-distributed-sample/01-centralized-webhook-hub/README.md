@@ -6,7 +6,7 @@ This is the public Zoom-facing entry point.
 
 It receives RTMS webhooks, verifies Zoom signatures, rejects stale requests, suppresses duplicate RTMS retries, and hands accepted events to the route dispatcher. The accepted RTMS set includes start, stop, and interrupted lifecycle events; route selection stays out of this service.
 
-For accepted RTMS webhooks, it also sends `webhook_ingress_latency_ms` to the realtime cache. That value is calculated from Zoom's signed `x-zm-request-timestamp` against the hub's current receive time. Duplicate retries, unsigned requests, and stale requests are not recorded as accepted latency samples.
+For accepted RTMS webhooks, it also sends `webhook_ingress_latency_ms` to the realtime cache. That value is calculated from Zoom's signed `x-zm-request-timestamp` against the hub's current receive time. Duplicate retries, unsigned requests, stale requests, and `rtms.concurrency_limited` observations are counted separately from accepted stream latency.
 
 ## Endpoints
 

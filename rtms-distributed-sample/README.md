@@ -123,7 +123,7 @@ Recovery is owner-directed in this sample. The regional spoke writes `rtms_inter
 
 For accepted RTMS webhooks, the hub records `webhook_ingress_latency_ms` as the time between Zoom's signed `x-zm-request-timestamp` and the hub receive time. For live RTMS connections, `RTMSManager` emits `signaling_ping_rtt_ms` after the signaling WebSocket answers a ping. The realtime cache dashboard shows lowest, highest, and average values for both.
 
-The realtime cache dashboard also shows active streams, media volume in MiB, and rolling webhook counts for the past minute, 60 minutes, and 24 hours. The webhook counters separate total, accepted, unverified, and duplicate attempts.
+The realtime cache dashboard shows fresh live streams, media volume in MiB, and rolling webhook counts for the past minute, 60 minutes, and 24 hours. Old stopped streams are filtered out of the normal `/streams` view; use `/streams?include=all` only when debugging the raw cache.
 
 Media volume is stored as byte counters and displayed as MiB. The compute job increments counters from the received RTMS media event buffer and flushes the totals to the realtime cache in batches, instead of writing one cache record per media packet.
 
@@ -140,6 +140,7 @@ Media volume is stored as byte counters and displayed as MiB. The compute job in
 | [`06-realtime-cache/`](./06-realtime-cache/) | Live stream state and Prometheus metrics | [README](./06-realtime-cache/README.md) |
 | [`07-observability-dashboarding/`](./07-observability-dashboarding/) | Grafana, Loki, Prometheus, OpenTelemetry configs | [README](./07-observability-dashboarding/README.md) |
 | [`08-artifact-storage/`](./08-artifact-storage/) | One upload API for local disk, MinIO/S3, Azure, or GCS | [README](./08-artifact-storage/README.md) |
+| [`09-phaser-arlo/`](./09-phaser-arlo/) | PixiJS / AI Town-style 16-bit Arlo view of the RTMS flow, rejected webhooks, reconnects, and realtime cache | [README](./09-phaser-arlo/README.md) |
 | [`shared/`](./shared/) | Shared helpers for signatures, HTTP, storage, retries, secrets | [README](./shared/README.md) |
 | [`tests/`](./tests/) | Local integration and smoke tests | [README](./tests/README.md) |
 
@@ -182,6 +183,7 @@ npm run check
 npm run test:04 -- --secret testsecrettoken
 npm run test:08
 npm run test:12:realtime-cache
+npm run test:14:phaser-arlo
 ```
 
 For the full test list, see [`tests/README.md`](./tests/README.md).
@@ -230,7 +232,7 @@ The dispatcher reads the readable `SPOKE_*_URL` values for the common four-spoke
 
 For Kubernetes Jobs, changing the host `.env` is not enough. Update the Kubernetes Secret and recreate old failed Jobs so new pods receive current credentials.
 
-Each per-stream Kubernetes Job has explicit resource sizing. The sample requests `1` CPU and `4Gi` memory and caps the Job at `2` CPUs and `8Gi` memory unless `K8S_COMPUTE_CPU_REQUEST`, `K8S_COMPUTE_MEMORY_REQUEST`, `K8S_COMPUTE_CPU_LIMIT`, or `K8S_COMPUTE_MEMORY_LIMIT` override those values.
+Each per-stream Kubernetes Job has explicit resource sizing. The sample requests `0.25` CPU and `200Mi` memory and caps the Job at `0.5` CPU and `1Gi` memory unless `K8S_COMPUTE_CPU_REQUEST`, `K8S_COMPUTE_MEMORY_REQUEST`, `K8S_COMPUTE_CPU_LIMIT`, or `K8S_COMPUTE_MEMORY_LIMIT` override those values.
 
 For a local k3s cluster using a DNS endpoint, keep the kubeconfig server and TLS server name aligned. For example:
 

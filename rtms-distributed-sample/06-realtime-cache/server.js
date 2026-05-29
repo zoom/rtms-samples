@@ -8,6 +8,7 @@ dotenv.config();
 const app = express();
 const port = Number(process.env.REALTIME_CACHE_PORT || 4560);
 const defaultTtlSeconds = Number(process.env.REALTIME_CACHE_TTL_SECONDS || 7200);
+const streamFreshnessSeconds = Number(process.env.REALTIME_CACHE_STREAM_FRESHNESS_SECONDS || 180);
 const maxEventsPerStream = Number(process.env.REALTIME_CACHE_MAX_EVENTS || 100);
 const webhookStatsRetentionSeconds = Number(process.env.REALTIME_WEBHOOK_STATS_RETENTION_SECONDS || 25 * 60 * 60);
 const logger = createRtmsObservabilityLogger({
@@ -27,6 +28,7 @@ app.get('/health', async (_req, res) => {
     service: 'realtime-cache',
     backend: store.backend,
     ttlSeconds: defaultTtlSeconds,
+    streamFreshnessSeconds,
     maxEventsPerStream,
     webhookStatsRetentionSeconds,
     stats: await store.stats()
@@ -37,8 +39,16 @@ app.get('/dashboard', (_req, res) => {
   res.type('html').send(renderDashboardHtml());
 });
 
-app.get('/streams', async (_req, res) => {
-  res.json({ streams: await store.listStreams() });
+app.get('/streams', async (req, res) => {
+  const streams = await store.listStreams();
+  const include = String(req.query.include || '').toLowerCase();
+  const visibleStreams = include === 'all' ? streams : streams.filter(isFreshLiveStream);
+  res.json({
+    streams: visibleStreams,
+    mode: include === 'all' ? 'all' : 'live',
+    filtered: streams.length - visibleStreams.length,
+    streamFreshnessSeconds
+  });
 });
 
 app.get('/streams/:streamId', async (req, res) => {
@@ -102,6 +112,29 @@ app.get('/metrics', async (_req, res) => {
 const server = app.listen(port, () => {
   logger.info(`[06-realtime-cache] listening on http://127.0.0.1:${port} backend=${store.backend}`);
 });
+
+const TERMINAL_STREAM_STATES = new Set([
+  'stopping',
+  'stopped',
+  'stop_requested',
+  'ended',
+  'terminated',
+  'failed',
+  'completed',
+  'dry_run_completed',
+  'artifact_saved',
+  'reconnect_failed'
+]);
+
+function isFreshLiveStream(stream) {
+  const state = String(stream?.state?.state || '').toLowerCase();
+  if (!state || TERMINAL_STREAM_STATES.has(state)) return false;
+
+  const updatedAt = Date.parse(stream.updatedAt || stream.state?.updatedAt || stream.createdAt || '');
+  if (!Number.isFinite(updatedAt)) return false;
+
+  return Date.now() - updatedAt <= streamFreshnessSeconds * 1000;
+}
 
 async function createStore() {
   const backend = String(process.env.REALTIME_CACHE_BACKEND || (process.env.REALTIME_CACHE_REDIS_URL ? 'redis' : 'memory')).toLowerCase();
@@ -397,10 +430,10 @@ function renderDashboardHtml() {
         root.innerHTML = '<div class="empty">No webhook observations yet</div>';
         return;
       }
-      root.innerHTML = '<table><thead><tr><th>Window</th><th class="number">Total</th><th class="number">Unverified</th><th class="number">Duplicate</th><th class="number">Accepted</th></tr></thead><tbody>' +
+      root.innerHTML = '<table><thead><tr><th>Window</th><th class="number">Total</th><th class="number">Limited</th><th class="number">Unverified</th><th class="number">Duplicate</th><th class="number">Accepted</th></tr></thead><tbody>' +
         windows.map((window) => {
           const counts = window.counts || {};
-          return '<tr><td>' + (window.label || window.key) + '</td><td class="number">' + formatCount(counts.total) + '</td><td class="number">' + formatCount(counts.unverified) + '</td><td class="number">' + formatCount(counts.duplicate) + '</td><td class="number">' + formatCount(counts.accepted) + '</td></tr>';
+          return '<tr><td>' + (window.label || window.key) + '</td><td class="number">' + formatCount(counts.total) + '</td><td class="number">' + formatCount(counts.concurrency_limited) + '</td><td class="number">' + formatCount(counts.unverified) + '</td><td class="number">' + formatCount(counts.duplicate) + '</td><td class="number">' + formatCount(counts.accepted) + '</td></tr>';
         }).join('') +
         '</tbody></table>';
     }

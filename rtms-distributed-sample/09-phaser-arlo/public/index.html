@@ -1,0 +1,95 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>RTMS Arlo Workshop</title>
+  <link rel="stylesheet" href="/styles.css">
+</head>
+<body>
+  <div id="rtms-arlo-root">
+    <main class="game-shell">
+      <header class="topbar">
+        <div>
+          <h1>RTMS Arlo Workshop</h1>
+          <span id="source-status">dummy cache feed</span>
+        </div>
+        <div class="controls" aria-label="simulation controls">
+          <button id="dummy-mode" type="button" class="active">Dummy</button>
+          <button id="live-mode" type="button">Live cache</button>
+          <button id="add-stream" type="button">Add Arlo</button>
+          <button id="stress-streams" type="button">Stress 150</button>
+          <button id="clear-streams" type="button">Clear</button>
+        </div>
+      </header>
+
+      <section class="stage-wrap" aria-label="animated RTMS architecture flow">
+        <div id="phaser-stage"></div>
+        <div id="concurrency-alert" class="concurrency-alert" aria-live="polite" hidden>
+          <div class="pixel-fire" aria-hidden="true">
+            <span></span><span></span><span></span>
+          </div>
+          <strong>RTMS concurrency limit hit</strong>
+          <span id="concurrency-alert-detail">Zoom is refusing new RTMS streams right now.</span>
+        </div>
+        <div id="dialog-box" class="dialog-box" aria-live="polite">
+          <strong>Arlo is waiting</strong>
+          <span>Click a workshop, region, pod, or moving Arlo to inspect the flow.</span>
+        </div>
+      </section>
+    </main>
+
+    <aside class="stats-panel" aria-label="RTMS live stats">
+      <div class="stats-header">
+        <h2>Live Stats</h2>
+        <span id="last-refresh">not connected</span>
+      </div>
+      <div class="metric-grid">
+        <div class="metric-card">
+          <span>Concurrent meetings</span>
+          <strong id="stat-concurrent">0</strong>
+        </div>
+        <div class="metric-card">
+          <span>Pods running</span>
+          <strong id="stat-pods">0</strong>
+        </div>
+        <div class="metric-card">
+          <span>Done / buried</span>
+          <strong id="stat-completed">0</strong>
+        </div>
+        <div class="metric-card">
+          <span>Media volume</span>
+          <strong id="stat-media">0 MiB</strong>
+        </div>
+      </div>
+
+      <section class="panel-section">
+        <h3>Regions</h3>
+        <div id="region-bars" class="bars"></div>
+      </section>
+
+      <section class="panel-section">
+        <h3>Webhook Window</h3>
+        <div id="webhook-stats" class="webhook-grid"></div>
+      </section>
+
+      <section class="panel-section">
+        <h3>Latency</h3>
+        <dl class="latency-list">
+          <div><dt>Webhook avg</dt><dd id="latency-webhook">0 ms</dd></div>
+          <div><dt>Signaling RTT avg</dt><dd id="latency-rtt">0 ms</dd></div>
+          <div><dt>Highest RTT</dt><dd id="latency-rtt-max">0 ms</dd></div>
+        </dl>
+      </section>
+
+      <section class="panel-section">
+        <h3>Arlo Queue</h3>
+        <div id="stream-list" class="stream-list"></div>
+      </section>
+    </aside>
+  </div>
+
+  <script src="/vendor/pixi.min.js"></script>
+  <script type="module" src="/src/main.js"></script>
+</body>
+</html>
