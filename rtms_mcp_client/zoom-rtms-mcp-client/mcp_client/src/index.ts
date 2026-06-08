@@ -130,7 +130,7 @@ function connectToSignalingWebSocket(meetingUuid: string, streamId: string, serv
 
   ws.on('open', () => {
     const signature = generateSignature(CLIENT_ID!, meetingUuid, streamId, CLIENT_SECRET!);
-    ws.send(JSON.stringify({ msg_type: 1, protocol_version: 1, meeting_uuid: meetingUuid, rtms_stream_id: streamId, sequence: Math.floor(Math.random() * 1e9), signature }));
+    ws.send(JSON.stringify({ msg_type: 1, protocol_version: 1, meeting_uuid: meetingUuid, rtms_stream_id: streamId, sequence: Math.floor(Math.random() * 1e9), signature, buffer_data: false }));
   });
 
   ws.on('message', (data) => {

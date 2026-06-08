@@ -147,7 +147,8 @@ function connectToSignalingWebSocket(meetingUuid, streamId, serverUrls) {
       msg_type: 1, // HANDSHAKE_REQUEST
       meeting_uuid: meetingUuid,
       rtms_stream_id: streamId,
-      signature: generateSignature(meetingUuid, streamId)
+      signature: generateSignature(meetingUuid, streamId),
+      buffer_data: false
     }));
   });
 

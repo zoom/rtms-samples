@@ -216,6 +216,7 @@ async def connect_to_signaling_websocket(
         'rtms_stream_id': stream_id,
         'sequence': random.randint(0, 10**9),
         'signature': signature,
+        'buffer_data': False,
     }
 
     await ws.send(json.dumps(handshake_msg))

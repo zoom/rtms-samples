@@ -134,7 +134,8 @@ export function connectToSignalingWebSocket(
     //   "sequence": 0,
     //   "meeting_uuid": "4nYtdqLVTVqGJ+QB62ED7Q==",
     //   "rtms_stream_id": "03db704592624398931a588dd78200cb",
-    //   "signature": "xxxxxxxxxx"
+    //   "signature": "xxxxxxxxxx",
+    //   "buffer_data": false
     // }
 
     const handshakeMsg = {
@@ -142,6 +143,7 @@ export function connectToSignalingWebSocket(
       meeting_uuid: meetingUuid,
       rtms_stream_id: streamId,
       signature,
+      buffer_data: false,
     };
 
     console.log(`[Signaling] Sending handshake for ${meetingUuid}`);

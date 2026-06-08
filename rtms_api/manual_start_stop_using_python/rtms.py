@@ -159,7 +159,8 @@ async def connect_to_signaling_websocket(meeting_uuid, stream_id, server_urls):
                 'msg_type': 1,  # HANDSHAKE_REQUEST
                 'meeting_uuid': meeting_uuid,
                 'rtms_stream_id': stream_id,
-                'signature': generate_signature(meeting_uuid, stream_id)
+                'signature': generate_signature(meeting_uuid, stream_id),
+                'buffer_data': False
             }
             await signaling_ws.send(json.dumps(handshake_message))
             

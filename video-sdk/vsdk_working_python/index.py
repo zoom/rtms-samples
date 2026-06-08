@@ -148,7 +148,8 @@ def connect_to_signaling_ws(session_id, stream_id, server_url):
             "session_id": session_id,
             "rtms_stream_id": stream_id,
             "sequence": random.randint(0, int(1e9)),
-            "signature": signature
+            "signature": signature,
+            "buffer_data": False
         }
         ws.send(json.dumps(handshake))
         logger.info("Sent handshake to signaling server")

@@ -238,6 +238,7 @@ function connectToSignalingWebSocket(conn) {
       rtms_stream_id:   conn.streamId,
       sequence:         Math.floor(Math.random() * 1e9),
       signature:        generateSignature(conn.meetingUuid, conn.streamId),
+      buffer_data:      false,
     }));
 
     // CHAOS MODE: Force-disconnect the signaling socket after a delay.

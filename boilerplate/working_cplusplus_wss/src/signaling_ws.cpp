@@ -48,7 +48,8 @@ void connect_to_signaling_server(const std::string& server_url, const std::strin
             {"meeting_uuid", meeting_uuid},
             {"rtms_stream_id", stream_id},
             {"sequence", rand()},
-            {"signature", generate_signature(CLIENT_ID, meeting_uuid, stream_id, CLIENT_SECRET)}
+            {"signature", generate_signature(CLIENT_ID, meeting_uuid, stream_id, CLIENT_SECRET)},
+            {"buffer_data", false}
         };
         c.send(hdl, handshake.dump(), websocketpp::frame::opcode::text);
         std::cout << "🤝 Sent signaling handshake\n";

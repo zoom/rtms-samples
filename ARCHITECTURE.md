@@ -90,7 +90,7 @@ sequenceDiagram
     Note over Server: message = client_id,meeting_uuid,stream_id<br/>key = client_secret
 
     Server->>Sig: WebSocket connect(server_urls)
-    Server->>Sig: JSON { msg_type: 1, signature, ... }
+    Server->>Sig: JSON { msg_type: 1, signature, buffer_data: false, ... }
     
     alt Signature Valid
         Sig-->>Server: { msg_type: 2, status_code: 0, media_server: {...} }

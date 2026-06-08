@@ -13,7 +13,8 @@ public class RtmsMessages {
             @JsonProperty("meeting_uuid") String meetingUuid,
             @JsonProperty("session_id") String sessionId,
             @JsonProperty("rtms_stream_id") String rtmsStreamId,
-            String signature
+            String signature,
+            @JsonProperty("buffer_data") boolean bufferData
     ) {}
 
     @JsonInclude(JsonInclude.Include.NON_NULL)

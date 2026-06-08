@@ -67,9 +67,9 @@ func connectToMediaWebSocket(mediaURL, meetingUUID, streamID, clientID, clientSe
 			},
 			"video": map[string]interface{}{
 				"content_type": 3,
-				"codec":      7,
-				"resolution": 2,
-				"fps":        25,
+				"codec":        7,
+				"resolution":   2,
+				"fps":          25,
 			},
 		},
 	}
@@ -174,6 +174,7 @@ func connectToSignalingWebSocket(serverURL, meetingUUID, streamID, clientID, cli
 		"rtms_stream_id":   streamID,
 		"sequence":         rand.Intn(1e9),
 		"signature":        signature,
+		"buffer_data":      false,
 	}
 	ws.WriteJSON(handshake)
 

@@ -100,7 +100,7 @@ Everything begins when Zoom sends a `meeting.rtms_started` webhook containing th
 
 ### Step 2: Signaling Handshake
 
-The app opens a WebSocket to the signaling server URL from the webhook and sends a signed handshake request (`msg_type: 1`). The signature is an HMAC-SHA256 of `"client_id,meeting_uuid,rtms_stream_id"` using your client secret.
+The app opens a WebSocket to the signaling server URL from the webhook and sends a signed handshake request (`msg_type: 1`) with `buffer_data: false` so initial buffered audio is dropped while the signaling connection is established. The signature is an HMAC-SHA256 of `"client_id,meeting_uuid,rtms_stream_id"` using your client secret.
 
 > See [index.js:219-241](index.js#L219-L241) — `connectToSignalingWebSocket()` and handshake payload.
 >

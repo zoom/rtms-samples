@@ -130,7 +130,8 @@ async Task ConnectToSignalingWebSocket(string meetingUuid, string streamId, stri
         meeting_uuid = meetingUuid,
         rtms_stream_id = streamId,
         sequence = new Random().Next(1, int.MaxValue),
-        signature
+        signature,
+        buffer_data = false
     };
     var handshakeBytes = Encoding.UTF8.GetBytes(JsonSerializer.Serialize(handshake));
     await ws.SendAsync(new ArraySegment<byte>(handshakeBytes), WebSocketMessageType.Text, true, CancellationToken.None);

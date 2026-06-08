@@ -256,7 +256,8 @@ Connect to the `server_urls` and send handshake:
   "meeting_uuid": "<meeting_uuid>",
   "rtms_stream_id": "<stream_id>",
   "sequence": <random_number>,
-  "signature": "<hmac_sha256_signature>"
+  "signature": "<hmac_sha256_signature>",
+  "buffer_data": false
 }
 ```
 
@@ -280,7 +281,8 @@ function connectToSignaling(meetingUuid, streamId, serverUrl) {
       meeting_uuid: meetingUuid,
       rtms_stream_id: streamId,
       sequence: Math.floor(Math.random() * 1000000),
-      signature: signature
+      signature: signature,
+      buffer_data: false
     };
     
     signalingWs.send(JSON.stringify(handshake));
@@ -322,7 +324,8 @@ def on_signaling_open(ws, meeting_uuid, stream_id):
         "meeting_uuid": meeting_uuid,
         "rtms_stream_id": stream_id,
         "sequence": random.randint(1, 1000000),
-        "signature": signature
+        "signature": signature,
+        "buffer_data": False
     }
     
     ws.send(json.dumps(handshake))
@@ -357,6 +360,7 @@ func connectToSignaling(meetingUUID, streamID, serverURL string) {
         "rtms_stream_id":   streamID,
         "sequence":         rand.Intn(1000000),
         "signature":        signature,
+        "buffer_data":      false,
     }
     
     conn.WriteJSON(handshake)
@@ -1143,7 +1147,8 @@ function connectToSignaling(meetingUuid, streamId, serverUrl) {
       meeting_uuid: meetingUuid,
       rtms_stream_id: streamId,
       sequence: Math.floor(Math.random() * 1000000),
-      signature: generateSignature(meetingUuid, streamId)
+      signature: generateSignature(meetingUuid, streamId),
+      buffer_data: false
     }));
   });
   

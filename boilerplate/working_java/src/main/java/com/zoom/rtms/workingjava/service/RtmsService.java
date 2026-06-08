@@ -691,7 +691,7 @@ public class RtmsService {
                 log.info("[Signaling] Signature generated successfully for {}", connection.getSessionId());
 
                 RtmsMessages.SignalingHandshakeRequest handshakeReq = new RtmsMessages.SignalingHandshakeRequest(
-                        1, connection.getSessionId(), connection.getStreamId(), signature);
+                        1, connection.getSessionId(), connection.getStreamId(), signature, false);
 
                 String handshakeMsg = objectMapper.writeValueAsString(handshakeReq);
                 log.info("[Signaling] Sending handshake for {}", connection.getSessionId());

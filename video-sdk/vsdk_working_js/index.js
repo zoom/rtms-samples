@@ -680,6 +680,7 @@ function connectToSignalingWebSocket(
         session_id: sessionID, //Video SDK should use this for consistency
         rtms_stream_id: streamId,
         signature,
+        buffer_data: false,
       };
 
       console.log(`[Signaling] Sending handshake for ${sessionID}`);

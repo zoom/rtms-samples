@@ -190,6 +190,7 @@ export function connectToSignalingWebSocket(
         rtms_stream_id: streamId,
         sequence: Math.floor(Math.random() * 1e9),
         signature,
+        buffer_data: false,
       };
 
       conn._signalingHandshakeInFlight = true;
