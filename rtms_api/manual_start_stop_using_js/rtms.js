@@ -83,6 +83,17 @@ function generateAccessToken() {
   return accessToken;
 }
 
+function buildRTMSSettings() {
+  const settings = {
+    client_id: process.env.ZOOM_CLIENT_ID
+  };
+  const participantUserId = process.env.RTMS_PARTICIPANT_USER_ID;
+  if (participantUserId) {
+    settings.participant_user_id = participantUserId;
+  }
+  return settings;
+}
+
 // Helper function: Manually start RTMS using Zoom API
 async function startRTMS(meetingId, accessToken) {
   try {
@@ -90,9 +101,7 @@ async function startRTMS(meetingId, accessToken) {
       `https://api.zoom.us/v2/live_meetings/${meetingId}/rtms_app/status`,
       {
         action: 'start',
-        settings: {
-          client_id: process.env.ZOOM_CLIENT_ID
-        }
+        settings: buildRTMSSettings()
       },
       {
         headers: {
@@ -288,9 +297,7 @@ async function stopRTMS(meetingId, accessToken) {
       `https://api.zoom.us/v2/live_meetings/${meetingId}/rtms_app/status`,
       {
         action: 'stop',
-        settings: {
-          client_id: process.env.ZOOM_CLIENT_ID
-        }
+        settings: buildRTMSSettings()
       },
       {
         headers: {

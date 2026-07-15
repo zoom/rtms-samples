@@ -98,6 +98,16 @@ def generate_access_token():
     print('Using access token from environment variables')
     return access_token
 
+
+def build_rtms_settings():
+    settings = {
+        'client_id': os.getenv('ZOOM_CLIENT_ID')
+    }
+    participant_user_id = os.getenv('RTMS_PARTICIPANT_USER_ID')
+    if participant_user_id:
+        settings['participant_user_id'] = participant_user_id
+    return settings
+
 # Helper function: Manually start RTMS using Zoom API
 def start_rtms(meeting_id, access_token):
     try:
@@ -108,9 +118,7 @@ def start_rtms(meeting_id, access_token):
         }
         data = {
             'action': 'start',
-            'settings': {
-                'client_id': os.getenv('ZOOM_CLIENT_ID')
-            }
+            'settings': build_rtms_settings()
         }
         
         response = requests.patch(url, json=data, headers=headers)
@@ -287,9 +295,7 @@ def stop_rtms(meeting_id, access_token):
         }
         data = {
             'action': 'stop',
-            'settings': {
-                'client_id': os.getenv('ZOOM_CLIENT_ID')
-            }
+            'settings': build_rtms_settings()
         }
         
         response = requests.patch(url, json=data, headers=headers)

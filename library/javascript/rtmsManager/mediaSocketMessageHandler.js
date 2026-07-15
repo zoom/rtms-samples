@@ -18,6 +18,23 @@ import { sendDeferredEventSubscriptions } from './signalingSocketMessageHandler.
 
 const keepAliveResponse = { msg_type: 13, timestamp: 0 };
 
+function parseChatPayload(rawData) {
+  if (rawData && typeof rawData === 'object') {
+    return rawData;
+  }
+
+  if (typeof rawData !== 'string') {
+    return { data: rawData ?? '' };
+  }
+
+  try {
+    return JSON.parse(rawData);
+  } catch {
+    // Keep compatibility with older servers that sent plain UTF-8 chat text.
+    return { data: rawData };
+  }
+}
+
 export function handleMediaMessage(data, {
   conn,
   mediaWs,
@@ -154,12 +171,31 @@ export function handleMediaMessage(data, {
 
       case 18: // CHAT
         if (msg.content?.data) {
-          const { user_id, user_name, data: chatData, timestamp } = msg.content;
-          
+          const { user_id, user_name, data: rawChatData, timestamp } = msg.content;
+          const parsedChatData = parseChatPayload(rawChatData);
+          const chatData = {
+            ...msg.content,
+            ...(parsedChatData && typeof parsedChatData === 'object' ? parsedChatData : {})
+          };
+          const sender = chatData.sender || {};
+          const receiver = chatData.receiver || null;
+          const resolvedUserId = sender.user_id ?? sender.userId ?? chatData.user_id ?? chatData.userId ?? user_id;
+          const resolvedUserName = sender.user_name ?? sender.userName ?? chatData.user_name ?? chatData.userName ?? user_name;
+
           processChat({
-            text: chatData,
-            userId: user_id,
-            userName: user_name,
+            text: typeof chatData.data === 'string' ? chatData.data : String(chatData.data ?? ''),
+            data: chatData,
+            rawData: rawChatData,
+            chatSession: chatData.chat_session || null,
+            operationType: chatData.operation_type ?? null,
+            messageId: chatData.message_id || null,
+            parentMessageId: chatData.parent_message_id || null,
+            sender,
+            receiver,
+            files: chatData.files || [],
+            deleteFileIdList: chatData.delete_file_id_list || [],
+            userId: resolvedUserId,
+            userName: resolvedUserName,
             timestamp,
             rtmsId: meetingUuid,
             meetingId: meetingUuid,

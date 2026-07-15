@@ -322,14 +322,15 @@ RTMSManager.on('transcript', ({ text, userId, userName, timestamp, meetingId, st
   });
 });
 
-RTMSManager.on('chat', ({ text, userId, userName, timestamp, meetingId, streamId, productType }) => {
-  console.log(`[Consumer] Chat (${productType}) from ${userName}: ${text}`);
+RTMSManager.on('chat', ({ text, userId, userName, sender, timestamp, meetingId, streamId, productType }) => {
+  const displayName = userName ?? sender?.userName ?? sender?.user_name ?? `user ${userId ?? 'unknown'}`;
+  console.log(`[Consumer] Chat (${productType}) from ${displayName}: ${text}`);
   
   // Broadcast chat to frontend clients in the same meeting
   frontendWssManager.broadcastToMeeting(meetingId, {
     type: 'chat',
     text,
-    userName,
+    userName: displayName,
     timestamp
   });
 });

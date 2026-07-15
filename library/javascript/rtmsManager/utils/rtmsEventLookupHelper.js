@@ -200,6 +200,10 @@ export function getRtmsStatusCode(statusCode) {
       return 'RTMS status: INVALID_EVENT_SUBSCRIBE';
     case 43:
       return 'RTMS status: INVALID_MEDIA_TRANSCRIPT_SROUCE_LANGUAGE';
+    case 46:
+      return 'RTMS status: INVALID_MEDIA_TRANSCRIPT_TARGET_LANGUAGE';
+    case 47:
+      return 'RTMS status: CHAT_SESSION_KEY_NOT_AVAILABLE';
     default:
       return `RTMS status: Unknown status code (${statusCode})`;
   }

@@ -7,6 +7,17 @@ import {
   logRtmsStatusCode
 } from './utils/rtmsEventLookup.js';
 
+function parseChatPayload(rawData) {
+  if (typeof rawData !== 'string') {
+    return rawData || {};
+  }
+  try {
+    return JSON.parse(rawData);
+  } catch {
+    return { text: rawData };
+  }
+}
+
 
 export async function handleMediaMessage(data, {
   conn,
@@ -211,8 +222,22 @@ export async function handleMediaMessage(data, {
 
       case 18: // CHAT
         if (msg.content?.data) {
-          console.log('Chat data received');
-          // Handle chat
+          const parsedChat = parseChatPayload(msg.content.data);
+          const chat = {
+            ...msg.content,
+            ...(parsedChat && typeof parsedChat === 'object' ? parsedChat : {})
+          };
+          const sender = chat.sender || msg.content.sender;
+          console.log('Chat data received', {
+            text: typeof chat === 'object' ? chat.data || chat.text || '' : chat,
+            messageId: chat.message_id,
+            operationType: chat.operation_type,
+            chatSession: chat.chat_session,
+            sender,
+            receiver: chat.receiver,
+            files: chat.files,
+            deleteFileIdList: chat.delete_file_id_list
+          });
         }
         break;
 

@@ -13,6 +13,24 @@ const signalingLocksByStreamId = new Set();
 const duplicateSignalRetryCountByStreamId = new Map();
 const MAX_DUPLICATE_SIGNAL_RETRIES = Number(process.env.MAX_DUPLICATE_SIGNAL_RETRIES || 3);
 const INITIAL_DUPLICATE_SIGNAL_RETRY_DELAY_MS = Number(process.env.INITIAL_DUPLICATE_SIGNAL_RETRY_DELAY_MS || 1500);
+const CHAT_GROUP_EVENT_TYPES = Object.freeze({
+  CREATED: 10,
+  DELETED: 11,
+  MEMBERS_ADDED: 12,
+  MEMBERS_REMOVED: 13,
+  MEMBER_STATUS_UPDATED: 14
+});
+
+function logChatGroupEvent(event) {
+  const eventNames = {
+    [CHAT_GROUP_EVENT_TYPES.CREATED]: 'CHAT_GROUP_CREATE',
+    [CHAT_GROUP_EVENT_TYPES.DELETED]: 'CHAT_GROUP_DELETE',
+    [CHAT_GROUP_EVENT_TYPES.MEMBERS_ADDED]: 'CHAT_GROUP_MEMBERS_ADD',
+    [CHAT_GROUP_EVENT_TYPES.MEMBERS_REMOVED]: 'CHAT_GROUP_MEMBERS_DELETE',
+    [CHAT_GROUP_EVENT_TYPES.MEMBER_STATUS_UPDATED]: 'CHAT_GROUP_MEMBER_STATUS_UPDATE'
+  };
+  console.log(`[Event] ${eventNames[event.event_type] || 'UNKNOWN_CHAT_GROUP_EVENT'}:`, event);
+}
 
 
 export function connectToSignalingWebSocket(
@@ -212,7 +230,12 @@ export function connectToSignalingWebSocket(
             events: [
               { event_type: 2, subscribe: true }, // ACTIVE_SPEAKER_CHANGE
               { event_type: 3, subscribe: true }, // PARTICIPANT_JOIN
-              { event_type: 4, subscribe: true }  // PARTICIPANT_LEAVE
+              { event_type: 4, subscribe: true }, // PARTICIPANT_LEAVE
+              { event_type: CHAT_GROUP_EVENT_TYPES.CREATED, subscribe: true },
+              { event_type: CHAT_GROUP_EVENT_TYPES.DELETED, subscribe: true },
+              { event_type: CHAT_GROUP_EVENT_TYPES.MEMBERS_ADDED, subscribe: true },
+              { event_type: CHAT_GROUP_EVENT_TYPES.MEMBERS_REMOVED, subscribe: true },
+              { event_type: CHAT_GROUP_EVENT_TYPES.MEMBER_STATUS_UPDATED, subscribe: true }
             ]
           };
 
@@ -276,6 +299,14 @@ export function connectToSignalingWebSocket(
 
             case 4: // PARTICIPANT_LEAVE
               console.log(`[Event] PARTICIPANT_LEAVE — ${msg.event.user_name} (ID: ${msg.event.user_id}) left`);
+              break;
+
+            case CHAT_GROUP_EVENT_TYPES.CREATED:
+            case CHAT_GROUP_EVENT_TYPES.DELETED:
+            case CHAT_GROUP_EVENT_TYPES.MEMBERS_ADDED:
+            case CHAT_GROUP_EVENT_TYPES.MEMBERS_REMOVED:
+            case CHAT_GROUP_EVENT_TYPES.MEMBER_STATUS_UPDATED:
+              logChatGroupEvent(msg.event);
               break;
 
             default:

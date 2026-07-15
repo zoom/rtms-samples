@@ -88,6 +88,23 @@ function shouldSubscribeToIndividualVideoEvents(conn, mediaTypesFlag) {
   return requestedVideo && conn.config?.mediaParams?.video?.data_opt === protocol.mediaDataOptions.VIDEO_SINGLE_INDIVIDUAL_STREAM;
 }
 
+function shouldSubscribeToChatGroupEvents(mediaTypesFlag) {
+  return mediaTypesFlag === 32 || Boolean(mediaTypesFlag & TYPE_FLAGS.chat);
+}
+
+function emitChatGroupEvent(eventName, msg, meetingUuid, streamId, conn, emit) {
+  emit(eventName, {
+    type: eventName,
+    eventType: msg.event.event_type,
+    data: msg.event,
+    rtmsId: meetingUuid,
+    meetingId: meetingUuid,
+    streamId,
+    productType: conn.rtmsType || 'meeting',
+    timestamp: msg.event.timestamp || Date.now()
+  });
+}
+
 function buildEventSubscriptionPayload(conn, mediaTypesFlag) {
   const protocol = getProtocolDefinitions(conn.config);
   const subscribeAllKnownEvents = conn.config?.subscribeAllKnownEvents === true;
@@ -99,7 +116,12 @@ function buildEventSubscriptionPayload(conn, mediaTypesFlag) {
     6, // SHARING_STOP
     7, // MEDIA_CONNECTION_INTERRUPTED
     protocol.eventTypes.PARTICIPANT_VIDEO_ON,
-    protocol.eventTypes.PARTICIPANT_VIDEO_OFF
+    protocol.eventTypes.PARTICIPANT_VIDEO_OFF,
+    protocol.eventTypes.CHAT_GROUP_CREATE,
+    protocol.eventTypes.CHAT_GROUP_DELETE,
+    protocol.eventTypes.CHAT_GROUP_MEMBERS_ADD,
+    protocol.eventTypes.CHAT_GROUP_MEMBERS_DELETE,
+    protocol.eventTypes.CHAT_GROUP_MEMBER_STATUS_UPDATE
   ];
   const eventTypes = subscribeAllKnownEvents
     ? [...new Set(knownEventTypes)]
@@ -115,6 +137,16 @@ function buildEventSubscriptionPayload(conn, mediaTypesFlag) {
       { event_type: 6, subscribe: true }, // SHARING_STOP
       { event_type: protocol.eventTypes.PARTICIPANT_VIDEO_ON, subscribe: true },
       { event_type: protocol.eventTypes.PARTICIPANT_VIDEO_OFF, subscribe: true }
+    );
+  }
+
+  if (!subscribeAllKnownEvents && shouldSubscribeToChatGroupEvents(mediaTypesFlag)) {
+    payload.events.push(
+      { event_type: protocol.eventTypes.CHAT_GROUP_CREATE, subscribe: true },
+      { event_type: protocol.eventTypes.CHAT_GROUP_DELETE, subscribe: true },
+      { event_type: protocol.eventTypes.CHAT_GROUP_MEMBERS_ADD, subscribe: true },
+      { event_type: protocol.eventTypes.CHAT_GROUP_MEMBERS_DELETE, subscribe: true },
+      { event_type: protocol.eventTypes.CHAT_GROUP_MEMBER_STATUS_UPDATE, subscribe: true }
     );
   }
 
@@ -383,6 +415,26 @@ export function handleSignalingMessage(data, meetingUuid, streamId, signalingWs,
             emitVideoParticipantSnapshot('video_on_participants_changed', removedParticipants.length > 0 ? removedParticipants : participants, msg, meetingUuid, streamId, conn, emit);
             break;
           }
+
+          case protocol.eventTypes.CHAT_GROUP_CREATE:
+            emitChatGroupEvent('chat_group_created', msg, meetingUuid, streamId, conn, emit);
+            break;
+
+          case protocol.eventTypes.CHAT_GROUP_DELETE:
+            emitChatGroupEvent('chat_group_deleted', msg, meetingUuid, streamId, conn, emit);
+            break;
+
+          case protocol.eventTypes.CHAT_GROUP_MEMBERS_ADD:
+            emitChatGroupEvent('chat_group_members_added', msg, meetingUuid, streamId, conn, emit);
+            break;
+
+          case protocol.eventTypes.CHAT_GROUP_MEMBERS_DELETE:
+            emitChatGroupEvent('chat_group_members_removed', msg, meetingUuid, streamId, conn, emit);
+            break;
+
+          case protocol.eventTypes.CHAT_GROUP_MEMBER_STATUS_UPDATE:
+            emitChatGroupEvent('chat_group_member_status_updated', msg, meetingUuid, streamId, conn, emit);
+            break;
 
           default:
             FileLogger.log(`[Signaling] [${conn.rtmsType},${meetingUuid},${streamId}] Unknown event_type: ${msg.event.event_type}`);

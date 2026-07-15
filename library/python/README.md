@@ -131,7 +131,7 @@ rtms.on('audio', lambda data: ...)      # data['buffer'] = bytes
 rtms.on('video', lambda data: ...)      # data['buffer'] = bytes  
 rtms.on('sharescreen', lambda data: ...)
 rtms.on('transcript', lambda data: ...) # data['text'] = str
-rtms.on('chat', lambda data: ...)       # data['text'] = str
+rtms.on('chat', lambda data: ...)       # text plus chat_session/sender/receiver/message metadata
 rtms.on('participant_video_on', lambda data: ...)   # data['available_participants']
 rtms.on('participant_video_off', lambda data: ...)
 rtms.on('video_subscription_response', lambda data: ...)
@@ -145,6 +145,18 @@ rtms.on('contact_center.voice_rtms_stopped', lambda payload: ...)
 rtms.on('phone.rtms_started', lambda payload: ...)
 rtms.on('phone.rtms_stopped', lambda payload: ...)
 rtms.on('error', lambda error: ...)
+
+# Signaling chat-group lifecycle events. The raw event payload is data['data'].
+rtms.on('chat_group_created', lambda data: ...)
+rtms.on('chat_group_deleted', lambda data: ...)
+rtms.on('chat_group_members_added', lambda data: ...)
+rtms.on('chat_group_members_removed', lambda data: ...)
+rtms.on('chat_group_member_status_updated', lambda data: ...)
+
+Chat metadata is read from the RTMS `content` object and the original message
+data is preserved in `raw_data`. Nested JSON payloads are also accepted for
+compatibility. Key participant records by `user_id`, not display name, so
+simultaneous PSTN clients remain distinct.
 ```
 
 ## Configuration
@@ -182,6 +194,15 @@ await RTMSManager.init({
         'event_types': {
             'PARTICIPANT_VIDEO_ON': 8,
             'PARTICIPANT_VIDEO_OFF': 9,
+            'CHAT_GROUP_CREATE': 10,
+            'CHAT_GROUP_DELETE': 11,
+            'CHAT_GROUP_MEMBERS_ADD': 12,
+            'CHAT_GROUP_MEMBERS_DELETE': 13,
+            'CHAT_GROUP_MEMBER_STATUS_UPDATE': 14,
+        },
+        'status_codes': {
+            'INVALID_MEDIA_TRANSCRIPT_TARGET_LANGUAGE': 46,
+            'CHAT_SESSION_KEY_NOT_AVAILABLE': 47,
         },
         'media_data_options': {
             'VIDEO_SINGLE_INDIVIDUAL_STREAM': 4,

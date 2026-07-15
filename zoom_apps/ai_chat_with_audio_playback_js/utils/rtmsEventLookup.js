@@ -259,10 +259,10 @@ export function logRtmsStatusCode(statusCode) {
       console.log('RTMS status: INVALID_MEDIA_AUDIO_DATA_OPT');
       break;
     case 46:
-      console.log('RTMS status: MEDIA_AUDIO_SEND_RATE_NOT_UINT');
+      console.log('RTMS status: STATUS_INVALID_MEDIA_TRANSCRIPT_TARGET_LANGUAGE');
       break;
     case 47:
-      console.log('RTMS status: MEDIA_AUDIO_FRAME_SIZE_NOT_UINT');
+      console.log('RTMS status: STATUS_CHAT_SESSION_KEY_NOT_AVAILABLE');
       break;
     case 48:
       console.log('RTMS status: INVALID_MEDIA_VIDEO_PARAMS');
@@ -313,5 +313,4 @@ export function logRtmsStatusCode(statusCode) {
       console.log(`RTMS status: Unknown status code (${statusCode})`);
   }
 }
-
 

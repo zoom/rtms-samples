@@ -386,6 +386,11 @@ public class RtmsService {
                 case 2 -> processActiveSpeakerChange(eventNode);
                 case 3 -> processParticipantJoin(eventNode);
                 case 4 -> processParticipantLeave(eventNode);
+                case 10 -> log.info("[Event] CHAT_GROUP_CREATE {}", eventNode);
+                case 11 -> log.info("[Event] CHAT_GROUP_DELETE {}", eventNode);
+                case 12 -> log.info("[Event] CHAT_GROUP_MEMBERS_ADD {}", eventNode);
+                case 13 -> log.info("[Event] CHAT_GROUP_MEMBERS_DELETE {}", eventNode);
+                case 14 -> log.info("[Event] CHAT_GROUP_MEMBER_STATUS_UPDATE {}", eventNode);
                 default -> log.warn("Unknown event type: {}", eventType);
             }
         }
@@ -570,8 +575,22 @@ public class RtmsService {
     }
 
     private void handleChatData(RtmsConnection conn, JsonNode msg) {
-        log.info("Chat data received");
-        // Process chat data here
+        JsonNode content = msg.path("content");
+        String rawData = content.path("data").asText("");
+        try {
+            JsonNode chat = rawData.isEmpty() ? objectMapper.createObjectNode() : objectMapper.readTree(rawData);
+            JsonNode metadata = content.has("sender") ? content : chat;
+            log.info("Chat data received: messageId={}, operationType={}, chatSession={}, sender={}, receiver={}, payload={}",
+                    content.has("message_id") ? content.path("message_id").asText(null) : chat.path("message_id").asText(null),
+                    content.has("operation_type") ? content.path("operation_type").asInt(0) : chat.path("operation_type").asInt(0),
+                    metadata.path("chat_session"),
+                    metadata.path("sender"),
+                    metadata.path("receiver"),
+                    content.has("sender") ? content : chat);
+        } catch (Exception e) {
+            // Preserve compatibility with older RTMS payloads containing plain UTF-8 chat text.
+            log.info("Chat data received: {}", rawData);
+        }
     }
 
     // Comprehensive logging functions matching Node.js implementation
@@ -639,6 +658,8 @@ public class RtmsService {
             case 18 -> log.info("RTMS status: EVENTS_NOT_EXIST");
             case 19 -> log.info("RTMS status: EVENTS_VALUE_NOT_ARRAY");
             case 20 -> log.info("RTMS status: EVENT_TYPE_NOT_EXIST");
+            case 46 -> log.info("RTMS status: STATUS_INVALID_MEDIA_TRANSCRIPT_TARGET_LANGUAGE");
+            case 47 -> log.info("RTMS status: STATUS_CHAT_SESSION_KEY_NOT_AVAILABLE");
             default -> log.info("RTMS status: Unknown status code ({})", statusCode);
         }
     }
@@ -649,7 +670,12 @@ public class RtmsService {
                     5, List.of(
                             new RtmsMessages.EventSubscriptionRequest.Event(2, true), // ACTIVE_SPEAKER_CHANGE
                             new RtmsMessages.EventSubscriptionRequest.Event(3, true), // PARTICIPANT_JOIN
-                            new RtmsMessages.EventSubscriptionRequest.Event(4, true) // PARTICIPANT_LEAVE
+                            new RtmsMessages.EventSubscriptionRequest.Event(4, true), // PARTICIPANT_LEAVE
+                            new RtmsMessages.EventSubscriptionRequest.Event(10, true), // CHAT_GROUP_CREATE
+                            new RtmsMessages.EventSubscriptionRequest.Event(11, true), // CHAT_GROUP_DELETE
+                            new RtmsMessages.EventSubscriptionRequest.Event(12, true), // CHAT_GROUP_MEMBERS_ADD
+                            new RtmsMessages.EventSubscriptionRequest.Event(13, true), // CHAT_GROUP_MEMBERS_DELETE
+                            new RtmsMessages.EventSubscriptionRequest.Event(14, true) // CHAT_GROUP_MEMBER_STATUS_UPDATE
                     ));
 
             String subscriptionMsg = objectMapper.writeValueAsString(subscription);

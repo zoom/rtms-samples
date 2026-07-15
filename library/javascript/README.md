@@ -101,7 +101,7 @@ RTMSManager.on('audio', ({ buffer, userId, userName, timestamp, meetingId, strea
 RTMSManager.on('video', ({ buffer, userId, userName, timestamp, meetingId, streamId }) => {});
 RTMSManager.on('sharescreen', ({ buffer, userId, userName, timestamp, meetingId, streamId }) => {});
 RTMSManager.on('transcript', ({ text, userId, userName, timestamp, meetingId, streamId }) => {});
-RTMSManager.on('chat', ({ text, userId, userName, timestamp, meetingId, streamId }) => {});
+RTMSManager.on('chat', ({ text, data, userId, userName, sender, receiver, chatSession, operationType, messageId, parentMessageId, files, deleteFileIdList, timestamp, meetingId, streamId }) => {});
 
 // Lifecycle events
 RTMSManager.on('meeting.rtms_started', (payload) => {});
@@ -111,6 +111,18 @@ RTMSManager.on('participant_video_off', ({ participants, availableParticipants, 
 RTMSManager.on('video_subscription_response', ({ userId, success, streamId }) => {});
 RTMSManager.on('stream_close_response', ({ success, streamId }) => {});
 RTMSManager.on('error', (rtmsError) => {});
+
+// Signaling chat-group lifecycle events. The raw event payload is in `data`.
+RTMSManager.on('chat_group_created', ({ data, meetingId, streamId }) => {});
+RTMSManager.on('chat_group_deleted', ({ data, meetingId, streamId }) => {});
+RTMSManager.on('chat_group_members_added', ({ data, meetingId, streamId }) => {});
+RTMSManager.on('chat_group_members_removed', ({ data, meetingId, streamId }) => {});
+RTMSManager.on('chat_group_member_status_updated', ({ data, meetingId, streamId }) => {});
+
+Chat metadata is read from the RTMS `content` object, while the original
+message data is preserved in `rawData`. Nested JSON payloads are also accepted
+for compatibility. Key participant records by `userId` rather than display
+name so simultaneous PSTN clients remain distinct.
 ```
 
 ## Individual Video Subscription
@@ -151,9 +163,21 @@ await RTMSManager.init({
   logDir: './logs',           // Log file directory
   enableGapFilling: false,    // Insert silence during network drops (for recording)
   protocolDefinitions: {
-    // Optional overrides for the March 2026 protocol definitions
+    // Optional overrides for the July 2026 protocol definitions
     messageTypes: { STREAM_CLOSE_REQ: 21, STREAM_CLOSE_RESP: 22, VIDEO_SUBSCRIPTION_REQ: 28, VIDEO_SUBSCRIPTION_RESP: 29 },
-    eventTypes: { PARTICIPANT_VIDEO_ON: 8, PARTICIPANT_VIDEO_OFF: 9 },
+    eventTypes: {
+      PARTICIPANT_VIDEO_ON: 8,
+      PARTICIPANT_VIDEO_OFF: 9,
+      CHAT_GROUP_CREATE: 10,
+      CHAT_GROUP_DELETE: 11,
+      CHAT_GROUP_MEMBERS_ADD: 12,
+      CHAT_GROUP_MEMBERS_DELETE: 13,
+      CHAT_GROUP_MEMBER_STATUS_UPDATE: 14
+    },
+    statusCodes: {
+      INVALID_MEDIA_TRANSCRIPT_TARGET_LANGUAGE: 46,
+      CHAT_SESSION_KEY_NOT_AVAILABLE: 47
+    },
     mediaDataOptions: { VIDEO_SINGLE_INDIVIDUAL_STREAM: 4 }
   }
 });

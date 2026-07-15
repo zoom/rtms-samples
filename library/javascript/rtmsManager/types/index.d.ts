@@ -138,16 +138,47 @@ export interface ProtocolMessageTypes {
 export interface ProtocolEventTypes {
   PARTICIPANT_VIDEO_ON?: number;
   PARTICIPANT_VIDEO_OFF?: number;
+  CHAT_GROUP_CREATE?: number;
+  CHAT_GROUP_DELETE?: number;
+  CHAT_GROUP_MEMBERS_ADD?: number;
+  CHAT_GROUP_MEMBERS_DELETE?: number;
+  CHAT_GROUP_MEMBER_STATUS_UPDATE?: number;
 }
 
 export interface ProtocolMediaDataOptions {
   VIDEO_SINGLE_INDIVIDUAL_STREAM?: number;
 }
 
+export interface ProtocolStatusCodes {
+  INVALID_MEDIA_TRANSCRIPT_TARGET_LANGUAGE?: number;
+  CHAT_SESSION_KEY_NOT_AVAILABLE?: number;
+}
+
+export interface ChatSession {
+  type: number;
+  id?: string;
+}
+
+export interface ChatParticipant {
+  user_id: number | string;
+  user_name: string;
+}
+
+export interface ChatFile {
+  file_id: string;
+  file_name: string;
+  file_size: number;
+}
+
 export interface RTMSProtocolDefinitions {
   messageTypes?: ProtocolMessageTypes;
   eventTypes?: ProtocolEventTypes;
   mediaDataOptions?: ProtocolMediaDataOptions;
+  statusCodes?: ProtocolStatusCodes;
+  chatGroupTypes?: Record<string, number>;
+  chatGroupMemberStatuses?: Record<string, number>;
+  chatOperationTypes?: Record<string, number>;
+  chatSessionTypes?: Record<string, number>;
 }
 
 /** Logging levels */
@@ -206,6 +237,8 @@ export interface RTMSConfig {
 
   /** Override numeric values for newer RTMS protocol additions if Zoom changes them */
   protocolDefinitions?: RTMSProtocolDefinitions;
+  /** Subscribe to all known signaling events instead of media-specific events only */
+  subscribeAllKnownEvents?: boolean;
 }
 
 // =============================================================================
@@ -347,6 +380,18 @@ export interface ChatEvent extends BaseEvent {
   type: 'chat';
   /** Chat message text */
   text: string;
+  /** Parsed chat payload from the RTMS chat message */
+  data?: Record<string, any>;
+  /** Original UTF-8 chat payload */
+  rawData?: string | Record<string, any>;
+  chatSession?: ChatSession | null;
+  operationType?: number | null;
+  messageId?: string | null;
+  parentMessageId?: string | null;
+  sender?: ChatParticipant;
+  receiver?: ChatParticipant | null;
+  files?: ChatFile[];
+  deleteFileIdList?: string[];
 }
 
 /** Union of all media events */
@@ -359,6 +404,9 @@ export interface SignalingEventData {
   user_name?: string;
   timestamp?: number;
   participants?: Array<{ user_id: number | string; user_name: string }>;
+  chat_groups?: Array<Record<string, any>>;
+  members_update_list?: Array<Record<string, any>>;
+  member_status_update_list?: Array<Record<string, any>>;
 }
 
 /** Signaling event (object format) */

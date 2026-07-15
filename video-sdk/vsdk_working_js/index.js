@@ -11,6 +11,25 @@ import fs from 'fs';
 
 dotenv.config();
 
+const CHAT_GROUP_EVENT_TYPES = Object.freeze({
+  CREATED: 10,
+  DELETED: 11,
+  MEMBERS_ADDED: 12,
+  MEMBERS_REMOVED: 13,
+  MEMBER_STATUS_UPDATED: 14
+});
+
+function parseChatPayload(rawData) {
+  if (typeof rawData !== 'string') {
+    return rawData || {};
+  }
+  try {
+    return JSON.parse(rawData);
+  } catch {
+    return { text: rawData };
+  }
+}
+
 console.log('Loading environment configuration...');
 
 const config = {
@@ -289,10 +308,10 @@ function logRtmsStatusCode(statusCode) {
       console.log('RTMS status: INVALID_MEDIA_AUDIO_DATA_OPT');
       break;
     case 46:
-      console.log('RTMS status: MEDIA_AUDIO_SEND_RATE_NOT_UINT');
+      console.log('RTMS status: STATUS_INVALID_MEDIA_TRANSCRIPT_TARGET_LANGUAGE');
       break;
     case 47:
-      console.log('RTMS status: MEDIA_AUDIO_FRAME_SIZE_NOT_UINT');
+      console.log('RTMS status: STATUS_CHAT_SESSION_KEY_NOT_AVAILABLE');
       break;
     case 48:
       console.log('RTMS status: INVALID_MEDIA_VIDEO_PARAMS');
@@ -415,7 +434,21 @@ function handleMediaMessage(data, {
 
       case 18: // CHAT
         if (msg.content?.data) {
-          console.log('Chat data received');
+          const parsedChat = parseChatPayload(msg.content.data);
+          const chat = {
+            ...msg.content,
+            ...(parsedChat && typeof parsedChat === 'object' ? parsedChat : {})
+          };
+          console.log('Chat data received', {
+            text: chat.data || chat.text || '',
+            messageId: chat.message_id,
+            operationType: chat.operation_type,
+            chatSession: chat.chat_session,
+            sender: chat.sender || msg.content.sender,
+            receiver: chat.receiver,
+            files: chat.files,
+            deleteFileIdList: chat.delete_file_id_list
+          });
         }
         break;
 
@@ -739,7 +772,12 @@ function connectToSignalingWebSocket(
             events: [
               { event_type: 2, subscribe: true }, // ACTIVE_SPEAKER_CHANGE
               { event_type: 3, subscribe: true }, // PARTICIPANT_JOIN
-              { event_type: 4, subscribe: true }  // PARTICIPANT_LEAVE
+              { event_type: 4, subscribe: true }, // PARTICIPANT_LEAVE
+              { event_type: CHAT_GROUP_EVENT_TYPES.CREATED, subscribe: true },
+              { event_type: CHAT_GROUP_EVENT_TYPES.DELETED, subscribe: true },
+              { event_type: CHAT_GROUP_EVENT_TYPES.MEMBERS_ADDED, subscribe: true },
+              { event_type: CHAT_GROUP_EVENT_TYPES.MEMBERS_REMOVED, subscribe: true },
+              { event_type: CHAT_GROUP_EVENT_TYPES.MEMBER_STATUS_UPDATED, subscribe: true }
             ]
           };
 
@@ -778,6 +816,14 @@ function connectToSignalingWebSocket(
 
             case 4: // PARTICIPANT_LEAVE
               console.log(`[Event] PARTICIPANT_LEAVE — ${msg.event.user_name} (ID: ${msg.event.user_id}) left`);
+              break;
+
+            case CHAT_GROUP_EVENT_TYPES.CREATED:
+            case CHAT_GROUP_EVENT_TYPES.DELETED:
+            case CHAT_GROUP_EVENT_TYPES.MEMBERS_ADDED:
+            case CHAT_GROUP_EVENT_TYPES.MEMBERS_REMOVED:
+            case CHAT_GROUP_EVENT_TYPES.MEMBER_STATUS_UPDATED:
+              console.log(`[Event] Chat group event ${msg.event.event_type}:`, msg.event);
               break;
 
             default:

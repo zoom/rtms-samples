@@ -129,11 +129,12 @@ RTMSManager.on('screenshare', ({ buffer, userId, userName, timestamp, meetingId,
   });
 });
 
-RTMSManager.on('chat', ({ text, userId, userName, timestamp, meetingId, streamId, productType }) => {
-  console.log(`Chat from ${userName}: ${text}`);
+RTMSManager.on('chat', ({ text, userId, userName, sender, timestamp, meetingId, streamId, productType }) => {
+  const displayName = userName ?? sender?.userName ?? sender?.user_name ?? `user ${userId ?? 'unknown'}`;
+  console.log(`Chat from ${displayName}: ${text}`);
   frontendWss.broadcastToMeeting(meetingId, {
     type: 'chat',
-    user: userName,
+    user: displayName,
     userId,
     content: text,
     timestamp

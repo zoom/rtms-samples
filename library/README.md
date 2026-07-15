@@ -97,6 +97,12 @@ RTMSManager.on('transcript', (data) => { /* data.text */ });
 RTMSManager.on('chat', (data) => { /* data.text */ });
 ```
 
+Chat metadata is read from the RTMS chat `content` object. The event includes
+`chatSession`, `operationType`, `messageId`, `sender`, `receiver`, `files`, and
+`deleteFileIdList`, while `rawData` keeps the original message data. The
+manager also accepts nested JSON payloads for compatibility. Key participant
+state by `userId`, not display name, so simultaneous PSTN clients remain distinct.
+
 ### Lifecycle Events
 
 ```javascript
@@ -107,6 +113,13 @@ RTMSManager.on('participant_video_on', ({ availableParticipants, streamId }) => 
 RTMSManager.on('video_subscription_response', ({ userId, success }) => {});
 RTMSManager.on('stream_state_changed', (msg) => {});
 RTMSManager.on('error', (error) => { /* RTMSError with cause/fix */ });
+
+// New July 2026 chat-group signaling events
+RTMSManager.on('chat_group_created', (event) => {});
+RTMSManager.on('chat_group_deleted', (event) => {});
+RTMSManager.on('chat_group_members_added', (event) => {});
+RTMSManager.on('chat_group_members_removed', (event) => {});
+RTMSManager.on('chat_group_member_status_updated', (event) => {});
 ```
 
 ### Individual Video Subscription

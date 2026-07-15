@@ -96,6 +96,8 @@ const ZOOM_STATUS_CODES = {
   41: { code: 'STATUS_INVALID_CLIENT_READY_ACK', message: 'Invalid client ready acknowledgment', category: 'request' },
   42: { code: 'STATUS_INVALID_EVENT_SUBSCRIBE', message: 'Invalid event subscribe payload', category: 'request' },
   43: { code: 'STATUS_INVALID_MEDIA_TRANSCRIPT_SROUCE_LANGUAGE', message: 'Invalid transcript src_language', category: 'request' },
+  46: { code: 'STATUS_INVALID_MEDIA_TRANSCRIPT_TARGET_LANGUAGE', message: 'Invalid transcript target language', category: 'request' },
+  47: { code: 'STATUS_CHAT_SESSION_KEY_NOT_AVAILABLE', message: 'Chat session key is not available', category: 'server' },
 };
 
 // Error causes and fixes by category

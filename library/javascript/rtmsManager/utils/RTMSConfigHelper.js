@@ -26,7 +26,7 @@ export class RTMSConfigHelper {
       // Media socket mode: true = single socket for all media (better sync), false = separate sockets
       useUnifiedMediaSocket: false,
 
-      // March 2026 protocol extensions. These values remain overrideable
+      // July 2026 protocol extensions. These values remain overrideable
       // because Zoom's public changelog documented the names before publishing
       // an authoritative numeric enum table.
       protocolDefinitions: {
@@ -38,10 +38,43 @@ export class RTMSConfigHelper {
         },
         eventTypes: {
           PARTICIPANT_VIDEO_ON: 8,
-          PARTICIPANT_VIDEO_OFF: 9
+          PARTICIPANT_VIDEO_OFF: 9,
+          CHAT_GROUP_CREATE: 10,
+          CHAT_GROUP_DELETE: 11,
+          CHAT_GROUP_MEMBERS_ADD: 12,
+          CHAT_GROUP_MEMBERS_DELETE: 13,
+          CHAT_GROUP_MEMBER_STATUS_UPDATE: 14
         },
         mediaDataOptions: {
           VIDEO_SINGLE_INDIVIDUAL_STREAM: 4
+        },
+        statusCodes: {
+          INVALID_MEDIA_TRANSCRIPT_TARGET_LANGUAGE: 46,
+          CHAT_SESSION_KEY_NOT_AVAILABLE: 47
+        },
+        chatGroupTypes: {
+          PRIVATE_CHAT_GROUP: 0
+        },
+        chatGroupMemberStatuses: {
+          IN_CHAT_GROUP: 0,
+          IN_BREAKOUT_ROOM: 1,
+          IN_WAITING_ROOM: 2,
+          IN_BACKSTAGE: 3,
+          LEFT_MEETING: 4
+        },
+        chatOperationTypes: {
+          NEW: 1,
+          DELETE: 2,
+          UPDATE: 3,
+          ADD_EMOJI_REACTION: 4,
+          REMOVE_EMOJI_REACTION: 5
+        },
+        chatSessionTypes: {
+          EVERYONE: 1,
+          INDIVIDUAL: 2,
+          CHAT_GROUP: 3,
+          HOSTS_AND_PANELISTS: 4,
+          INDIVIDUAL_CC_HOSTS_AND_PANELISTS: 5
         }
       },
       

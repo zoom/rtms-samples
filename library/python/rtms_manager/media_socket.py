@@ -55,7 +55,22 @@ STATUS_TEXT = {
     38: 'INVALID_MEDIA_CHAT_PARAMS',
     39: 'INVALID_MEDIA_CHAT_CONTENT_TYPE',
     43: 'INVALID_MEDIA_TRANSCRIPT_SROUCE_LANGUAGE',
+    46: 'INVALID_MEDIA_TRANSCRIPT_TARGET_LANGUAGE',
+    47: 'CHAT_SESSION_KEY_NOT_AVAILABLE',
 }
+
+
+def _parse_chat_payload(raw_data: Any) -> Dict[str, Any]:
+    if isinstance(raw_data, dict):
+        return raw_data
+    if not isinstance(raw_data, str):
+        return {'data': raw_data}
+    try:
+        parsed = json.loads(raw_data)
+        return parsed if isinstance(parsed, dict) else {'data': parsed}
+    except json.JSONDecodeError:
+        # Keep compatibility with older servers that sent plain UTF-8 chat text.
+        return {'data': raw_data}
 
 
 def _build_media_params_for_socket(configured_media_params: Dict[str, Any], media_type: str) -> Dict[str, Any]:
@@ -273,6 +288,38 @@ async def _handle_media_messages(
                         'product_type': rtms_type,
                     })
 
+                elif msg_type == 18 or data_type == 18:
+                    parsed_chat_data = _parse_chat_payload(raw_data)
+                    chat_data = {
+                        **content,
+                        **(parsed_chat_data if isinstance(parsed_chat_data, dict) else {}),
+                    }
+                    sender = chat_data.get('sender') if isinstance(chat_data.get('sender'), dict) else {}
+                    receiver = chat_data.get('receiver') if isinstance(chat_data.get('receiver'), dict) else None
+                    message_text = chat_data.get('data', '')
+                    resolved_user_id = sender.get('user_id', sender.get('userId', chat_data.get('user_id', chat_data.get('userId', user_id))))
+                    resolved_user_name = sender.get('user_name', sender.get('userName', chat_data.get('user_name', chat_data.get('userName', user_name))))
+                    emit('chat', {
+                        'text': message_text if isinstance(message_text, str) else str(message_text),
+                        'data': chat_data,
+                        'raw_data': raw_data,
+                        'chat_session': chat_data.get('chat_session'),
+                        'operation_type': chat_data.get('operation_type'),
+                        'message_id': chat_data.get('message_id'),
+                        'parent_message_id': chat_data.get('parent_message_id'),
+                        'sender': sender,
+                        'receiver': receiver,
+                        'files': chat_data.get('files', []),
+                        'delete_file_id_list': chat_data.get('delete_file_id_list', []),
+                        'user_id': resolved_user_id,
+                        'user_name': resolved_user_name,
+                        'timestamp': timestamp,
+                        'rtms_id': meeting_uuid,
+                        'meeting_id': meeting_uuid,
+                        'stream_id': stream_id,
+                        'product_type': rtms_type,
+                    })
+
                 elif data_type in (4, 16):
                     buffer = base64.b64decode(raw_data) if raw_data else b''
                     emit('sharescreen', {
@@ -288,18 +335,6 @@ async def _handle_media_messages(
 
                 elif data_type in (8, 17):
                     emit('transcript', {
-                        'text': raw_data,
-                        'user_id': user_id,
-                        'user_name': user_name,
-                        'timestamp': timestamp,
-                        'rtms_id': meeting_uuid,
-                        'meeting_id': meeting_uuid,
-                        'stream_id': stream_id,
-                        'product_type': rtms_type,
-                    })
-
-                elif data_type in (16, 18):
-                    emit('chat', {
                         'text': raw_data,
                         'user_id': user_id,
                         'user_name': user_name,

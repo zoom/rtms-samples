@@ -24,6 +24,8 @@ STATUS_TEXT = {
     40: 'INVALID_RTMS_SESSION_ID',
     41: 'INVALID_CLIENT_READY_ACK',
     42: 'INVALID_EVENT_SUBSCRIBE',
+    46: 'INVALID_MEDIA_TRANSCRIPT_TARGET_LANGUAGE',
+    47: 'CHAT_SESSION_KEY_NOT_AVAILABLE',
 }
 
 MAX_DUPLICATE_SIGNAL_RETRIES = 3
@@ -77,6 +79,14 @@ def _build_event_subscription_payload(conn: Dict[str, Any], media_types_flag: in
             {'event_type': 6, 'subscribe': True},
             {'event_type': protocol.event_types.PARTICIPANT_VIDEO_ON, 'subscribe': True},
             {'event_type': protocol.event_types.PARTICIPANT_VIDEO_OFF, 'subscribe': True},
+        ])
+    if media_types_flag == 32 or bool(media_types_flag & 16):
+        events.extend([
+            {'event_type': protocol.event_types.CHAT_GROUP_CREATE, 'subscribe': True},
+            {'event_type': protocol.event_types.CHAT_GROUP_DELETE, 'subscribe': True},
+            {'event_type': protocol.event_types.CHAT_GROUP_MEMBERS_ADD, 'subscribe': True},
+            {'event_type': protocol.event_types.CHAT_GROUP_MEMBERS_DELETE, 'subscribe': True},
+            {'event_type': protocol.event_types.CHAT_GROUP_MEMBER_STATUS_UPDATE, 'subscribe': True},
         ])
     return {'msg_type': 5, 'events': events}
 
@@ -417,6 +427,26 @@ async def _handle_signaling_messages(
                         'type': 'video_on_participants_changed',
                         'participants': removed or participants,
                         'available_participants': snapshot,
+                        'data': event,
+                        'rtmsId': meeting_uuid,
+                        'meetingId': meeting_uuid,
+                        'streamId': stream_id,
+                        'productType': rtms_type,
+                        'timestamp': event.get('timestamp'),
+                    })
+
+                chat_event_names = {
+                    protocol.event_types.CHAT_GROUP_CREATE: 'chat_group_created',
+                    protocol.event_types.CHAT_GROUP_DELETE: 'chat_group_deleted',
+                    protocol.event_types.CHAT_GROUP_MEMBERS_ADD: 'chat_group_members_added',
+                    protocol.event_types.CHAT_GROUP_MEMBERS_DELETE: 'chat_group_members_removed',
+                    protocol.event_types.CHAT_GROUP_MEMBER_STATUS_UPDATE: 'chat_group_member_status_updated',
+                }
+                chat_event_name = chat_event_names.get(event_type)
+                if chat_event_name:
+                    emit(chat_event_name, {
+                        'type': chat_event_name,
+                        'eventType': event_type,
                         'data': event,
                         'rtmsId': meeting_uuid,
                         'meetingId': meeting_uuid,

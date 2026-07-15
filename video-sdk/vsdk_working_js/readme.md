@@ -107,3 +107,6 @@ This sample is implemented as a single `index.js` file that contains all the fun
    - **msg_type 17**: Transcript
    - **msg_type 18**: Chat
 
+Chat data is a UTF-8 JSON object inside `content.data`; the handler logs its
+message, operation, session, sender, receiver, file, and deletion metadata.
+The signaling subscription also includes chat-group events 10 through 14.
