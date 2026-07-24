@@ -26,7 +26,10 @@ export class WebsocketManager extends EventEmitter {
       const accessToken = await getAccessTokenForEventWebsocket(clientId, clientSecret);
       const fullWsUrl = `${baseWsUrl}&access_token=${accessToken}`;
 
-      this.logger.log(`[WebsocketManager] 🔗 Connecting to Event WebSocket (attempt ${this.reconnectAttempts + 1}):`, fullWsUrl);
+      this.logger.log(
+        `[WebsocketManager] 🔗 Connecting to Event WebSocket (attempt ${this.reconnectAttempts + 1}):`,
+        baseWsUrl
+      );
 
       this.ws = new WebSocket(fullWsUrl);
 
