@@ -37,7 +37,6 @@ This is the main reference implementation for RTMS in JavaScript. It demonstrate
 | `PORT` | No | Server port (default: 3000) |
 | `WEBHOOK_PATH` | No | Webhook endpoint path (default: `/webhook`) |
 | `FRONTEND_WSS_URL_TO_CONNECT_TO` | No | WebSocket URL for frontend clients |
-| `MODE` | No | Event source mode: `webhook` or `websocket` |
 | `zoomWSURLForEvents` | No | Zoom WebSocket URL for event subscription |
 | `ZOOM_S2S_CLIENT_ID` | No | Server-to-Server OAuth Client ID |
 | `ZOOM_S2S_CLIENT_SECRET` | No | Server-to-Server OAuth Client Secret |
@@ -50,7 +49,7 @@ This is the main reference implementation for RTMS in JavaScript. It demonstrate
 | `AUDIO_STREAM_MODE` | No | Audio mode: `mixed` or `multi` |
 | `VIDEO_STREAM_MODE` | No | Video mode: `active`, `individual`, or `speaker` |
 | `DEFAULT_VIDEO_SUBSCRIPTION_USER_ID` | No | Auto-subscribe this user ID when `VIDEO_STREAM_MODE=individual` and that participant's camera is on |
-| `RTMSTRIGGERMANAGERTYPE` | No | Event manager type: `webhook` or `websocket` |
+| `RTMSTRIGGERMANAGERTYPE` | No | Event source: `webhook` (default) or `websocket` |
 | `SERVE_STATIC_ENABLED` | No | Enable static file serving (default: true) |
 | `FRONTEND_WSS_PATH` | No | WebSocket path for frontend (default: `/ws`) |
 
@@ -239,8 +238,7 @@ RTMSManager.on('chat', ({ text, userId, userName, sender, timestamp, meetingId, 
 ### 5. Start the Server
 
 ```javascript
-await RTMSManager.start();
-
+// RTMSManager.init() already started the manager.
 server.listen(appConfig.port, () => {
   console.log(`[Consumer] Server listening on port ${appConfig.port}`);
 });

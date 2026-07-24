@@ -235,9 +235,9 @@ if (appConfig.managerType === 'webhook') {
 } else if (appConfig.managerType === 'websocket') {
   const websocketManager = new WebsocketManager({
     config: {
-      zoomWSURLForEvents: rtmsConfig.credentials.websocket.zoomWSURLForEvents,
-      clientId: rtmsConfig.credentials.websocket.clientId,
-      clientSecret: rtmsConfig.credentials.websocket.clientSecret
+      zoomWSURLForEvents: websocketCredentials.zoomWSURLForEvents,
+      clientId: websocketCredentials.clientId,
+      clientSecret: websocketCredentials.clientSecret
     }
   });
 
@@ -331,9 +331,7 @@ RTMSManager.on('session_state_changed', (msg) => {
   console.log('[Consumer] Session state changed:', msg);
 });
 
-// 7. Start the Server and RTMS Manager
-await RTMSManager.start();
-
+// 7. Start the HTTP server (RTMSManager.init() already started the manager)
 server.listen(appConfig.port, () => {
   console.log(`[Consumer] Server listening on port ${appConfig.port}`);
 });

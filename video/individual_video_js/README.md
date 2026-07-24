@@ -37,7 +37,6 @@ This is the main reference implementation for RTMS in JavaScript. It demonstrate
 | `PORT` | No | Server port (default: 3000) |
 | `WEBHOOK_PATH` | No | Webhook endpoint path (default: `/webhook`) |
 | `FRONTEND_WSS_URL_TO_CONNECT_TO` | No | WebSocket URL for frontend clients |
-| `MODE` | No | Event source mode: `webhook` or `websocket` |
 | `zoomWSURLForEvents` | No | Zoom WebSocket URL for event subscription |
 | `ZOOM_S2S_CLIENT_ID` | No | Server-to-Server OAuth Client ID |
 | `ZOOM_S2S_CLIENT_SECRET` | No | Server-to-Server OAuth Client Secret |
@@ -49,7 +48,7 @@ This is the main reference implementation for RTMS in JavaScript. It demonstrate
 | `MEDIA_SOCKET_CONNECTION_MODE` | No | Socket mode: `unified` or `split` |
 | `AUDIO_STREAM_MODE` | No | Audio mode: `mixed` or `multi` |
 | `VIDEO_STREAM_MODE` | No | Video mode: `active`, `individual`, or `speaker` |
-| `RTMSTRIGGERMANAGERTYPE` | No | Event manager type: `webhook` or `websocket` |
+| `RTMSTRIGGERMANAGERTYPE` | No | Event source: `webhook` (default) or `websocket` |
 | `SERVE_STATIC_ENABLED` | No | Enable static file serving (default: true) |
 | `FRONTEND_WSS_PATH` | No | WebSocket path for frontend (default: `/ws`) |
 

@@ -26,11 +26,16 @@ ZOOM_CLIENT_ID=your_client_id
 ZOOM_CLIENT_SECRET=your_client_secret
 PORT=3000
 WEBHOOK_PATH=/webhook
+RTMSTRIGGERMANAGERTYPE=webhook
 
 S2S_CLIENT_ID=your_s2s_client_id            # optional for S2S auth
 S2S_CLIENT_SECRET=your_s2s_client_secret    # optional for S2S auth
 ZOOM_ACCOUNT_ID=your_accountid                # optional for S2S auth
 ```
+
+`RTMSTRIGGERMANAGERTYPE` selects how RTMS start and stop events reach the
+sample. Use `webhook` for the HTTP webhook endpoint or `websocket` for a Zoom
+WebSocket event subscription. When omitted, the sample defaults to `webhook`.
 
 ## Running the Example
 
