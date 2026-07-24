@@ -1,0 +1,16 @@
+{
+  "name": "rtms-print-chat-messages-js",
+  "version": "1.0.0",
+  "private": true,
+  "type": "module",
+  "scripts": {
+    "start": "node index.js",
+    "check": "node --check index.js"
+  },
+  "dependencies": {
+    "dotenv": "^16.5.0",
+    "express": "^4.21.2",
+    "rtms-manager-dev": "file:../../library/javascript/rtmsManager",
+    "ws": "^8.16.0"
+  }
+}

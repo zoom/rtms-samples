@@ -76,6 +76,8 @@ app.listen(3000);
 │   ├── working_python_wss/
 │   ├── working_python_wss_zoom_room_screenshot/
 │   └── working_sdk/
+├── chat/                           # In-meeting chat processing samples
+│   └── print_chat_messages_js/
 ├── library/                        # Shared libraries
 │   ├── javascript/                 # RTMSManager, WebhookManager, helpers
 │   └── python/                     # Python RTMS utilities
@@ -133,6 +135,7 @@ app.listen(3000);
 |----------|-------------|-------|
 | [`audio/`](./audio/) | Transcription services (AWS, Azure, OpenAI Realtime, Zoom Scribe, AssemblyAI, Whisper) | 9 |
 | [`boilerplate/`](./boilerplate/) | Starter templates (JS, Python, Go, Java, C++, .NET, SDK) | 9 |
+| [`chat/`](./chat/) | In-meeting chat message processing | 1 |
 | [`streaming/`](./streaming/) | Live streaming (AWS IVS, Kinesis, YouTube, custom) | 6 |
 | [`storage/`](./storage/) | Cloud & local storage (S3, Azure Blob, local) | 6 |
 | [`transcript/`](./transcript/) | Transcript processing & LLM integration | 5 |
