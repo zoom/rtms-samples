@@ -4,7 +4,7 @@
 
 This Zoom in-meeting application ensures that RTMS transcript access only begins when all participants have provided explicit consent. The app automatically pauses when new participants join and resumes only after they also consent. The app also logs consent status for each participant in real-time.
 
-![RTMS Consent app running in the meeting](https://github.com/zoom/rtms-samples/blob/main/rtms_control_on_zoom_apps/consent-app/screenshots/screenshot.png)
+![RTMS Consent app running in the meeting](https://github.com/zoom/rtms-samples/blob/main/zoom_apps/prompt_for_user_consent_js/screenshots/screenshot.png)
 
 ---
 
