@@ -2,13 +2,16 @@
   "name": "rtms-sample",
   "version": "1.0.0",
   "type": "module",
+  "engines": {
+    "node": ">=20.9.0"
+  },
   "dependencies": {
     "dotenv": "^16.5.0",
-    "express": "^4.21.2",
-    "uuid": "^11.1.0",
-    "ws": "^8.16.0",
-    "sharp": "^0.33.4",
+    "express": "^4.22.2",
+    "pdfkit": "^0.15.0",
     "pixelmatch": "^5.3.0",
-    "pdfkit": "^0.15.0"
+    "sharp": "^0.35.3",
+    "uuid": "^11.1.1",
+    "ws": "^8.21.2"
   }
 }
