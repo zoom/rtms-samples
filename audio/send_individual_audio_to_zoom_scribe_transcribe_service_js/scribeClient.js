@@ -12,9 +12,8 @@ const LOG = '[ZoomScribePool]';
 const SAMPLE_RATE = 16000;
 const BYTES_PER_SAMPLE = 2;
 const BYTES_PER_SECOND = SAMPLE_RATE * BYTES_PER_SAMPLE;
+const INITIAL_POOL_SIZE = 2;
 const FINALIZE_WAIT_MS = 3000;
-const DRAIN_POLL_MS = 250;
-const WATERMARK_TOLERANCE_MS = 100;
 const MAX_SPANS_PER_SLOT = 10000;
 
 function requireValue(value, name) {
@@ -59,18 +58,18 @@ const CONFIG = {
   profanityFilter: envBoolean('SCRIBE_PROFANITY_FILTER', false),
   outputFormat: process.env.SCRIBE_OUTPUT_FORMAT || 'json',
   poolSize: Math.floor(envPositiveNumber('SCRIBE_POOL_SIZE', 3)),
-  releasePauseMs: envPositiveNumber('SCRIBE_RELEASE_PAUSE_MS', 1500),
-  drainTimeoutMs: envPositiveNumber('SCRIBE_DRAIN_TIMEOUT_MS', 4000),
-  switchSilenceMs: envPositiveNumber('SCRIBE_SWITCH_SILENCE_MS', 400),
-  participantQueueMaxBytes: envPositiveNumber(
-    'SCRIBE_PARTICIPANT_QUEUE_MAX_BYTES',
+  pendingAudioMaxBytes: envPositiveNumber(
+    'SCRIBE_PENDING_AUDIO_MAX_BYTES',
     BYTES_PER_SECOND * 5
   ),
-  silenceRmsThreshold: envPositiveNumber('SCRIBE_SILENCE_RMS_THRESHOLD', 250),
   heartbeatIdleMs: envPositiveNumber('SCRIBE_HEARTBEAT_IDLE_MS', 10000),
   heartbeatAudioMs: envPositiveNumber('SCRIBE_HEARTBEAT_AUDIO_MS', 1000),
   reconnectDelayMs: envPositiveNumber('SCRIBE_RECONNECT_DELAY_MS', 2000),
 };
+
+if (CONFIG.poolSize < INITIAL_POOL_SIZE || CONFIG.poolSize > 3) {
+  throw new Error('SCRIBE_POOL_SIZE must be 2 or 3');
+}
 
 export function buildSessionUpdatePayload() {
   return {
@@ -104,11 +103,8 @@ export function liveScribeConfig() {
     profanityFilter: CONFIG.profanityFilter,
     outputFormat: CONFIG.outputFormat,
     poolSize: CONFIG.poolSize,
-    releasePauseMs: CONFIG.releasePauseMs,
-    drainTimeoutMs: CONFIG.drainTimeoutMs,
-    switchSilenceMs: CONFIG.switchSilenceMs,
-    participantQueueMaxBytes: CONFIG.participantQueueMaxBytes,
-    silenceRmsThreshold: CONFIG.silenceRmsThreshold,
+    initialPoolSize: INITIAL_POOL_SIZE,
+    pendingAudioMaxBytes: CONFIG.pendingAudioMaxBytes,
     heartbeatIdleMs: CONFIG.heartbeatIdleMs,
     heartbeatAudioMs: CONFIG.heartbeatAudioMs,
     reconnectDelayMs: CONFIG.reconnectDelayMs,
@@ -124,7 +120,10 @@ export function getPoolSnapshot(meetingUuid) {
   if (!pool) return null;
   return {
     meetingUuid,
-    waitingParticipants: pool.waitingOrder.length,
+    configuredPoolSize: CONFIG.poolSize,
+    connectedSlots: pool.slots.length,
+    waitingParticipants: 0,
+    excludedParticipants: pool.excludedParticipants.size,
     slots: pool.slots.map((slot) => ({
       slotId: slot.slotId,
       state: slot.state,
@@ -144,19 +143,22 @@ export function initializeLiveScribeSession(meetingUuid) {
     stopping: false,
     participants: new Map(),
     participantSlots: new Map(),
-    waitingOrder: [],
+    excludedParticipants: new Set(),
     completed: [],
     slots: [],
   };
 
-  for (let index = 0; index < CONFIG.poolSize; index += 1) {
+  for (let index = 0; index < INITIAL_POOL_SIZE; index += 1) {
     const slot = createSlot(pool, index + 1);
     pool.slots.push(slot);
     connectSlot(pool, slot);
   }
 
   pools.set(meetingUuid, pool);
-  console.log(`${LOG} Created ${pool.slots.length}-socket pool for meeting ${meetingUuid}`);
+  console.log(
+    `${LOG} Created ${pool.slots.length} sockets for meeting ${meetingUuid} ` +
+    `(configured capacity=${CONFIG.poolSize})`
+  );
 }
 
 function createSlot(pool, number) {
@@ -172,16 +174,13 @@ function createSlot(pool, number) {
     pendingAudio: [],
     pendingBytes: 0,
     audioCursorMs: 0,
-    transcribedAudioEndMs: 0,
     spans: [],
     sessionId: null,
     reconnectTimer: null,
-    releaseTimer: null,
     heartbeatTimer: null,
     lastAudioSentAt: 0,
     connectedAt: 0,
     heartbeatCount: 0,
-    drainStartedAt: null,
     closedWaiters: [],
     sentBytes: 0,
     chunks: 0,
@@ -201,11 +200,7 @@ function getParticipant(pool, userId, userName) {
       key,
       userId: userId ?? 'unknown',
       userName: userName || 'Unknown participant',
-      queued: [],
-      queuedBytes: 0,
-      waiting: false,
-      droppedBytes: 0,
-      lastAudioAt: 0,
+      excluded: false,
     };
     pool.participants.set(key, participant);
   } else if (userName) {
@@ -214,7 +209,7 @@ function getParticipant(pool, userId, userName) {
   return participant;
 }
 
-// Route one RTMS individual-audio packet to a sticky participant lease.
+// Permanently route a participant to one Scribe socket for the meeting.
 export function sendAudioChunk(buffer, meetingUuid, participantInfo = {}) {
   if (!buffer?.length) return;
   const pool = pools.get(meetingUuid);
@@ -224,12 +219,12 @@ export function sendAudioChunk(buffer, meetingUuid, participantInfo = {}) {
     ? participantInfo
     : { userId: participantInfo };
   const participant = getParticipant(pool, info.userId, info.userName);
-  const containsSpeech = isSpeechAudio(buffer, CONFIG.silenceRmsThreshold);
-  if (containsSpeech) participant.lastAudioAt = Date.now();
+  if (participant.excluded) return;
+  const receivedAt = Date.now();
   const item = {
     buffer,
-    timestamp: info.timestamp ?? Date.now(),
-    receivedAt: Date.now(),
+    timestamp: info.timestamp ?? receivedAt,
+    receivedAt,
   };
 
   const assignedSlotId = pool.participantSlots.get(participant.key);
@@ -238,64 +233,43 @@ export function sendAudioChunk(buffer, meetingUuid, participantInfo = {}) {
     : null;
 
   if (!slot) {
-    if (!containsSpeech) return;
     slot = pool.slots.find((candidate) => candidate.state === 'free');
-    if (slot) assignSlot(pool, slot, participant);
+    if (!slot && pool.slots.length < CONFIG.poolSize) {
+      slot = createSlot(pool, pool.slots.length + 1);
+      pool.slots.push(slot);
+      assignSlot(pool, slot, participant);
+      connectSlot(pool, slot);
+    } else if (slot) {
+      assignSlot(pool, slot, participant);
+    }
   }
 
-  if (!slot) {
-    queueParticipantAudio(pool, participant, item);
-    return;
-  }
+  if (!slot) return excludeParticipant(pool, participant);
 
-  if (slot.state === 'draining') {
-    if (!containsSpeech) return;
-    slot.state = 'assigned';
-    slot.drainStartedAt = null;
-  }
   slot.activeLease.userName = participant.userName;
   sendOrQueueSlotAudio(slot, item, slot.activeLease);
-  scheduleRelease(pool, slot, participant);
-}
-
-export function isSpeechAudio(buffer, threshold = CONFIG.silenceRmsThreshold) {
-  if (!buffer?.length || buffer.length < 2) return false;
-  let sumSquares = 0;
-  const sampleCount = Math.floor(buffer.length / 2);
-  for (let offset = 0; offset + 1 < buffer.length; offset += 2) {
-    const sample = buffer.readInt16LE(offset);
-    sumSquares += sample * sample;
-  }
-  return Math.sqrt(sumSquares / sampleCount) >= threshold;
 }
 
 function assignSlot(pool, slot, participant) {
   slot.state = 'assigned';
-  participant.lastAudioAt = Date.now();
   slot.leaseSequence += 1;
-  slot.drainStartedAt = null;
   slot.activeLease = {
     leaseId: `${slot.slotId}-lease-${slot.leaseSequence}`,
     participantKey: participant.key,
     userId: participant.userId,
     userName: participant.userName,
     acquiredAt: Date.now(),
-    sentAudioEndMs: slot.audioCursorMs,
   };
   pool.participantSlots.set(participant.key, slot.slotId);
-  participant.waiting = false;
+}
 
-  if (slot.audioCursorMs > 0 && CONFIG.switchSilenceMs > 0) {
-    const silence = Buffer.alloc(Math.round(BYTES_PER_SECOND * CONFIG.switchSilenceMs / 1000));
-    sendOrQueueSlotAudio(slot, { buffer: silence, timestamp: null, receivedAt: Date.now() }, null);
-  }
-
-  while (participant.queued.length > 0) {
-    const item = participant.queued.shift();
-    participant.queuedBytes -= item.buffer.length;
-    sendOrQueueSlotAudio(slot, item, slot.activeLease);
-  }
-  scheduleRelease(pool, slot, participant);
+function excludeParticipant(pool, participant) {
+  participant.excluded = true;
+  pool.excludedParticipants.add(participant.key);
+  console.log(
+    `${LOG} No Scribe capacity for ${participant.userName} (${participant.userId}); ` +
+    `audio will not be transcribed`
+  );
 }
 
 function sendOrQueueSlotAudio(slot, item, lease) {
@@ -308,8 +282,12 @@ function sendOrQueueSlotAudio(slot, item, lease) {
     }
   }
 
-  slot.pendingAudio.push({ ...item, lease });
+  slot.pendingAudio.push({ ...item, buffer: Buffer.from(item.buffer), lease });
   slot.pendingBytes += item.buffer.length;
+  while (slot.pendingBytes > CONFIG.pendingAudioMaxBytes && slot.pendingAudio.length > 0) {
+    const dropped = slot.pendingAudio.shift();
+    slot.pendingBytes -= dropped.buffer.length;
+  }
 }
 
 function transmitSlotAudio(slot, item, lease) {
@@ -324,7 +302,6 @@ function transmitSlotAudio(slot, item, lease) {
   slot.chunks += 1;
 
   if (lease) {
-    lease.sentAudioEndMs = endMs;
     slot.spans.push({
       startMs,
       endMs,
@@ -398,81 +375,6 @@ function flushSlotQueue(slot) {
   }
 }
 
-function queueParticipantAudio(pool, participant, item) {
-  participant.queued.push({ ...item, buffer: Buffer.from(item.buffer) });
-  participant.queuedBytes += item.buffer.length;
-  if (!participant.waiting) {
-    participant.waiting = true;
-    pool.waitingOrder.push(participant.key);
-    console.log(`${LOG} queued ${participant.userName} (${participant.userId}); all slots are locked`);
-  }
-
-  while (
-    participant.queuedBytes > CONFIG.participantQueueMaxBytes &&
-    participant.queued.length > 0
-  ) {
-    const dropped = participant.queued.shift();
-    participant.queuedBytes -= dropped.buffer.length;
-    participant.droppedBytes += dropped.buffer.length;
-  }
-}
-
-function scheduleRelease(pool, slot, participant) {
-  if (slot.releaseTimer) clearTimeout(slot.releaseTimer);
-  const elapsed = Date.now() - participant.lastAudioAt;
-  const delay = Math.max(CONFIG.releasePauseMs - elapsed, 1);
-  slot.releaseTimer = setTimeout(() => tryReleaseSlot(pool, slot), delay);
-}
-
-function tryReleaseSlot(pool, slot) {
-  slot.releaseTimer = null;
-  const lease = slot.activeLease;
-  if (!lease || pool.stopping) return;
-  const participant = pool.participants.get(lease.participantKey);
-  if (!participant) return releaseSlot(pool, slot);
-
-  const silenceMs = Date.now() - participant.lastAudioAt;
-  if (silenceMs < CONFIG.releasePauseMs) {
-    scheduleRelease(pool, slot, participant);
-    return;
-  }
-
-  slot.state = 'draining';
-  slot.drainStartedAt ??= Date.now();
-  const queueEmpty = slot.pendingAudio.length === 0;
-  const transcriptCaughtUp =
-    slot.transcribedAudioEndMs >= lease.sentAudioEndMs - WATERMARK_TOLERANCE_MS;
-  const drainTimedOut = Date.now() - slot.drainStartedAt >= CONFIG.drainTimeoutMs;
-
-  if (queueEmpty && (transcriptCaughtUp || drainTimedOut)) {
-    releaseSlot(pool, slot);
-    return;
-  }
-
-  slot.releaseTimer = setTimeout(() => tryReleaseSlot(pool, slot), DRAIN_POLL_MS);
-}
-
-function releaseSlot(pool, slot) {
-  const lease = slot.activeLease;
-  if (lease && pool.participantSlots.get(lease.participantKey) === slot.slotId) {
-    pool.participantSlots.delete(lease.participantKey);
-  }
-  slot.activeLease = null;
-  slot.state = 'free';
-  slot.drainStartedAt = null;
-  assignNextWaitingParticipant(pool, slot);
-}
-
-function assignNextWaitingParticipant(pool, slot) {
-  while (pool.waitingOrder.length > 0) {
-    const key = pool.waitingOrder.shift();
-    const participant = pool.participants.get(key);
-    if (!participant || participant.queued.length === 0 || pool.participantSlots.has(key)) continue;
-    assignSlot(pool, slot, participant);
-    return;
-  }
-}
-
 export function resolveTranscriptAttribution(spans, startMs, endMs) {
   const normalizedStart = Number(startMs);
   const normalizedEnd = Number(endMs);
@@ -523,9 +425,7 @@ function connectSlot(pool, slot) {
   slot.connectionGeneration += 1;
   if (slot.connectionGeneration > 1) {
     slot.audioCursorMs = 0;
-    slot.transcribedAudioEndMs = 0;
     slot.spans = [];
-    if (slot.activeLease) slot.activeLease.sentAudioEndMs = 0;
   }
 
   console.log(`${LOG} [${slot.slotId}] connecting to ${CONFIG.liveUrl}`);
@@ -595,7 +495,6 @@ function handleServerEvent(pool, slot, raw) {
     case 'transcription.completed': {
       const startMs = Number(event.audio_start_ms ?? 0);
       const endMs = Number(event.audio_end_ms ?? startMs);
-      slot.transcribedAudioEndMs = Math.max(slot.transcribedAudioEndMs, endMs);
       const attribution = resolveTranscriptAttribution(slot.spans, startMs, endMs);
       const text = event.transcript || '';
       const startTimeEpochMs = calculateTranscriptEpochMs(attribution, startMs);
@@ -622,7 +521,6 @@ function handleServerEvent(pool, slot, raw) {
           `end_time=${endTimeEpochMs ?? 'unknown'} ${text}`
         );
       }
-      if (slot.state === 'draining') tryReleaseSlot(pool, slot);
       break;
     }
     case 'error':
@@ -661,7 +559,6 @@ export async function cleanupMeeting(meetingUuid) {
 async function closeSlot(slot) {
   slot.stopRequested = true;
   if (slot.reconnectTimer) clearTimeout(slot.reconnectTimer);
-  if (slot.releaseTimer) clearTimeout(slot.releaseTimer);
   if (slot.heartbeatTimer) clearTimeout(slot.heartbeatTimer);
   if (slot.ws?.readyState === WebSocket.OPEN) {
     try { slot.ws.send(JSON.stringify({ type: 'session.close' })); } catch { /* ignore */ }

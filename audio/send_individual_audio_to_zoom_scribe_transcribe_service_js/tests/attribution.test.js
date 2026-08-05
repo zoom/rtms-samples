@@ -4,9 +4,8 @@ import test from 'node:test';
 
 process.env.ZOOM_API_KEY ||= 'test-api-key';
 process.env.ZOOM_API_SECRET ||= 'test-api-secret';
-process.env.SCRIBE_RELEASE_PAUSE_MS = '30';
-process.env.SCRIBE_DRAIN_TIMEOUT_MS = '100';
-process.env.SCRIBE_SWITCH_SILENCE_MS = '10';
+process.env.SCRIBE_POOL_SIZE = '3';
+process.env.SCRIBE_PENDING_AUDIO_MAX_BYTES = '160000';
 process.env.SCRIBE_HEARTBEAT_IDLE_MS = '25';
 process.env.SCRIBE_HEARTBEAT_AUDIO_MS = '20';
 process.env.SCRIBE_RECONNECT_DELAY_MS = '10';
@@ -17,7 +16,6 @@ const {
   calculateTranscriptEpochMs,
   getPoolSnapshot,
   initializeLiveScribeSession,
-  isSpeechAudio,
   resolveTranscriptAttribution,
   sendAudioChunk,
   setWebSocketFactoryForTesting,
@@ -122,14 +120,6 @@ test('transcript start and end epochs are derived from an RTMS timestamp', () =>
   assert.equal(calculateTranscriptEpochMs(null, 2250), null);
 });
 
-test('speech activity distinguishes silent PCM from voiced PCM', () => {
-  const silence = Buffer.alloc(3200);
-  const speech = Buffer.alloc(3200);
-  for (let offset = 0; offset < speech.length; offset += 2) speech.writeInt16LE(1000, offset);
-  assert.equal(isSpeechAudio(silence, 250), false);
-  assert.equal(isSpeechAudio(speech, 250), true);
-});
-
 test('server-initiated normal closure reconnects the pool slot', async () => {
   const sockets = [];
   setWebSocketFactoryForTesting(() => {
@@ -141,16 +131,16 @@ test('server-initiated normal closure reconnects the pool slot', async () => {
   initializeLiveScribeSession(meetingUuid);
   await new Promise((resolve) => setTimeout(resolve, 10));
 
-  assert.equal(sockets.length, 3);
+  assert.equal(sockets.length, 2);
   sockets[0].close(1000, 'server session ended');
   await new Promise((resolve) => setTimeout(resolve, 20));
-  assert.equal(sockets.length, 4);
+  assert.equal(sockets.length, 3);
 
   await cleanupMeeting(meetingUuid);
   setWebSocketFactoryForTesting();
 });
 
-test('three sockets lease three participants and queue the fourth', async () => {
+test('two sockets start eagerly, the third is lazy, and excess participants are excluded', async () => {
   let socketsCreated = 0;
   setWebSocketFactoryForTesting(() => {
     socketsCreated += 1;
@@ -159,6 +149,8 @@ test('three sockets lease three participants and queue the fourth', async () => 
   const meetingUuid = 'pool-test-meeting';
   initializeLiveScribeSession(meetingUuid);
   await new Promise((resolve) => setTimeout(resolve, 10));
+
+  assert.equal(socketsCreated, 2);
 
   for (let userId = 1; userId <= 4; userId += 1) {
     const audio = Buffer.alloc(3200);
@@ -173,12 +165,17 @@ test('three sockets lease three participants and queue the fourth', async () => 
   const snapshot = getPoolSnapshot(meetingUuid);
   assert.equal(socketsCreated, 3);
   assert.equal(snapshot.slots.filter((slot) => slot.state === 'assigned').length, 3);
-  assert.equal(snapshot.waitingParticipants, 1);
+  assert.equal(snapshot.connectedSlots, 3);
+  assert.equal(snapshot.excludedParticipants, 1);
+  assert.equal(snapshot.waitingParticipants, 0);
 
   await new Promise((resolve) => setTimeout(resolve, 40));
-  const reassignedSnapshot = getPoolSnapshot(meetingUuid);
-  assert.equal(reassignedSnapshot.waitingParticipants, 0);
-  assert.ok(reassignedSnapshot.slots.some((slot) => slot.userId === 4));
+  const stickySnapshot = getPoolSnapshot(meetingUuid);
+  assert.deepEqual(
+    stickySnapshot.slots.map((slot) => slot.userId),
+    [1, 2, 3]
+  );
+  assert.ok(!stickySnapshot.slots.some((slot) => slot.userId === 4));
 
   await cleanupMeeting(meetingUuid);
   setWebSocketFactoryForTesting();
