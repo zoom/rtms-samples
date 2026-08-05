@@ -23,6 +23,14 @@ function requireValue(value, name) {
   if (!value || String(value).trim() === '') throw new Error(`${name} is required`);
 }
 
+function envBoolean(name, defaultValue) {
+  const value = process.env[name];
+  if (value == null || value.trim() === '') return defaultValue;
+  if (value.toLowerCase() === 'true') return true;
+  if (value.toLowerCase() === 'false') return false;
+  throw new Error(`${name} must be true or false`);
+}
+
 // Zoom AI Services Scribe uses a Build-platform HS256 JWT: `iss` is ZOOM_API_KEY
 // and the token is signed with ZOOM_API_SECRET.
 export function generateScribeJwt(apiKey, apiSecret) {
@@ -46,7 +54,27 @@ const CONFIG = {
   apiSecret: process.env.ZOOM_API_SECRET,
   liveUrl: process.env.SCRIBE_LIVE_URL || DEFAULT_LIVE_URL,
   language: process.env.SCRIBE_LANGUAGE || 'en-US',
+  wordTimeOffsets: envBoolean('SCRIBE_WORD_TIME_OFFSETS', true),
+  channelSeparation: envBoolean('SCRIBE_CHANNEL_SEPARATION', false),
+  diarization: envBoolean('SCRIBE_DIARIZATION', false),
+  profanityFilter: envBoolean('SCRIBE_PROFANITY_FILTER', false),
+  outputFormat: process.env.SCRIBE_OUTPUT_FORMAT || 'json',
 };
+
+export function buildSessionUpdatePayload() {
+  return {
+    type: 'session.update',
+    audio: { format: 'pcm16' },
+    config: {
+      language: CONFIG.language,
+      word_time_offsets: CONFIG.wordTimeOffsets,
+      channel_separation: CONFIG.channelSeparation,
+      diarization: CONFIG.diarization,
+      profanity_filter: CONFIG.profanityFilter,
+      output_format: CONFIG.outputFormat,
+    },
+  };
+}
 
 // meetingUuid -> session
 const sessions = new Map();
@@ -55,6 +83,11 @@ export function liveScribeConfig() {
   return {
     liveUrl: CONFIG.liveUrl,
     language: CONFIG.language,
+    wordTimeOffsets: CONFIG.wordTimeOffsets,
+    channelSeparation: CONFIG.channelSeparation,
+    diarization: CONFIG.diarization,
+    profanityFilter: CONFIG.profanityFilter,
+    outputFormat: CONFIG.outputFormat,
   };
 }
 
@@ -168,12 +201,9 @@ function connect(session) {
   ws.on('open', () => {
     console.log(`${LOG} Connected for meeting ${session.meetingUuid}`);
     try {
-      ws.send(JSON.stringify({
-        type: 'session.update',
-        audio: { format: 'pcm16' },
-        language: CONFIG.language,
-      }));
-      console.log(`${LOG} Sent session.update (lang=${CONFIG.language})`);
+      const payload = buildSessionUpdatePayload();
+      ws.send(JSON.stringify(payload));
+      console.log(`${LOG} Sent session.update config=${JSON.stringify(payload.config)}`);
     } catch (error) {
       console.error(`${LOG} session.update send failed: ${error.message}`);
     }

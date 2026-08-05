@@ -80,7 +80,7 @@ SCRIBE_OUTPUT_FORMAT=json
 
 1. The app starts an Express server and initializes RTMSManager.
 2. The webhook endpoint receives `meeting.rtms_started`.
-3. `scribeClient.js` mints a Build-platform JWT and opens `wss://.../aiservices/scribe/live`, then sends `session.update` (`audio.format=pcm16`, `language`).
+3. `scribeClient.js` mints a Build-platform JWT and opens `wss://.../aiservices/scribe/live`, then sends `session.update` with `audio.format=pcm16` and the configured ASR options.
 4. RTMSManager connects to Zoom signaling/media sockets; RTMS audio arrives as raw 16 kHz mono PCM16.
 5. Each audio packet is forwarded to the WebSocket as a binary frame. Audio that arrives before the session is ready is buffered and flushed on `session.updated`.
 6. The server streams back `transcription.completed` events, which are logged.
@@ -93,7 +93,18 @@ Connect: wss://api.zoom.us/v2/aiservices/scribe/live
   Subprotocols: ["live-asr", "zoom-api-access-token.<Build-platform JWT>"]
   (the JWT is carried in the "zoom-api-access-token.*" subprotocol)
 
-Client -> { "type": "session.update", "audio": { "format": "pcm16" }, "language": "en-US" }
+Client -> {
+  "type": "session.update",
+  "audio": { "format": "pcm16" },
+  "config": {
+    "language": "en-US",
+    "word_time_offsets": true,
+    "channel_separation": false,
+    "diarization": false,
+    "profanity_filter": false,
+    "output_format": "json"
+  }
+}
 Client -> <binary PCM16 frames>                       # streamed RTMS audio
 Client -> { "type": "session.close" }                 # on meeting stop
 

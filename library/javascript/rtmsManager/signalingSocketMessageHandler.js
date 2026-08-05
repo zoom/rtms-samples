@@ -348,7 +348,7 @@ export function handleSignalingMessage(data, meetingUuid, streamId, signalingWs,
             break;
 
           case 2: // ACTIVE_SPEAKER_CHANGE
-            FileLogger.log(`[Signaling] [${conn.rtmsType},${meetingUuid},${streamId}] ACTIVE_SPEAKER: ${msg.event.user_name} (ID: ${msg.event.user_id})`);
+            FileLogger.debug(`[Signaling] [${conn.rtmsType},${meetingUuid},${streamId}] ACTIVE_SPEAKER: ${msg.event.user_name} (ID: ${msg.event.user_id})`);
             break;
 
           case 3: // PARTICIPANT_JOIN
