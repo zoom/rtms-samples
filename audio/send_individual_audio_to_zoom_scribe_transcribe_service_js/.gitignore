@@ -4,4 +4,5 @@ logs/*
 !logs/.gitkeep
 audio_windows/*
 !audio_windows/.gitkeep
+diarized_transcripts/
 *.log

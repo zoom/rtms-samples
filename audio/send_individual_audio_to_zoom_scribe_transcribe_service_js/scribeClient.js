@@ -1,5 +1,6 @@
 import WebSocket from 'ws';
 import dotenv from 'dotenv';
+import { mkdir, rename, writeFile } from 'node:fs/promises';
 import path from 'path';
 import { fileURLToPath } from 'url';
 import { KJUR } from 'jsrsasign';
@@ -65,6 +66,11 @@ const CONFIG = {
   heartbeatIdleMs: envPositiveNumber('SCRIBE_HEARTBEAT_IDLE_MS', 10000),
   heartbeatAudioMs: envPositiveNumber('SCRIBE_HEARTBEAT_AUDIO_MS', 1000),
   reconnectDelayMs: envPositiveNumber('SCRIBE_RECONNECT_DELAY_MS', 2000),
+  saveDiarizedTranscript: envBoolean('SCRIBE_SAVE_DIARIZED_TRANSCRIPT', false),
+  transcriptOutputDir: path.resolve(
+    __dirname,
+    process.env.SCRIBE_TRANSCRIPT_OUTPUT_DIR || 'diarized_transcripts'
+  ),
 };
 
 if (CONFIG.poolSize < INITIAL_POOL_SIZE || CONFIG.poolSize > 3) {
@@ -108,6 +114,8 @@ export function liveScribeConfig() {
     heartbeatIdleMs: CONFIG.heartbeatIdleMs,
     heartbeatAudioMs: CONFIG.heartbeatAudioMs,
     reconnectDelayMs: CONFIG.reconnectDelayMs,
+    saveDiarizedTranscript: CONFIG.saveDiarizedTranscript,
+    transcriptOutputDir: CONFIG.transcriptOutputDir,
   };
 }
 
@@ -408,6 +416,59 @@ export function calculateTranscriptEpochMs(attribution, transcriptStartMs) {
   return rtmsBaseMs + Math.max(0, transcriptStartMs - attribution.startMs);
 }
 
+export function formatNamedUtterance(meetingUuid, result) {
+  return {
+    event: 'transcript.utterance',
+    source_event: 'transcription.completed',
+    meeting_uuid: meetingUuid,
+    participant: {
+      user_id: result.userId,
+      user_name: result.userName,
+    },
+    start_time: result.startTimeEpochMs,
+    end_time: result.endTimeEpochMs,
+    received_time: result.receivedAt,
+    text: result.text,
+  };
+}
+
+export function buildDiarizedTranscript(meetingUuid, transcript, generatedAt = Date.now()) {
+  return {
+    schema_version: 1,
+    event: 'transcript.final',
+    meeting_uuid: meetingUuid,
+    generated_time: generatedAt,
+    utterances: transcript.map((item) => {
+      const { event, source_event, meeting_uuid, ...utterance } =
+        formatNamedUtterance(meetingUuid, item);
+      return utterance;
+    }),
+  };
+}
+
+export async function writeDiarizedTranscript(
+  outputDir,
+  meetingUuid,
+  transcript,
+  generatedAt = Date.now()
+) {
+  const document = buildDiarizedTranscript(meetingUuid, transcript, generatedAt);
+  const safeMeetingUuid = String(meetingUuid || 'meeting')
+    .replace(/[^a-zA-Z0-9._-]+/g, '_')
+    .slice(0, 100) || 'meeting';
+  const timestamp = new Date(generatedAt).toISOString().replace(/[:.]/g, '-');
+  const filePath = path.join(outputDir, `${safeMeetingUuid}-${timestamp}.json`);
+  const temporaryPath = `${filePath}.tmp`;
+
+  await mkdir(outputDir, { recursive: true });
+  await writeFile(temporaryPath, `${JSON.stringify(document, null, 2)}\n`, {
+    encoding: 'utf8',
+    mode: 0o600,
+  });
+  await rename(temporaryPath, filePath);
+  return filePath;
+}
+
 function connectSlot(pool, slot) {
   if (pool.stopping || slot.stopRequested) return;
   if (slot.heartbeatTimer) {
@@ -499,6 +560,7 @@ function handleServerEvent(pool, slot, raw) {
       const text = event.transcript || '';
       const startTimeEpochMs = calculateTranscriptEpochMs(attribution, startMs);
       const endTimeEpochMs = calculateTranscriptEpochMs(attribution, endMs);
+      const receivedAt = Date.now();
       const result = {
         slotId: slot.slotId,
         leaseId: attribution?.leaseId ?? null,
@@ -510,16 +572,12 @@ function handleServerEvent(pool, slot, raw) {
         endTimeEpochMs,
         epochTimestampMs: startTimeEpochMs,
         meetingTimestampMs: startTimeEpochMs,
-        receivedAt: Date.now(),
+        receivedAt,
         text,
       };
       if (text) {
         pool.completed.push(result);
-        console.log(
-          `${LOG} ${result.userName} (${result.userId ?? 'unknown'}) ` +
-          `start_time=${startTimeEpochMs ?? 'unknown'} ` +
-          `end_time=${endTimeEpochMs ?? 'unknown'} ${text}`
-        );
+        console.log(JSON.stringify(formatNamedUtterance(pool.meetingUuid, result), null, 2));
       }
       break;
     }
@@ -548,9 +606,20 @@ export async function cleanupMeeting(meetingUuid) {
     (left.meetingTimestampMs ?? left.receivedAt) - (right.meetingTimestampMs ?? right.receivedAt)
   );
   if (transcript.length > 0) {
-    console.log(`${LOG} Final merged transcript for meeting ${meetingUuid}:`);
-    for (const item of transcript) {
-      console.log(`${item.userName} (${item.userId ?? 'unknown'}): ${item.text}`);
+    const document = buildDiarizedTranscript(meetingUuid, transcript);
+    console.log(JSON.stringify(document, null, 2));
+    if (CONFIG.saveDiarizedTranscript) {
+      try {
+        const filePath = await writeDiarizedTranscript(
+          CONFIG.transcriptOutputDir,
+          meetingUuid,
+          transcript,
+          document.generated_time
+        );
+        console.log(`${LOG} Saved diarized transcript to ${filePath}`);
+      } catch (error) {
+        console.error(`${LOG} Failed to save diarized transcript: ${error.message}`);
+      }
     }
   }
   pools.delete(meetingUuid);

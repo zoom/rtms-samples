@@ -1,5 +1,8 @@
 import assert from 'node:assert/strict';
 import { EventEmitter } from 'node:events';
+import { mkdtemp, readFile, rm, stat } from 'node:fs/promises';
+import os from 'node:os';
+import path from 'node:path';
 import test from 'node:test';
 
 process.env.ZOOM_API_KEY ||= 'test-api-key';
@@ -12,13 +15,16 @@ process.env.SCRIBE_RECONNECT_DELAY_MS = '10';
 
 const {
   cleanupMeeting,
+  buildDiarizedTranscript,
   buildSessionUpdatePayload,
   calculateTranscriptEpochMs,
+  formatNamedUtterance,
   getPoolSnapshot,
   initializeLiveScribeSession,
   resolveTranscriptAttribution,
   sendAudioChunk,
   setWebSocketFactoryForTesting,
+  writeDiarizedTranscript,
 } = await import('../scribeClient.js');
 
 class FakeWebSocket extends EventEmitter {
@@ -118,6 +124,68 @@ test('transcript start and end epochs are derived from an RTMS timestamp', () =>
   assert.equal(calculateTranscriptEpochMs(attribution, 2750), 1778000000873);
   assert.equal(calculateTranscriptEpochMs({ ...attribution, rtmsTimestamp: 1778000000123 }, 2250), 1778000000373);
   assert.equal(calculateTranscriptEpochMs(null, 2250), null);
+});
+
+test('named utterance uses the RTMS participant identity without a synthetic speaker label', () => {
+  const utterance = formatNamedUtterance('meeting-uuid', {
+    userId: 16778240,
+    userName: 'Participant Name',
+    startTimeEpochMs: 1785905379734,
+    endTimeEpochMs: 1785905380730,
+    receivedAt: 1785905380912,
+    text: 'This is a named utterance.',
+  });
+
+  assert.deepEqual(utterance, {
+    event: 'transcript.utterance',
+    source_event: 'transcription.completed',
+    meeting_uuid: 'meeting-uuid',
+    participant: {
+      user_id: 16778240,
+      user_name: 'Participant Name',
+    },
+    start_time: 1785905379734,
+    end_time: 1785905380730,
+    received_time: 1785905380912,
+    text: 'This is a named utterance.',
+  });
+  assert.equal('speaker' in utterance, false);
+  assert.equal('is_final' in utterance, false);
+});
+
+test('diarized transcript is saved as private JSON with a sanitized file name', async () => {
+  const outputDir = await mkdtemp(path.join(os.tmpdir(), 'scribe-diarization-'));
+  const transcript = [{
+    userId: 16778240,
+    userName: 'Participant Name',
+    startTimeEpochMs: 1785905379734,
+    endTimeEpochMs: 1785905380730,
+    receivedAt: 1785905380912,
+    text: 'Saved utterance.',
+  }];
+
+  try {
+    const generatedAt = 1785905381000;
+    const filePath = await writeDiarizedTranscript(
+      outputDir,
+      'meeting/uuid+',
+      transcript,
+      generatedAt
+    );
+    const saved = JSON.parse(await readFile(filePath, 'utf8'));
+    const fileStats = await stat(filePath);
+
+    assert.equal(path.dirname(filePath), outputDir);
+    assert.match(path.basename(filePath), /^meeting_uuid_-.*\.json$/);
+    assert.equal(fileStats.mode & 0o777, 0o600);
+    assert.deepEqual(saved, buildDiarizedTranscript('meeting/uuid+', transcript, generatedAt));
+    assert.deepEqual(saved.utterances[0].participant, {
+      user_id: 16778240,
+      user_name: 'Participant Name',
+    });
+  } finally {
+    await rm(outputDir, { recursive: true, force: true });
+  }
 });
 
 test('server-initiated normal closure reconnects the pool slot', async () => {

@@ -16,7 +16,7 @@ Services Scribe Live WebSockets and label returned transcripts with RTMS names.
 - Does not queue or transcribe participants beyond the configured capacity.
 - Labels each returned transcript with the RTMS `userId` and `userName` recorded for that lease.
 - Converts Scribe's session-relative audio offsets into epoch-millisecond `start_time` and `end_time` values using the matched RTMS audio timestamp.
-- Prints a time-sorted, speaker-labeled transcript when the meeting stops.
+- Prints named utterances as they complete and a time-sorted, participant-attributed transcript when the meeting stops.
 
 Unlike the fast-mode `/transcribe` endpoint (which uploads whole audio files), the
 live endpoint is a true streaming WebSocket: audio flows in continuously and
@@ -79,6 +79,8 @@ SCRIBE_HEARTBEAT_IDLE_MS=10000
 SCRIBE_HEARTBEAT_AUDIO_MS=1000
 SCRIBE_RECONNECT_DELAY_MS=2000
 SCRIBE_PENDING_AUDIO_MAX_BYTES=160000
+SCRIBE_SAVE_DIARIZED_TRANSCRIPT=false
+SCRIBE_TRANSCRIPT_OUTPUT_DIR=diarized_transcripts
 ```
 
 `SCRIBE_LIVE_URL` is the full WebSocket URL of the live transcription endpoint
@@ -87,6 +89,12 @@ SCRIBE_PENDING_AUDIO_MAX_BYTES=160000
 `SCRIBE_POOL_SIZE` accepts `2` or `3`. Two sockets always connect when the RTMS
 meeting starts. A configured capacity of `3` permits one additional socket to be
 created lazily for the third participant.
+
+Set `SCRIBE_SAVE_DIARIZED_TRANSCRIPT=true` to save the final named transcript as
+JSON when a meeting stops. `SCRIBE_TRANSCRIPT_OUTPUT_DIR` can be absolute or
+relative to this sample folder and defaults to `diarized_transcripts`. Generated
+files use owner-only permissions (`0600`), and the default output directory is
+excluded from Git.
 
 ## How It Works
 
@@ -109,17 +117,44 @@ Socket states are `free` or `assigned`.
 
 Example transcript log:
 
-```text
-[ZoomScribePool] User Name (16778240) start_time=1785904341078 end_time=1785904343546 Hello everyone.
+```json
+{
+  "event": "transcript.utterance",
+  "source_event": "transcription.completed",
+  "meeting_uuid": "meeting-uuid",
+  "participant": {
+    "user_id": 16778240,
+    "user_name": "User Name"
+  },
+  "start_time": 1785904341078,
+  "end_time": 1785904343546,
+  "received_time": 1785904344012,
+  "text": "Hello everyone."
+}
 ```
 
-Lease IDs are used internally so delayed results are matched to historical audio
-ranges rather than whichever participant currently owns the socket.
+This sample performs named diarization through RTMS participant attribution. It
+does not expose synthetic labels such as `Speaker 1`: every utterance carries the
+stable RTMS `user_id` and the participant's current `user_name`. At meeting end,
+the sample prints `transcript.final` with the same records sorted under an
+`utterances` array.
+
+When file persistence is enabled, the complete `transcript.final` JSON document
+is written after the Live Scribe sockets finish closing. No file is created when
+the meeting produced no completed utterances.
+
+Lease IDs are used only internally so delayed results are matched to historical
+audio ranges rather than whichever participant currently owns the socket.
 
 `start_time` and `end_time` are Unix epoch timestamps in milliseconds. Scribe
 returns `audio_start_ms` and `audio_end_ms` relative to its WebSocket session; the
 sample converts them to epoch time using the timestamp of the matching RTMS audio
-packet.
+packet. `received_time` is the local server's Unix epoch timestamp in milliseconds
+when the completed transcript message is received from Live Scribe.
+`source_event` records the actual Zoom Live Scribe event used to produce the
+utterance. Live Scribe completion is represented by the
+`transcription.completed` event type, so the normalized schema does not invent an
+`is_final` field.
 
 ## Live WebSocket Protocol
 
@@ -171,7 +206,7 @@ Server -> { "type": "session.closed", "reason": ... }
 
 ## Notes
 
-- This sample keeps `SCRIBE_DIARIZATION=false` and `SCRIBE_CHANNEL_SEPARATION=false`; speaker identity comes from RTMS.
+- This sample keeps `SCRIBE_DIARIZATION=false` and `SCRIBE_CHANNEL_SEPARATION=false`; named participant attribution comes from RTMS rather than acoustic speaker labels.
 - The sample does not inspect PCM amplitude or run local voice-activity detection. Live Scribe handles speech segmentation.
 - The Scribe heartbeat combines a WebSocket ping with silence audio so both transport and application-level activity occur. Heartbeat audio is not attributed to any participant.
 - Participant assignments are permanent for the meeting. Sockets are not released, shared, or reassigned.
