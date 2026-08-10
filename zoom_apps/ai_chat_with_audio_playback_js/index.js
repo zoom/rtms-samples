@@ -22,6 +22,7 @@ const { MEDIA_PARAMS } = RTMSManager;
 const rtmsConfig = {
   logging: 'info',
   logDir: path.join(__dirname, 'logs'),
+  mediaTypes: RTMSManager.MEDIA.TRANSCRIPT,
   credentials: {
     meeting: {
       clientId: config.clientId,
@@ -35,14 +36,6 @@ const rtmsConfig = {
     },
   },
   mediaParams: {
-    audio: {
-      contentType: MEDIA_PARAMS.MEDIA_CONTENT_TYPE_RAW_AUDIO,
-      sampleRate: MEDIA_PARAMS.AUDIO_SAMPLE_RATE_SR_16K,
-      channel: MEDIA_PARAMS.AUDIO_CHANNEL_MONO,
-      codec: MEDIA_PARAMS.MEDIA_PAYLOAD_TYPE_L16,
-      dataOpt: MEDIA_PARAMS.MEDIA_DATA_OPTION_AUDIO_MIXED_STREAM,
-      sendRate: 100,
-    },
     transcript: {
       contentType: MEDIA_PARAMS.MEDIA_CONTENT_TYPE_TEXT,
       language: MEDIA_PARAMS.LANGUAGE_ID_ENGLISH,

@@ -195,12 +195,13 @@ async Task ConnectToMediaWebSocket(string mediaUrl, string meetingUuid, string s
         meeting_uuid = meetingUuid,
         rtms_stream_id = streamId,
         signature,
-        media_type = 32,
+        media_type = 11, // AUDIO | VIDEO | TRANSCRIPT
         payload_encryption = false,
         media_params = new
         {
             audio = new { content_type = 2, sample_rate = 1, channel = 1, codec = 1, data_opt = 1, send_rate = 100 },
-            video = new { content_type = 3, codec = 7, resolution = 2, fps = 25 }
+            video = new { content_type = 3, codec = 7, resolution = 2, fps = 25 },
+            transcript = new { content_type = 5 }
         }
     };
     var handshakeBytes = Encoding.UTF8.GetBytes(JsonSerializer.Serialize(handshake));

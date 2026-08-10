@@ -349,7 +349,7 @@ function connectToMediaWebSocket(mediaUrl, meetingUuid, streamId, signalingSocke
             meeting_uuid: meetingUuid,
             rtms_stream_id: streamId,
             signature,
-            media_type: 32,
+            media_type: 3, // AUDIO | VIDEO
             payload_encryption: false,
             media_params: {
               audio: {

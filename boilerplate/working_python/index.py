@@ -110,7 +110,7 @@ def connect_to_media_ws(media_url, meeting_uuid, stream_id, signaling_socket):
             "meeting_uuid": meeting_uuid,
             "rtms_stream_id": stream_id,
             "signature": signature,
-            "media_type": 32,
+            "media_type": 11,  # AUDIO | VIDEO | TRANSCRIPT
             "payload_encryption": False,
             "media_params": {
                 "audio": {
@@ -126,11 +126,14 @@ def connect_to_media_ws(media_url, meeting_uuid, stream_id, signaling_socket):
                     "codec": 7,
                     "resolution": 2,
                     "fps": 25
+                },
+                "transcript": {
+                    "content_type": 5
                 }
             }
         }
         ws.send(json.dumps(handshake))
-        logger.debug(f"[Media] stream_id={stream_id} sent handshake msg_type=3 media_type=32")
+        logger.debug(f"[Media] stream_id={stream_id} sent handshake msg_type=3 media_type=11")
 
     def on_message(ws, message):
         # logger.info(f"Received message from media WebSocket: {message}")

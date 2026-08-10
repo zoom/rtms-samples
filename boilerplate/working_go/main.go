@@ -54,7 +54,7 @@ func connectToMediaWebSocket(mediaURL, meetingUUID, streamID, clientID, clientSe
 		"meeting_uuid":       meetingUUID,
 		"rtms_stream_id":     streamID,
 		"signature":          signature,
-		"media_type":         32,
+		"media_type":         11, // AUDIO | VIDEO | TRANSCRIPT
 		"payload_encryption": false,
 		"media_params": map[string]interface{}{
 			"audio": map[string]interface{}{
@@ -70,6 +70,9 @@ func connectToMediaWebSocket(mediaURL, meetingUUID, streamID, clientID, clientSe
 				"codec":        7,
 				"resolution":   2,
 				"fps":          25,
+			},
+			"transcript": map[string]interface{}{
+				"content_type": 5,
 			},
 		},
 	}

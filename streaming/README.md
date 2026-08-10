@@ -30,7 +30,7 @@ This folder contains samples for streaming Zoom meeting media to external destin
 
 All JS samples include:
 
-- **Unified media connection**: Single WebSocket for audio + video (`media_type: 32`)
+- **Unified media connection**: Single WebSocket for audio + video (`media_type: 3`)
 - **Keep-alive handling**: Responds to `msg_type: 12` with `msg_type: 13` on both signaling and media sockets
 - **Reconnection strategy**: Auto-reconnects with 3s delay on connection drop
 - **Stream-based keying**: Uses `streamId` (not `meetingUuid`) as the unique connection identifier

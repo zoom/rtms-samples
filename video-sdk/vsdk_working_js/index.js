@@ -500,7 +500,7 @@ function connectToMediaWebSocket(
       session_id: sessionID,
       rtms_stream_id: streamId,
       signature,
-      media_type: 32, // AUDIO+VIDEO+TRANSCRIPT
+      media_type: 32, // ALL: audio, video, screen share, transcript, and chat
       payload_encryption: false,
       media_params: {
         audio: {

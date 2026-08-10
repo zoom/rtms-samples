@@ -112,7 +112,7 @@ const rtmsConfig = {
 You can now switch media subscription style without editing code:
 
 ```env
-MEDIA_TYPES_FLAG=32
+MEDIA_TYPES_FLAG=2
 AUDIO_STREAM_MODE=mixed
 VIDEO_STREAM_MODE=active
 ```
@@ -275,7 +275,7 @@ process.on('SIGINT', async () => {
 |-------|----------|
 | Webhook not received | Verify ngrok URL is set in Zoom Marketplace, check webhook path matches |
 | "Invalid signature" error | Ensure `ZOOM_CLIENT_ID` and `ZOOM_CLIENT_SECRET` match your Zoom app |
-| No media data | Check `MEDIA_TYPES_FLAG` includes desired media types (32 = all) |
+| No media data | Check `MEDIA_TYPES_FLAG` includes video (`2`, or `3` when audio is also needed) |
 | Frontend not receiving data | Verify `FRONTEND_WSS_URL_TO_CONNECT_TO` points to your server's WebSocket |
 | Connection drops | Check network stability; RTMSManager auto-reconnects after 3 seconds |
 

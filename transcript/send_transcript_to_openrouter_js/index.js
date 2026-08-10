@@ -26,7 +26,7 @@ const rtmsConfig = {
     console: true
   },
   mediaSocketConnectionMode: process.env.MEDIA_SOCKET_CONNECTION_MODE || 'split',
-  mediaTypesFlag: 32,
+  mediaTypes: RTMSManager.MEDIA.TRANSCRIPT,
   credentials: {
     meeting: {
       clientId: process.env.ZOOM_CLIENT_ID,

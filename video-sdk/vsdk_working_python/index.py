@@ -52,7 +52,7 @@ def connect_to_media_ws(media_url, session_id, stream_id, signaling_socket):
             "session_id": session_id,
             "rtms_stream_id": stream_id,
             "signature": signature,
-            "media_type": 32,
+            "media_type": 1,  # AUDIO
             "payload_encryption": False,
             "media_params": {
                 "audio": {
@@ -62,12 +62,6 @@ def connect_to_media_ws(media_url, session_id, stream_id, signaling_socket):
                     "codec": 1,
                     "data_opt": 1, #1 for merged audio, #2 for invidual audio
                     "send_rate": 100
-                },
-                "video": {
-                    "content_type": 3,
-                    "codec": 7,
-                    "resolution": 2,
-                    "fps": 25
                 }
             }
         }
@@ -95,12 +89,6 @@ def connect_to_media_ws(media_url, session_id, stream_id, signaling_socket):
                 logger.info("Received AUDIO data")
                 # logger.info(msg)
                 # Handle audio data if needed
-            elif msg_type == 15:
-                logger.info("Received VIDEO data")
-                # Handle video data if needed
-            elif msg_type == 17:
-                logger.info("Received TRANSCRIPT data")
-                # Handle transcript data if needed
         except Exception as e:
             logger.error(f"Error processing media message: {e}")
 

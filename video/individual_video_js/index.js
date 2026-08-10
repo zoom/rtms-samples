@@ -23,7 +23,7 @@ function normalizeMode(value, fallback) {
 }
 
 function getMediaTypesFlagFromEnv() {
-  const rawValue = String(process.env.MEDIA_TYPES_FLAG || '32').trim();
+  const rawValue = String(process.env.MEDIA_TYPES_FLAG || '2').trim();
   const parsedValue = Number.parseInt(rawValue, 10);
 
   if (!Number.isInteger(parsedValue) || !VALID_MEDIA_TYPE_FLAGS.has(parsedValue)) {
