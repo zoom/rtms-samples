@@ -68,6 +68,7 @@ SCRIBE_LANGUAGE=en-US
 SCRIBE_WORD_TIME_OFFSETS=true
 SCRIBE_TIMESTAMPS=true
 SCRIBE_DIARIZATION=false
+SCRIBE_LOG_RAW_EVENTS=false
 SCRIBE_CHANNEL_SEPARATION=false
 SCRIBE_PROFANITY_FILTER=false
 SCRIBE_OUTPUT_FORMAT=json
@@ -75,15 +76,17 @@ SCRIBE_OUTPUT_FORMAT=json
 
 `SCRIBE_LIVE_URL` is the full WebSocket URL of the live transcription endpoint
 (defaults to `wss://api.zoom.us/v2/aiservices/scribe/live`).
+Set `SCRIBE_LOG_RAW_EVENTS=true` to print every Scribe text frame verbatim before
+the sample parses and formats it. Disable it after troubleshooting to reduce logs.
 
 ## How It Works
 
 1. The app starts an Express server and initializes RTMSManager.
 2. The webhook endpoint receives `meeting.rtms_started`.
-3. `scribeClient.js` mints a Build-platform JWT and opens `wss://.../aiservices/scribe/live`, then sends `session.update` with `audio.format=pcm16` and the configured ASR options.
+3. `scribeClient.js` mints a Build-platform JWT and opens `wss://.../aiservices/scribe/live`, then sends `session.update` with `audio.format=pcm16`, the language, and the Live Scribe diarization option.
 4. RTMSManager connects to Zoom signaling/media sockets; RTMS audio arrives as raw 16 kHz mono PCM16.
 5. Each audio packet is forwarded to the WebSocket as a binary frame. Audio that arrives before the session is ready is buffered and flushed on `session.updated`.
-6. The server streams back `transcription.completed` events, which are logged.
+6. The server streams back `transcription.completed` events. When diarization is enabled, the console prints structured speaker, segment, word, and timing fields returned by Scribe.
 7. On `meeting.rtms_stopped`, the client sends `session.close`, waits briefly for the final transcript, logs the full meeting transcript, and closes.
 
 ## Live WebSocket Protocol
@@ -95,14 +98,10 @@ Connect: wss://api.zoom.us/v2/aiservices/scribe/live
 
 Client -> {
   "type": "session.update",
+  "language": "en-US",
   "audio": { "format": "pcm16" },
-  "config": {
-    "language": "en-US",
-    "word_time_offsets": true,
-    "channel_separation": false,
-    "diarization": false,
-    "profanity_filter": false,
-    "output_format": "json"
+  "transcription": {
+    "enable_diarization": false
   }
 }
 Client -> <binary PCM16 frames>                       # streamed RTMS audio

@@ -57,6 +57,7 @@ const CONFIG = {
   wordTimeOffsets: envBoolean('SCRIBE_WORD_TIME_OFFSETS', true),
   channelSeparation: envBoolean('SCRIBE_CHANNEL_SEPARATION', false),
   diarization: envBoolean('SCRIBE_DIARIZATION', false),
+  logRawEvents: envBoolean('SCRIBE_LOG_RAW_EVENTS', false),
   profanityFilter: envBoolean('SCRIBE_PROFANITY_FILTER', false),
   outputFormat: process.env.SCRIBE_OUTPUT_FORMAT || 'json',
 };
@@ -64,14 +65,10 @@ const CONFIG = {
 export function buildSessionUpdatePayload() {
   return {
     type: 'session.update',
+    language: CONFIG.language,
     audio: { format: 'pcm16' },
-    config: {
-      language: CONFIG.language,
-      word_time_offsets: CONFIG.wordTimeOffsets,
-      channel_separation: CONFIG.channelSeparation,
-      diarization: CONFIG.diarization,
-      profanity_filter: CONFIG.profanityFilter,
-      output_format: CONFIG.outputFormat,
+    transcription: {
+      enable_diarization: CONFIG.diarization,
     },
   };
 }
@@ -86,6 +83,7 @@ export function liveScribeConfig() {
     wordTimeOffsets: CONFIG.wordTimeOffsets,
     channelSeparation: CONFIG.channelSeparation,
     diarization: CONFIG.diarization,
+    logRawEvents: CONFIG.logRawEvents,
     profanityFilter: CONFIG.profanityFilter,
     outputFormat: CONFIG.outputFormat,
   };
@@ -203,7 +201,7 @@ function connect(session) {
     try {
       const payload = buildSessionUpdatePayload();
       ws.send(JSON.stringify(payload));
-      console.log(`${LOG} Sent session.update config=${JSON.stringify(payload.config)}`);
+      console.log(`${LOG} Sent session.update ${JSON.stringify(payload)}`);
     } catch (error) {
       console.error(`${LOG} session.update send failed: ${error.message}`);
     }
@@ -229,13 +227,18 @@ function connect(session) {
 }
 
 function handleServerEvent(session, raw) {
+  const tag = `[${String(session.meetingUuid).slice(0, 8)}]`;
+  const rawText = raw.toString();
+  if (CONFIG.logRawEvents) {
+    console.log(`${LOG} ${tag} RAW ${rawText}`);
+  }
+
   let event;
   try {
-    event = JSON.parse(raw.toString());
+    event = JSON.parse(rawText);
   } catch {
     return;
   }
-  const tag = `[${String(session.meetingUuid).slice(0, 8)}]`;
 
   switch (event.type) {
     case 'session.created':
@@ -244,7 +247,9 @@ function handleServerEvent(session, raw) {
       break;
     case 'session.updated':
       session.ready = true;
-      console.log(`${LOG} ${tag} session.updated — streaming audio`);
+      console.log(
+        `${LOG} ${tag} session.updated; streaming audio response=${JSON.stringify(event)}`
+      );
       flushQueue(session);
       break;
     case 'transcription.completed': {
@@ -252,7 +257,17 @@ function handleServerEvent(session, raw) {
       if (text) session.completed.push(text);
       const startSec = ((event.audio_start_ms ?? 0) / 1000).toFixed(1);
       const endSec = ((event.audio_end_ms ?? 0) / 1000).toFixed(1);
-      console.log(`${LOG} ${tag} [${startSec}s-${endSec}s] ${text}`);
+      if (CONFIG.diarization) {
+        console.log(
+          `${LOG} ${tag} diarized transcription:\n${JSON.stringify(
+            buildDiarizationLog(event),
+            null,
+            2
+          )}`
+        );
+      } else {
+        console.log(`${LOG} ${tag} [${startSec}s-${endSec}s] ${text}`);
+      }
       break;
     }
     case 'error':
@@ -266,8 +281,28 @@ function handleServerEvent(session, raw) {
       session.closedWaiters.splice(0).forEach((resolve) => resolve());
       break;
     default:
+      if (CONFIG.diarization) {
+        console.log(
+          `${LOG} ${tag} unhandled Live Scribe event:\n${JSON.stringify(event, null, 2)}`
+        );
+      }
       break;
   }
+}
+
+function buildDiarizationLog(event) {
+  const result = event.result && typeof event.result === 'object' ? event.result : {};
+
+  return {
+    transcript: event.transcript || result.text_display || '',
+    audio_start_ms: event.audio_start_ms ?? null,
+    audio_end_ms: event.audio_end_ms ?? null,
+    speaker: event.speaker ?? event.speaker_label ?? event.speaker_id ?? null,
+    speakers: event.speakers ?? result.speakers ?? null,
+    segments: event.segments ?? result.segments ?? null,
+    words: event.words ?? result.words ?? null,
+    response_fields: Object.keys(event),
+  };
 }
 
 // Gracefully end a meeting's live session (called on meeting.rtms_stopped).
