@@ -41,11 +41,11 @@ This is the main reference implementation for RTMS in JavaScript. It demonstrate
 | `ZOOM_S2S_CLIENT_ID` | No | Server-to-Server OAuth Client ID |
 | `ZOOM_S2S_CLIENT_SECRET` | No | Server-to-Server OAuth Client Secret |
 | `ZOOM_ACCOUNT_ID` | No | Zoom Account ID for S2S OAuth |
-| `MEDIA_TYPES_FLAG` | No | Bitmask for media types (default: 32 = all) |
+| `MEDIA_TYPES_FLAG` | No | Media mask: audio `1`, video `2`, screen share `4`, transcript `8`, chat `16`, or `32` for all |
 | `VIDEO_CLIENT_ID` | No | Video SDK Client ID |
 | `VIDEO_CLIENT_SECRET` | No | Video SDK Client Secret |
 | `VIDEO_SECRET_TOKEN` | No | Video SDK webhook secret token |
-| `MEDIA_SOCKET_CONNECTION_MODE` | No | Socket mode: `unified` or `split` |
+| `MEDIA_SOCKET_CONNECTION_MODE` | No | `split` expands selected bits into separate sockets; `unified` uses one `all` socket and should use media flag `32` |
 | `AUDIO_STREAM_MODE` | No | Audio mode: `mixed` or `multi` |
 | `VIDEO_STREAM_MODE` | No | Video mode: `active`, `individual`, or `speaker` |
 | `DEFAULT_VIDEO_SUBSCRIPTION_USER_ID` | No | Auto-subscribe this user ID when `VIDEO_STREAM_MODE=individual` and that participant's camera is on |
@@ -68,8 +68,8 @@ const rtmsConfig = {
     logDir: path.join(__dirname, 'logs'),
     console: true
   },
-  mediaSocketConnectionMode: process.env.MEDIA_SOCKET_CONNECTION_MODE || 'split',
-  mediaTypesFlag: parseInt(process.env.MEDIA_TYPES_FLAG || '32'),
+  mediaSocketConnectionMode,
+  mediaTypesFlag,
   credentials: {
     meeting: {
       clientId: process.env.ZOOM_CLIENT_ID,
@@ -134,6 +134,26 @@ VIDEO_STREAM_MODE=individual
 MEDIA_SOCKET_CONNECTION_MODE=split
 DEFAULT_VIDEO_SUBSCRIPTION_USER_ID=16778240
 ```
+
+For audio, video, and transcript over separate media sockets, use:
+
+```env
+MEDIA_TYPES_FLAG=11
+MEDIA_SOCKET_CONNECTION_MODE=split
+```
+
+In split mode, RTMSManager expands `11` into independent handshakes with
+`media_type` values `1`, `2`, and `8`; it does not send `11` to a media socket.
+
+For one unified socket, use:
+
+```env
+MEDIA_TYPES_FLAG=32
+MEDIA_SOCKET_CONNECTION_MODE=unified
+```
+
+Do not use a combined mask such as `11` in unified mode because it is sent as one
+media handshake value; use split mode to expand that mask instead.
 
 Then the sample will automatically subscribe to that user when they appear in `participant_video_on` / `video_on_participants_changed`.
 

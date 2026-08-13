@@ -19,6 +19,26 @@ LOG_LEVEL = os.getenv("LOG_LEVEL", "DEBUG")
 ZOOM_SECRET_TOKEN = os.getenv("ZOOM_SECRET_TOKEN")
 CLIENT_ID = os.getenv("ZOOM_CLIENT_ID")
 CLIENT_SECRET = os.getenv("ZOOM_CLIENT_SECRET")
+MEDIA_TYPES_FLAG = int(os.getenv("MEDIA_TYPES_FLAG", "11"))
+MEDIA_SOCKET_CONNECTION_MODE = os.getenv("MEDIA_SOCKET_CONNECTION_MODE", "split").strip().lower()
+
+ALL_INDIVIDUAL_MEDIA_FLAGS = 1 | 2 | 4 | 8 | 16
+MEDIA_DEFINITIONS = {
+    "audio": 1,
+    "video": 2,
+    "deskshare": 4,
+    "transcript": 8,
+    "chat": 16,
+}
+
+if MEDIA_TYPES_FLAG != 32 and (
+    MEDIA_TYPES_FLAG <= 0 or MEDIA_TYPES_FLAG & ~ALL_INDIVIDUAL_MEDIA_FLAGS
+):
+    raise ValueError("MEDIA_TYPES_FLAG must combine 1, 2, 4, 8, and 16, or be 32")
+if MEDIA_SOCKET_CONNECTION_MODE not in {"split", "unified"}:
+    raise ValueError("MEDIA_SOCKET_CONNECTION_MODE must be split or unified")
+if MEDIA_SOCKET_CONNECTION_MODE == "unified" and MEDIA_TYPES_FLAG != 32:
+    raise ValueError("Unified mode requires MEDIA_TYPES_FLAG=32")
 
 # Setup logging
 logging.basicConfig(level=getattr(logging, LOG_LEVEL.upper(), logging.DEBUG))
@@ -33,6 +53,7 @@ signaling_handshakes_in_flight = set()
 stream_attempt_counts = {}
 duplicate_signal_retry_counts = {}
 duplicate_signal_retry_timers = {}
+signaling_send_locks = {}
 
 MAX_DUPLICATE_SIGNAL_RETRIES = int(os.getenv("MAX_DUPLICATE_SIGNAL_RETRIES", "3"))
 INITIAL_DUPLICATE_SIGNAL_RETRY_DELAY_SEC = float(os.getenv("INITIAL_DUPLICATE_SIGNAL_RETRY_DELAY_SEC", "1.5"))
@@ -97,8 +118,29 @@ def schedule_duplicate_signal_retry(meeting_uuid, stream_id, server_url):
         duplicate_signal_retry_timers[stream_id] = timer
         timer.start()
 
-def connect_to_media_ws(media_url, meeting_uuid, stream_id, signaling_socket):
-    logger.info(f"Connecting to media WebSocket at {media_url}")
+def media_params_for(media_name):
+    params = {
+        "audio": {
+            "content_type": 2, "sample_rate": 1, "channel": 1,
+            "codec": 1, "data_opt": 1, "send_rate": 100,
+        },
+        "video": {
+            "content_type": 3, "codec": 7, "data_opt": 3,
+            "resolution": 2, "fps": 25,
+        },
+        "deskshare": {"content_type": 3, "codec": 5, "resolution": 2, "fps": 1},
+        "transcript": {"content_type": 5, "src_language": 9, "enable_lid": True},
+        "chat": {"content_type": 5},
+    }
+    return params if media_name == "all" else {media_name: params[media_name]}
+
+def send_signaling_message(stream_id, signaling_socket, payload):
+    send_lock = signaling_send_locks.setdefault(stream_id, threading.Lock())
+    with send_lock:
+        signaling_socket.send(json.dumps(payload))
+
+def connect_to_media_ws(media_url, meeting_uuid, stream_id, signaling_socket, media_name, media_type):
+    logger.info(f"Connecting to {media_name} media WebSocket at {media_url}")
     parsed_media = urlparse(media_url)
     logger.debug(f"[Media] stream_id={stream_id} meeting_uuid={meeting_uuid} host={parsed_media.hostname} path={parsed_media.path}")
 
@@ -110,30 +152,12 @@ def connect_to_media_ws(media_url, meeting_uuid, stream_id, signaling_socket):
             "meeting_uuid": meeting_uuid,
             "rtms_stream_id": stream_id,
             "signature": signature,
-            "media_type": 11,  # AUDIO | VIDEO | TRANSCRIPT
+            "media_type": media_type,
             "payload_encryption": False,
-            "media_params": {
-                "audio": {
-                    "content_type": 2,
-                    "sample_rate": 1,
-                    "channel": 1,
-                    "codec": 1,
-                    "data_opt": 1,
-                    "send_rate": 100
-                },
-                "video": {
-                    "content_type": 3,
-                    "codec": 7,
-                    "resolution": 2,
-                    "fps": 25
-                },
-                "transcript": {
-                    "content_type": 5
-                }
-            }
+            "media_params": media_params_for(media_name),
         }
         ws.send(json.dumps(handshake))
-        logger.debug(f"[Media] stream_id={stream_id} sent handshake msg_type=3 media_type=11")
+        logger.debug(f"[Media] stream_id={stream_id} name={media_name} sent handshake media_type={media_type}")
 
     def on_message(ws, message):
         # logger.info(f"Received message from media WebSocket: {message}")
@@ -142,11 +166,11 @@ def connect_to_media_ws(media_url, meeting_uuid, stream_id, signaling_socket):
             msg_type = msg.get("msg_type")
 
             if msg_type == 4 and msg.get("status_code") == 0:
-                signaling_socket.send(json.dumps({
+                send_signaling_message(stream_id, signaling_socket, {
                     "msg_type": 7,
                     "rtms_stream_id": stream_id
-                }))
-                logger.info("Media handshake successful, sent start streaming request")
+                })
+                logger.info(f"{media_name} media handshake successful; CLIENT_READY_ACK sent")
                 logger.debug(f"[Media] stream_id={stream_id} handshake_ok status_code=0")
             elif msg_type == 4:
                 logger.warning(f"[Media] stream_id={stream_id} handshake_failed status_code={msg.get('status_code')} reason={msg.get('reason')}")
@@ -162,9 +186,13 @@ def connect_to_media_ws(media_url, meeting_uuid, stream_id, signaling_socket):
             elif msg_type == 15:
                 logger.info("Received VIDEO data")
                 # Handle video data if needed
+            elif msg_type == 16:
+                logger.info("Received SCREEN SHARE data")
             elif msg_type == 17:
                 logger.info("Received TRANSCRIPT data")
                 # Handle transcript data if needed
+            elif msg_type == 18:
+                logger.info("Received CHAT data")
         except Exception as e:
             logger.error(f"Error processing media message: {e}")
 
@@ -177,7 +205,7 @@ def connect_to_media_ws(media_url, meeting_uuid, stream_id, signaling_socket):
     def on_close(ws, close_status_code, close_msg):
         logger.info(f"Media socket closed stream_id={stream_id} close_code={close_status_code} close_msg={close_msg}")
         if stream_id in active_connections:
-            active_connections[stream_id].pop("media", None)
+            active_connections[stream_id].pop(media_name, None)
         log_stream_snapshot("media_close", stream_id)
 
     ws = websocket.WebSocketApp(media_url,
@@ -185,7 +213,7 @@ def connect_to_media_ws(media_url, meeting_uuid, stream_id, signaling_socket):
                                 on_message=on_message,
                                 on_error=on_error,
                                 on_close=on_close)
-    active_connections[stream_id]["media"] = ws
+    active_connections[stream_id][media_name] = ws
     threading.Thread(target=ws.run_forever, daemon=True).start()
 
 def connect_to_signaling_ws(meeting_uuid, stream_id, server_url):
@@ -238,11 +266,28 @@ def connect_to_signaling_ws(meeting_uuid, stream_id, server_url):
                 clear_duplicate_retry_state(stream_id)
                 logger.info(
                     f"[Signaling] handshake_ok stream_id={stream_id} status_code=0 "
-                    f"media_host={urlparse(msg.get('media_server', {}).get('server_urls', {}).get('all', '')).hostname}"
+                    f"mode={MEDIA_SOCKET_CONNECTION_MODE} media_types={MEDIA_TYPES_FLAG}"
                 )
-                media_url = msg.get("media_server", {}).get("server_urls", {}).get("all")
-                if media_url:
-                    connect_to_media_ws(media_url, meeting_uuid, stream_id, ws)
+                media_urls = msg.get("media_server", {}).get("server_urls", {})
+                if MEDIA_SOCKET_CONNECTION_MODE == "unified":
+                    media_url = media_urls.get("all")
+                    if media_url:
+                        connect_to_media_ws(media_url, meeting_uuid, stream_id, ws, "all", 32)
+                    else:
+                        logger.error(f"[Signaling] stream_id={stream_id} missing server_urls.all")
+                else:
+                    requested_flags = ALL_INDIVIDUAL_MEDIA_FLAGS if MEDIA_TYPES_FLAG == 32 else MEDIA_TYPES_FLAG
+                    for media_name, media_type in MEDIA_DEFINITIONS.items():
+                        if requested_flags & media_type:
+                            media_url = media_urls.get(media_name)
+                            if media_url:
+                                connect_to_media_ws(
+                                    media_url, meeting_uuid, stream_id, ws, media_name, media_type
+                                )
+                            else:
+                                logger.warning(
+                                    f"[Signaling] stream_id={stream_id} missing server_urls.{media_name}"
+                                )
             elif msg.get("msg_type") == 2:
                 with stream_lock:
                     signaling_handshakes_in_flight.discard(stream_id)
@@ -255,10 +300,10 @@ def connect_to_signaling_ws(meeting_uuid, stream_id, server_url):
                 if "duplicate signal request" in reason.lower():
                     schedule_duplicate_signal_retry(meeting_uuid, stream_id, server_url)
             elif msg.get("msg_type") == 12:
-                ws.send(json.dumps({
+                send_signaling_message(stream_id, ws, {
                     "msg_type": 13,
                     "timestamp": msg["timestamp"]
-                }))
+                })
                 logger.info("Responded to Signaling KEEP_ALIVE_REQ")
             else:
                 logger.debug(f"[Signaling] stream_id={stream_id} msg_type={msg.get('msg_type')} payload={msg}")
@@ -336,6 +381,7 @@ def handle_webhook():
                 except Exception:
                     pass
             del active_connections[stream_id]
+            signaling_send_locks.pop(stream_id, None)
         else:
             meeting_uuid = payload.get("meeting_uuid")
             stream_ids = [sid for sid, conn in active_connections.items() if conn.get("meeting_uuid") == meeting_uuid]
@@ -349,9 +395,13 @@ def handle_webhook():
                     except Exception:
                         pass
                 del active_connections[sid]
+                signaling_send_locks.pop(sid, None)
         log_stream_snapshot("webhook_stopped_after_cleanup", stream_id)
 
     return '', 200
 
 if __name__ == '__main__':
+    logger.info(
+        f"RTMS media configuration: mode={MEDIA_SOCKET_CONNECTION_MODE} media_types={MEDIA_TYPES_FLAG}"
+    )
     app.run(host='0.0.0.0', port=PORT)

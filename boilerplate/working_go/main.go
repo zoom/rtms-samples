@@ -11,6 +11,8 @@ import (
 	"math/rand"
 	"net/http"
 	"os"
+	"strconv"
+	"strings"
 	"sync"
 
 	"github.com/gorilla/websocket"
@@ -20,6 +22,22 @@ import (
 var activeConnections = make(map[string]map[string]*websocket.Conn)
 var activeConnectionsMu sync.Mutex
 var signalingInFlight = make(map[string]bool)
+var signalingWriteLocks = make(map[string]*sync.Mutex)
+var mediaTypesFlag = 11
+var mediaSocketConnectionMode = "split"
+
+const allIndividualMediaFlags = 1 | 2 | 4 | 8 | 16
+
+var mediaDefinitions = []struct {
+	name string
+	flag int
+}{
+	{"audio", 1},
+	{"video", 2},
+	{"deskshare", 4},
+	{"transcript", 8},
+	{"chat", 16},
+}
 
 type ZoomWebhookPayload struct {
 	Event   string                 `json:"event"`
@@ -33,8 +51,36 @@ func generateSignature(clientID, meetingUUID, streamID, clientSecret string) str
 	return hex.EncodeToString(mac.Sum(nil))
 }
 
-func connectToMediaWebSocket(mediaURL, meetingUUID, streamID, clientID, clientSecret string, signalingConn *websocket.Conn) {
-	log.Printf("Connecting to media WebSocket at %s", mediaURL)
+func mediaParamsFor(mediaName string) map[string]interface{} {
+	params := map[string]interface{}{
+		"audio":      map[string]interface{}{"content_type": 2, "sample_rate": 1, "channel": 1, "codec": 1, "data_opt": 1, "send_rate": 100},
+		"video":      map[string]interface{}{"content_type": 3, "codec": 7, "data_opt": 3, "resolution": 2, "fps": 25},
+		"deskshare":  map[string]interface{}{"content_type": 3, "codec": 5, "resolution": 2, "fps": 1},
+		"transcript": map[string]interface{}{"content_type": 5, "src_language": 9, "enable_lid": true},
+		"chat":       map[string]interface{}{"content_type": 5},
+	}
+	if mediaName == "all" {
+		return params
+	}
+	return map[string]interface{}{mediaName: params[mediaName]}
+}
+
+func writeSignalingJSON(streamID string, conn *websocket.Conn, payload interface{}) error {
+	activeConnectionsMu.Lock()
+	writeLock, ok := signalingWriteLocks[streamID]
+	if !ok {
+		writeLock = &sync.Mutex{}
+		signalingWriteLocks[streamID] = writeLock
+	}
+	activeConnectionsMu.Unlock()
+
+	writeLock.Lock()
+	defer writeLock.Unlock()
+	return conn.WriteJSON(payload)
+}
+
+func connectToMediaWebSocket(mediaURL, meetingUUID, streamID, clientID, clientSecret string, signalingConn *websocket.Conn, mediaName string, mediaType int) {
+	log.Printf("Connecting to %s media WebSocket at %s", mediaName, mediaURL)
 	ws, _, err := websocket.DefaultDialer.Dial(mediaURL, nil)
 	if err != nil {
 		log.Printf("Error connecting to media WS: %v", err)
@@ -44,7 +90,7 @@ func connectToMediaWebSocket(mediaURL, meetingUUID, streamID, clientID, clientSe
 	if _, ok := activeConnections[streamID]; !ok {
 		activeConnections[streamID] = make(map[string]*websocket.Conn)
 	}
-	activeConnections[streamID]["media"] = ws
+	activeConnections[streamID][mediaName] = ws
 	activeConnectionsMu.Unlock()
 
 	signature := generateSignature(clientID, meetingUUID, streamID, clientSecret)
@@ -54,32 +100,24 @@ func connectToMediaWebSocket(mediaURL, meetingUUID, streamID, clientID, clientSe
 		"meeting_uuid":       meetingUUID,
 		"rtms_stream_id":     streamID,
 		"signature":          signature,
-		"media_type":         11, // AUDIO | VIDEO | TRANSCRIPT
+		"media_type":         mediaType,
 		"payload_encryption": false,
-		"media_params": map[string]interface{}{
-			"audio": map[string]interface{}{
-				"content_type": 2,
-				"sample_rate":  1,
-				"channel":      1,
-				"codec":        1,
-				"data_opt":     1,
-				"send_rate":    100,
-			},
-			"video": map[string]interface{}{
-				"content_type": 3,
-				"codec":        7,
-				"resolution":   2,
-				"fps":          25,
-			},
-			"transcript": map[string]interface{}{
-				"content_type": 5,
-			},
-		},
+		"media_params":       mediaParamsFor(mediaName),
 	}
-	ws.WriteJSON(handshake)
+	if err := ws.WriteJSON(handshake); err != nil {
+		log.Printf("Failed to send %s media handshake: %v", mediaName, err)
+		return
+	}
 
 	go func() {
 		defer ws.Close()
+		defer func() {
+			activeConnectionsMu.Lock()
+			if conns, ok := activeConnections[streamID]; ok {
+				delete(conns, mediaName)
+			}
+			activeConnectionsMu.Unlock()
+		}()
 		for {
 			_, msg, err := ws.ReadMessage()
 			if err != nil {
@@ -105,11 +143,15 @@ func connectToMediaWebSocket(mediaURL, meetingUUID, streamID, clientID, clientSe
 			switch msgType {
 			case 4:
 				if statusCode, ok := parsed["status_code"].(float64); ok && int(statusCode) == 0 {
-					signalingConn.WriteJSON(map[string]interface{}{
+					if err := writeSignalingJSON(streamID, signalingConn, map[string]interface{}{
 						"msg_type":       7,
 						"rtms_stream_id": streamID,
-					})
-					log.Println("Media handshake successful, sent start streaming request")
+					}); err != nil {
+						log.Printf("Failed to send CLIENT_READY_ACK for %s: %v", mediaName, err)
+					}
+					log.Printf("%s media handshake successful; CLIENT_READY_ACK sent", mediaName)
+				} else {
+					log.Printf("%s media handshake failed: %s", mediaName, msg)
 				}
 			case 12:
 				timestamp := parsed["timestamp"]
@@ -126,10 +168,14 @@ func connectToMediaWebSocket(mediaURL, meetingUUID, streamID, clientID, clientSe
 				log.Println("Received VIDEO data:")
 				//jsonMsg, _ := json.MarshalIndent(parsed, "", "  ")
 				//log.Println(string(jsonMsg))
+			case 16:
+				log.Println("Received SCREEN SHARE data:")
 			case 17:
 				log.Println("Received TRANSCRIPT data:")
 				//jsonMsg, _ := json.MarshalIndent(parsed, "", "  ")
 				//log.Println(string(jsonMsg))
+			case 18:
+				log.Println("Received CHAT data:")
 			default:
 				log.Printf("Unhandled msg_type: %d", msgType)
 			}
@@ -210,13 +256,36 @@ func connectToSignalingWebSocket(serverURL, meetingUUID, streamID, clientID, cli
 				delete(signalingInFlight, streamID)
 				activeConnectionsMu.Unlock()
 				if parsed["status_code"].(float64) == 0 {
-					mediaURL := parsed["media_server"].(map[string]interface{})["server_urls"].(map[string]interface{})["all"].(string)
-					connectToMediaWebSocket(mediaURL, meetingUUID, streamID, clientID, clientSecret, ws)
+					mediaURLs := parsed["media_server"].(map[string]interface{})["server_urls"].(map[string]interface{})
+					if mediaSocketConnectionMode == "unified" {
+						mediaURL, ok := mediaURLs["all"].(string)
+						if !ok || mediaURL == "" {
+							log.Printf("No unified media URL returned for stream %s", streamID)
+							continue
+						}
+						go connectToMediaWebSocket(mediaURL, meetingUUID, streamID, clientID, clientSecret, ws, "all", 32)
+					} else {
+						requestedFlags := mediaTypesFlag
+						if requestedFlags == 32 {
+							requestedFlags = allIndividualMediaFlags
+						}
+						for _, media := range mediaDefinitions {
+							if requestedFlags&media.flag == 0 {
+								continue
+							}
+							mediaURL, ok := mediaURLs[media.name].(string)
+							if !ok || mediaURL == "" {
+								log.Printf("No %s media URL returned for stream %s", media.name, streamID)
+								continue
+							}
+							go connectToMediaWebSocket(mediaURL, meetingUUID, streamID, clientID, clientSecret, ws, media.name, media.flag)
+						}
+					}
 				} else {
 					log.Printf("Signaling handshake failed for stream %s: status=%v reason=%v", streamID, parsed["status_code"], parsed["reason"])
 				}
 			case 12:
-				ws.WriteJSON(map[string]interface{}{
+				writeSignalingJSON(streamID, ws, map[string]interface{}{
 					"msg_type":  13,
 					"timestamp": parsed["timestamp"],
 				})
@@ -260,6 +329,7 @@ func webhookHandler(clientID, clientSecret, zoomToken string) http.HandlerFunc {
 			streamID := data["rtms_stream_id"].(string)
 			activeConnectionsMu.Lock()
 			delete(signalingInFlight, streamID)
+			delete(signalingWriteLocks, streamID)
 			conns, ok := activeConnections[streamID]
 			if ok {
 				for _, conn := range conns {
@@ -277,6 +347,27 @@ func webhookHandler(clientID, clientSecret, zoomToken string) http.HandlerFunc {
 func main() {
 	godotenv.Load()
 
+	configuredFlag, err := strconv.Atoi(strings.TrimSpace(os.Getenv("MEDIA_TYPES_FLAG")))
+	if os.Getenv("MEDIA_TYPES_FLAG") == "" {
+		configuredFlag = 11
+	} else if err != nil {
+		log.Fatal("MEDIA_TYPES_FLAG must be an integer")
+	}
+	if configuredFlag != 32 && (configuredFlag <= 0 || configuredFlag & ^allIndividualMediaFlags != 0) {
+		log.Fatal("MEDIA_TYPES_FLAG must combine 1, 2, 4, 8, and 16, or be 32")
+	}
+	mediaTypesFlag = configuredFlag
+	mediaSocketConnectionMode = strings.ToLower(strings.TrimSpace(os.Getenv("MEDIA_SOCKET_CONNECTION_MODE")))
+	if mediaSocketConnectionMode == "" {
+		mediaSocketConnectionMode = "split"
+	}
+	if mediaSocketConnectionMode != "split" && mediaSocketConnectionMode != "unified" {
+		log.Fatal("MEDIA_SOCKET_CONNECTION_MODE must be split or unified")
+	}
+	if mediaSocketConnectionMode == "unified" && mediaTypesFlag != 32 {
+		log.Fatal("MEDIA_SOCKET_CONNECTION_MODE=unified requires MEDIA_TYPES_FLAG=32")
+	}
+
 	port := os.Getenv("PORT")
 	if port == "" {
 		port = "3000"
@@ -291,7 +382,7 @@ func main() {
 
 	http.HandleFunc(webhookPath, webhookHandler(clientID, clientSecret, zoomToken))
 
-	log.Printf("Listening on :%s, webhook path: %s", port, webhookPath)
+	log.Printf("Listening on :%s, webhook path: %s, media mode: %s, media types: %d", port, webhookPath, mediaSocketConnectionMode, mediaTypesFlag)
 	if err := http.ListenAndServe(":"+port, nil); err != nil {
 		log.Fatal(err)
 	}

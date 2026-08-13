@@ -5,6 +5,8 @@ import lombok.Builder;
 import lombok.Data;
 import lombok.NoArgsConstructor;
 import java.net.http.WebSocket;
+import java.util.Map;
+import java.util.concurrent.ConcurrentHashMap;
 
 @Data
 @Builder
@@ -15,7 +17,8 @@ public class RtmsConnection {
     private volatile boolean shouldReconnect = true;
 
     private SignalingConnection signaling;
-    private MediaConnection media;
+    @Builder.Default
+    private Map<String, MediaConnection> mediaConnections = new ConcurrentHashMap<>();
 
     @Data
     @Builder

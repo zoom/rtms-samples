@@ -1,7 +1,7 @@
 
 # Zoom RTMS WebSocket C++ Client
 
-This project demonstrates how to connect to Zoom's Real-Time Media Service (RTMS) using C++. It establishes WebSocket connections to the Zoom Event server, Signaling server, and Media server, handling authentication, heartbeats, and media payloads like YUV420 video and PCM audio.
+This project demonstrates how to connect to Zoom's Real-Time Media Service (RTMS) using C++. It establishes WebSocket connections to the Zoom Event server, signaling server, and split or unified media servers, handling authentication, keep-alives, H.264 video, and PCM audio.
 
 ---
 
@@ -69,7 +69,22 @@ cmake --build build
 CLIENT_ID=your_client_id
 CLIENT_SECRET=your_client_secret
 ZOOM_EVENT_WS=wss://ws.zoom.us/ws?subscriptionId=abc123
+MEDIA_SOCKET_CONNECTION_MODE=split
+MEDIA_TYPES_FLAG=11
 ```
+
+`MEDIA_TYPES_FLAG` combines audio (`1`), video (`2`), screen share (`4`),
+transcript (`8`), and chat (`16`). Split mode expands `11` into separate audio,
+video, and transcript sockets whose handshakes use `1`, `2`, and `8`.
+
+For one unified socket, use:
+
+```ini
+MEDIA_SOCKET_CONNECTION_MODE=unified
+MEDIA_TYPES_FLAG=32
+```
+
+Unified mode requires `32`; combined masks such as `11` must use split mode.
 
 ---
 
@@ -81,8 +96,10 @@ ZOOM_EVENT_WS=wss://ws.zoom.us/ws?subscriptionId=abc123
 4. **Connect to Signaling WebSocket**
    - Send handshake with HMAC signature
    - Wait for `msg_type = 2`
-   - Extract media server URL
-5. **Connect to Media WebSocket**
+   - Extract the available media server URLs
+5. **Connect to Media WebSocket(s)**
+   - Split mode opens one socket per selected media type
+   - Unified mode uses `server_urls.all` and `media_type=32`
    - Send media handshake
    - On success, stream begins
    - Respond to keep-alive messages
@@ -172,8 +189,10 @@ std::thread([&c, hdl]() {
 Media server sends messages with `msg_type`:
 
 - `14` – Audio data (PCM)
-- `15` – Video data (YUV420)
+- `15` – Video data (H.264)
+- `16` – Screen share data
 - `17` – Transcription
+- `18` – Chat data
 
 You can capture and process these for further use.
 

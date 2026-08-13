@@ -10,8 +10,10 @@ public class RtmsMessages {
         @JsonInclude(JsonInclude.Include.NON_NULL)
         public record SignalingHandshakeRequest(
                         @JsonProperty("msg_type") int msgType, // 1
+                        @JsonProperty("protocol_version") int protocolVersion,
                         @JsonProperty("meeting_uuid") String meetingUuid,
                         @JsonProperty("rtms_stream_id") String rtmsStreamId,
+                        int sequence,
                         String signature,
                         @JsonProperty("buffer_data") boolean bufferData) {
         }
@@ -140,6 +142,7 @@ public class RtmsMessages {
 
         @JsonInclude(JsonInclude.Include.NON_NULL)
         public record VideoParams(
+                        @JsonProperty("content_type") int contentType,
                         int codec,
                         @JsonProperty("data_opt") int dataOpt,
                         int resolution,
@@ -148,6 +151,7 @@ public class RtmsMessages {
 
         @JsonInclude(JsonInclude.Include.NON_NULL)
         public record DeskshareParams(
+                        @JsonProperty("content_type") int contentType,
                         int codec,
                         int resolution,
                         int fps) {
@@ -155,7 +159,9 @@ public class RtmsMessages {
 
         @JsonInclude(JsonInclude.Include.NON_NULL)
         public record TranscriptParams(
-                        @JsonProperty("content_type") int contentType) {
+                        @JsonProperty("content_type") int contentType,
+                        @JsonProperty("src_language") int sourceLanguage,
+                        @JsonProperty("enable_lid") boolean enableLanguageIdentification) {
         }
 
         @JsonInclude(JsonInclude.Include.NON_NULL)

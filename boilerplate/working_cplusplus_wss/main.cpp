@@ -1,6 +1,8 @@
 #include <iostream>
 #include <thread>
 #include <vector>
+#include <algorithm>
+#include <cctype>
 #include "utils.h"
 #include "nlohmann/json.hpp"
 #include <websocketpp/config/asio_client.hpp>
@@ -17,6 +19,8 @@ using message_ptr = websocketpp::config::asio_client::message_type::ptr;
 
 std::string CLIENT_ID;
 std::string CLIENT_SECRET;
+int MEDIA_TYPES_FLAG = 11;
+std::string MEDIA_SOCKET_CONNECTION_MODE = "split";
 
 void on_message_event(client* c, websocketpp::connection_hdl hdl, message_ptr msg) {
     try {
@@ -127,6 +131,33 @@ int main() {
 
     CLIENT_ID = env["CLIENT_ID"];
     CLIENT_SECRET = env["CLIENT_SECRET"];
+    if (env.count("MEDIA_TYPES_FLAG")) {
+        MEDIA_TYPES_FLAG = std::stoi(env["MEDIA_TYPES_FLAG"]);
+    }
+    if (env.count("MEDIA_SOCKET_CONNECTION_MODE")) {
+        MEDIA_SOCKET_CONNECTION_MODE = env["MEDIA_SOCKET_CONNECTION_MODE"];
+        std::transform(
+            MEDIA_SOCKET_CONNECTION_MODE.begin(), MEDIA_SOCKET_CONNECTION_MODE.end(),
+            MEDIA_SOCKET_CONNECTION_MODE.begin(), ::tolower);
+    }
+
+    constexpr int all_individual_media_flags = 1 | 2 | 4 | 8 | 16;
+    if (MEDIA_TYPES_FLAG != 32 &&
+        (MEDIA_TYPES_FLAG <= 0 || (MEDIA_TYPES_FLAG & ~all_individual_media_flags) != 0)) {
+        std::cerr << "MEDIA_TYPES_FLAG must combine 1, 2, 4, 8, and 16, or be 32\n";
+        return 1;
+    }
+    if (MEDIA_SOCKET_CONNECTION_MODE != "split" && MEDIA_SOCKET_CONNECTION_MODE != "unified") {
+        std::cerr << "MEDIA_SOCKET_CONNECTION_MODE must be split or unified\n";
+        return 1;
+    }
+    if (MEDIA_SOCKET_CONNECTION_MODE == "unified" && MEDIA_TYPES_FLAG != 32) {
+        std::cerr << "Unified mode requires MEDIA_TYPES_FLAG=32\n";
+        return 1;
+    }
+
+    std::cout << "Media mode=" << MEDIA_SOCKET_CONNECTION_MODE
+              << " media types=" << MEDIA_TYPES_FLAG << std::endl;
 
     std::string base_ws_url = env["ZOOM_EVENT_WS"];
     std::cout << "EVENT WS = [" << base_ws_url << "]" << std::endl;

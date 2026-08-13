@@ -1,6 +1,6 @@
 # Zoom RTMS Media Receiver (Go)
 
-This Go example demonstrates how to receive real-time audio, video, and transcript data from a Zoom meeting using the RTMS (Real-Time Media Streaming) service.
+This Go example demonstrates how to receive real-time audio, video, screen share, transcript, and chat data from a Zoom meeting using RTMS.
 
 The server connects to Zoom’s RTMS infrastructure via WebSocket, handles webhook events, and logs media data types to the console.
 
@@ -31,7 +31,22 @@ ZOOM_CLIENT_ID=your_client_id
 ZOOM_CLIENT_SECRET=your_client_secret
 PORT=3000
 WEBHOOK_PATH=/webhook
+MEDIA_SOCKET_CONNECTION_MODE=split
+MEDIA_TYPES_FLAG=11
 ```
+
+`MEDIA_TYPES_FLAG` combines audio (`1`), video (`2`), screen share (`4`),
+transcript (`8`), and chat (`16`). Split mode expands `11` into separate audio,
+video, and transcript sockets whose handshakes use `1`, `2`, and `8`.
+
+Use one unified media socket with:
+
+```env
+MEDIA_SOCKET_CONNECTION_MODE=unified
+MEDIA_TYPES_FLAG=32
+```
+
+Unified mode requires `32`; combined masks such as `11` must use split mode.
 
 ## Running the Example
 
@@ -55,11 +70,13 @@ https://<your-ngrok-subdomain>.ngrok.io/webhook
 ## How it Works
 
 1. The Go server listens for webhook events at the defined endpoint.
-2. On receiving `meeting.rtms_started`, it establishes WebSocket connections to Zoom's signaling and media servers.
+2. On receiving `meeting.rtms_started`, it establishes a signaling socket and either split or unified media sockets.
 3. Media messages are received through the WebSocket connection:
    - **msg_type 14**: Audio
    - **msg_type 15**: Video
+   - **msg_type 16**: Screen share
    - **msg_type 17**: Transcript
+   - **msg_type 18**: Chat
 4. The message type is printed to the console for each incoming message.
 
 ## Notes
@@ -73,7 +90,5 @@ https://<your-ngrok-subdomain>.ngrok.io/webhook
 
 - Keep your `.env` file private and secure.
 - In production, consider validating the origin of incoming webhook requests and using HTTPS.
-
-
 
 
