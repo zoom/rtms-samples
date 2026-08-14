@@ -1,18 +1,17 @@
 package com.zoom.rtms.workingjava.controller;
 
-import com.zoom.rtms.workingjava.config.AppConfig;
 import com.zoom.rtms.workingjava.config.ZoomConfig;
 import com.zoom.rtms.workingjava.model.WebhookEvent;
 import com.zoom.rtms.workingjava.service.RtmsService;
+import com.fasterxml.jackson.databind.ObjectMapper;
+import jakarta.servlet.http.HttpServletResponse;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
-import org.springframework.beans.factory.annotation.Value;
-import org.springframework.http.ResponseEntity;
-import org.springframework.scheduling.annotation.Async;
 import org.springframework.web.bind.annotation.*;
 
 import javax.crypto.Mac;
 import javax.crypto.spec.SecretKeySpec;
+import java.io.IOException;
 import java.util.Base64;
 import java.util.Map;
 
@@ -24,14 +23,12 @@ public class WebhookController {
 
     private final RtmsService rtmsService;
     private final ZoomConfig zoomConfig;
-    private final AppConfig appConfig;
+    private final ObjectMapper objectMapper;
 
     @PostMapping
-    public ResponseEntity<Map<String, String>> handleWebhook(@RequestBody WebhookEvent webhookEvent) {
-        log.info("Received webhook request");
-        log.debug("Request body: {}", webhookEvent);
-
-        // Handle URL validation
+    public void handleWebhook(
+            @RequestBody WebhookEvent webhookEvent,
+            HttpServletResponse response) throws IOException {
         if ("endpoint.url_validation".equals(webhookEvent.event()) &&
                 webhookEvent.payload() != null &&
                 webhookEvent.payload().containsKey("plainToken")) {
@@ -39,33 +36,21 @@ public class WebhookController {
             String plainToken = (String) webhookEvent.payload().get("plainToken");
             String encryptedToken = generateValidationToken(plainToken);
 
-            log.info("Webhook validation response sent");
-            return ResponseEntity.ok(Map.of(
+            response.setStatus(HttpServletResponse.SC_OK);
+            response.setContentType("application/json");
+            objectMapper.writeValue(response.getOutputStream(), Map.of(
                     "plainToken", plainToken,
                     "encryptedToken", encryptedToken));
+            response.flushBuffer();
+            log.info("Webhook validation response sent");
+            return;
         }
 
-        // For all other webhooks (rtms_started, rtms_stopped, etc.), respond
-        // immediately with 200 OK
-        // and process asynchronously in background
-        log.info("Webhook acknowledged (200 OK) - processing asynchronously");
-        processWebhookAsync(webhookEvent);
-
-        return ResponseEntity.ok().build();
-    }
-
-    @Async
-    public void processWebhookAsync(WebhookEvent webhookEvent) {
-        try {
-            log.info("Processing webhook asynchronously: {}", webhookEvent.event());
-
-            // Handle RTMS events asynchronously
-            rtmsService.handleWebhookEvent(webhookEvent);
-
-            log.info("Webhook processing completed: {}", webhookEvent.event());
-        } catch (Exception e) {
-            log.error("Failed to process webhook asynchronously: {}", webhookEvent.event(), e);
-        }
+        // Commit Zoom's acknowledgement before dispatching RTMS lifecycle work.
+        response.setStatus(HttpServletResponse.SC_OK);
+        response.flushBuffer();
+        log.info("Webhook acknowledged (200 OK): {}", webhookEvent.event());
+        rtmsService.handleWebhookEventAsync(webhookEvent);
     }
 
     private String generateValidationToken(String plainToken) {

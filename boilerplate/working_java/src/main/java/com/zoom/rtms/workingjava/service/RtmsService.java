@@ -43,6 +43,15 @@ public class RtmsService {
     private final Set<String> signalingHandshakeLocks = Collections.newSetFromMap(new ConcurrentHashMap<>());
     private final HttpClient httpClient = HttpClient.newHttpClient();
 
+    @Async
+    public void handleWebhookEventAsync(WebhookEvent webhookEvent) {
+        try {
+            handleWebhookEvent(webhookEvent);
+        } catch (Exception e) {
+            log.error("Failed to process webhook asynchronously: {}", webhookEvent.event(), e);
+        }
+    }
+
     public void handleWebhookEvent(WebhookEvent webhookEvent) {
         log.info("Received webhook event: {}", webhookEvent.event());
         log.debug("Webhook payload: {}", webhookEvent.payload());

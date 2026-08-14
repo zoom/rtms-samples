@@ -44,8 +44,6 @@ app.MapPost(webhookPath, async (HttpRequest request, HttpResponse response, ILog
 {
     using var reader = new StreamReader(request.Body);
     var bodyStr = await reader.ReadToEndAsync();
-    logger.LogInformation("RTMS Webhook received: {body}", bodyStr);
-
     var doc = JsonDocument.Parse(bodyStr);
     var root = doc.RootElement;
 
@@ -64,6 +62,11 @@ app.MapPost(webhookPath, async (HttpRequest request, HttpResponse response, ILog
         return;
     }
 
+    // Commit Zoom's acknowledgement before starting any RTMS lifecycle work.
+    response.StatusCode = StatusCodes.Status200OK;
+    await response.CompleteAsync();
+    logger.LogInformation("RTMS Webhook acknowledged: {body}", bodyStr);
+
     if (eventType == "meeting.rtms_started")
     {
         var meetingUuid = payload.GetProperty("meeting_uuid").GetString();
@@ -72,8 +75,6 @@ app.MapPost(webhookPath, async (HttpRequest request, HttpResponse response, ILog
         if (string.IsNullOrWhiteSpace(streamId))
         {
             logger.LogWarning("Missing rtms_stream_id in meeting.rtms_started payload");
-            response.StatusCode = 200;
-            await response.CompleteAsync();
             return;
         }
         if (activeConnections.TryGetValue(meetingUuid!, out var existingConnDict) &&
@@ -82,15 +83,11 @@ app.MapPost(webhookPath, async (HttpRequest request, HttpResponse response, ILog
             existingSignaling.State != WebSocketState.Aborted)
         {
             logger.LogWarning("Active signaling socket already exists for meeting {meetingUuid} stream {streamId}", meetingUuid, streamId);
-            response.StatusCode = 200;
-            await response.CompleteAsync();
             return;
         }
         if (!signalingInFlight.TryAdd(streamId!, 0))
         {
             logger.LogWarning("Duplicate signaling handshake blocked for stream {streamId}", streamId);
-            response.StatusCode = 200;
-            await response.CompleteAsync();
             return;
         }
         Console.WriteLine($"DEBUG - Starting signaling WebSocket for meeting {meetingUuid}, stream {streamId}, server: {serverUrl}");
@@ -119,8 +116,6 @@ app.MapPost(webhookPath, async (HttpRequest request, HttpResponse response, ILog
         }
     }
 
-    response.StatusCode = 200;
-    await response.CompleteAsync();
 });
 
 async Task ConnectToSignalingWebSocket(string meetingUuid, string streamId, string serverUrl, ILogger logger)

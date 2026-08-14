@@ -300,7 +300,6 @@ func webhookHandler(clientID, clientSecret, zoomToken string) http.HandlerFunc {
 		var payload ZoomWebhookPayload
 		json.Unmarshal(body, &payload)
 
-		log.Printf("Received webhook: %s", string(body))
 		event := payload.Event
 		data := payload.Payload
 
@@ -317,6 +316,13 @@ func webhookHandler(clientID, clientSecret, zoomToken string) http.HandlerFunc {
 			json.NewEncoder(w).Encode(resp)
 			return
 		}
+
+		// Flush Zoom's acknowledgement before starting any RTMS lifecycle work.
+		w.WriteHeader(http.StatusOK)
+		if flusher, ok := w.(http.Flusher); ok {
+			flusher.Flush()
+		}
+		log.Printf("Webhook acknowledged: %s", string(body))
 
 		if event == "meeting.rtms_started" {
 			meetingUUID := data["meeting_uuid"].(string)
@@ -339,8 +345,6 @@ func webhookHandler(clientID, clientSecret, zoomToken string) http.HandlerFunc {
 			}
 			activeConnectionsMu.Unlock()
 		}
-
-		w.WriteHeader(http.StatusOK)
 	}
 }
 

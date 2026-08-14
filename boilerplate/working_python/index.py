@@ -345,14 +345,24 @@ def connect_to_signaling_ws(meeting_uuid, stream_id, server_url):
 @app.route(WEBHOOK_PATH, methods=['POST'])
 def handle_webhook():
     data = request.get_json(force=True)
-    logger.debug(f"Received POST request at {WEBHOOK_PATH} with data: {json.dumps(data, indent=2)}")
-
     event = data.get("event")
     payload = data.get("payload", {})
 
     if event == "endpoint.url_validation" and payload.get("plainToken"):
         hash_ = hmac.new(ZOOM_SECRET_TOKEN.encode(), payload["plainToken"].encode(), hashlib.sha256).hexdigest()
         return jsonify({"plainToken": payload["plainToken"], "encryptedToken": hash_})
+
+    # Flask invokes this callback after the HTTP response iterable is closed.
+    response = app.response_class(status=200)
+    response.call_on_close(
+        lambda: threading.Thread(target=process_webhook_after_ack, args=(data,), daemon=True).start()
+    )
+    return response
+
+def process_webhook_after_ack(data):
+    logger.debug(f"Acknowledged POST request at {WEBHOOK_PATH} with data: {json.dumps(data, indent=2)}")
+    event = data.get("event")
+    payload = data.get("payload", {})
 
     if event == "meeting.rtms_started":
         meeting_uuid = payload.get("meeting_uuid")
@@ -397,8 +407,6 @@ def handle_webhook():
                 del active_connections[sid]
                 signaling_send_locks.pop(sid, None)
         log_stream_snapshot("webhook_stopped_after_cleanup", stream_id)
-
-    return '', 200
 
 if __name__ == '__main__':
     logger.info(
