@@ -416,8 +416,27 @@ export function calculateTranscriptEpochMs(attribution, transcriptStartMs) {
   return rtmsBaseMs + Math.max(0, transcriptStartMs - attribution.startMs);
 }
 
+// Normalize the speaker_segments array Scribe returns when its acoustic
+// diarization detects multiple speakers inside a single utterance. Each segment
+// carries its own speaker label, transcript, and session-relative timing. Returns
+// [] when the field is absent (single acoustic speaker, or diarization disabled).
+export function extractSpeakerSegments(event) {
+  const nested = event.result && typeof event.result === 'object' ? event.result : {};
+  const raw = event.speaker_segments ?? nested.speaker_segments;
+  if (!Array.isArray(raw)) return [];
+  return raw.map((seg) => {
+    const startMs = Number(seg.audio_start_ms ?? 0);
+    return {
+      speaker: seg.speaker ?? seg.speaker_label ?? seg.speaker_id ?? 'unknown',
+      transcript: seg.transcript ?? seg.text ?? seg.text_display ?? '',
+      startMs,
+      endMs: Number(seg.audio_end_ms ?? seg.audio_start_ms ?? startMs),
+    };
+  });
+}
+
 export function formatNamedUtterance(meetingUuid, result) {
-  return {
+  const utterance = {
     event: 'transcript.utterance',
     source_event: 'transcription.completed',
     meeting_uuid: meetingUuid,
@@ -430,6 +449,18 @@ export function formatNamedUtterance(meetingUuid, result) {
     received_time: result.receivedAt,
     text: result.text,
   };
+  // Participant identity (from RTMS) stays primary. When Scribe additionally
+  // returns acoustic speaker_segments for the utterance, attach them as a
+  // supplementary breakdown on the same epoch-millisecond timescale.
+  if (Array.isArray(result.speakerSegments) && result.speakerSegments.length > 0) {
+    utterance.speaker_segments = result.speakerSegments.map((seg) => ({
+      speaker: seg.speaker,
+      text: seg.text,
+      start_time: seg.startTimeEpochMs,
+      end_time: seg.endTimeEpochMs,
+    }));
+  }
+  return utterance;
 }
 
 export function buildDiarizedTranscript(meetingUuid, transcript, generatedAt = Date.now()) {
@@ -560,6 +591,16 @@ function handleServerEvent(pool, slot, raw) {
       const text = event.transcript || '';
       const startTimeEpochMs = calculateTranscriptEpochMs(attribution, startMs);
       const endTimeEpochMs = calculateTranscriptEpochMs(attribution, endMs);
+      // Convert Scribe's acoustic speaker_segments to the same epoch timescale so
+      // consumers get both the RTMS participant and the per-speaker breakdown.
+      const speakerSegments = extractSpeakerSegments(event).map((seg) => ({
+        speaker: seg.speaker,
+        text: seg.transcript,
+        startMs: seg.startMs,
+        endMs: seg.endMs,
+        startTimeEpochMs: calculateTranscriptEpochMs(attribution, seg.startMs),
+        endTimeEpochMs: calculateTranscriptEpochMs(attribution, seg.endMs),
+      }));
       const receivedAt = Date.now();
       const result = {
         slotId: slot.slotId,
@@ -574,6 +615,7 @@ function handleServerEvent(pool, slot, raw) {
         meetingTimestampMs: startTimeEpochMs,
         receivedAt,
         text,
+        speakerSegments,
       };
       if (text) {
         pool.completed.push(result);
