@@ -254,18 +254,43 @@ function handleServerEvent(session, raw) {
       break;
     case 'transcription.completed': {
       const text = event.transcript || '';
-      if (text) session.completed.push(text);
+      const speakerSegments = extractSpeakerSegments(event);
       const startSec = ((event.audio_start_ms ?? 0) / 1000).toFixed(1);
       const endSec = ((event.audio_end_ms ?? 0) / 1000).toFixed(1);
+
       if (CONFIG.diarization) {
+        // Accumulate the final transcript with speaker labels. When several
+        // speakers share one utterance, Scribe returns speaker_segments; otherwise
+        // the whole utterance carries a single top-level speaker label.
+        if (speakerSegments.length > 0) {
+          for (const seg of speakerSegments) {
+            if (seg.transcript) session.completed.push(`${seg.speaker}: ${seg.transcript}`);
+          }
+        } else if (text) {
+          session.completed.push(`${topLevelSpeaker(event) || 'unknown'}: ${text}`);
+        }
+
         console.log(
           `${LOG} ${tag} diarized transcription:\n${JSON.stringify(
-            buildDiarizationLog(event),
+            buildDiarizationLog(event, speakerSegments),
             null,
             2
           )}`
         );
+
+        // Human-readable speaker breakdown, mirroring the multi-speaker case.
+        if (speakerSegments.length > 0) {
+          console.log(`${LOG} ${tag} multi-speaker utterance (${speakerSegments.length} segments):`);
+          for (const seg of speakerSegments) {
+            const s = ((seg.audio_start_ms ?? 0) / 1000).toFixed(1);
+            const e = ((seg.audio_end_ms ?? 0) / 1000).toFixed(1);
+            console.log(`${LOG} ${tag}   [${s}s-${e}s] ${seg.speaker}: ${seg.transcript}`);
+          }
+        } else {
+          console.log(`${LOG} ${tag} [${startSec}s-${endSec}s] ${topLevelSpeaker(event) || 'unknown'}: ${text}`);
+        }
       } else {
+        if (text) session.completed.push(text);
         console.log(`${LOG} ${tag} [${startSec}s-${endSec}s] ${text}`);
       }
       break;
@@ -290,14 +315,37 @@ function handleServerEvent(session, raw) {
   }
 }
 
-function buildDiarizationLog(event) {
+// Top-level speaker label for a single-speaker utterance (Scribe has used a few
+// different field names for this across versions).
+function topLevelSpeaker(event) {
+  return event.speaker ?? event.speaker_label ?? event.speaker_id ?? null;
+}
+
+// Normalize the speaker_segments array Scribe returns when multiple speakers
+// share a single utterance. Each segment carries its own speaker label,
+// transcript, and timing. Returns [] when the field is absent (single speaker).
+function extractSpeakerSegments(event) {
+  const result = event.result && typeof event.result === 'object' ? event.result : {};
+  const raw = event.speaker_segments ?? result.speaker_segments;
+  if (!Array.isArray(raw)) return [];
+  return raw.map((seg) => ({
+    speaker: seg.speaker ?? seg.speaker_label ?? seg.speaker_id ?? 'unknown',
+    transcript: seg.transcript ?? seg.text ?? seg.text_display ?? '',
+    audio_start_ms: seg.audio_start_ms ?? null,
+    audio_end_ms: seg.audio_end_ms ?? null,
+  }));
+}
+
+function buildDiarizationLog(event, speakerSegments = extractSpeakerSegments(event)) {
   const result = event.result && typeof event.result === 'object' ? event.result : {};
 
   return {
     transcript: event.transcript || result.text_display || '',
     audio_start_ms: event.audio_start_ms ?? null,
     audio_end_ms: event.audio_end_ms ?? null,
-    speaker: event.speaker ?? event.speaker_label ?? event.speaker_id ?? null,
+    transcription_latency_ms: event.transcription_latency_ms ?? null,
+    speaker: topLevelSpeaker(event),
+    speaker_segments: speakerSegments.length > 0 ? speakerSegments : null,
     speakers: event.speakers ?? result.speakers ?? null,
     segments: event.segments ?? result.segments ?? null,
     words: event.words ?? result.words ?? null,
