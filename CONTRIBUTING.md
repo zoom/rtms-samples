@@ -30,9 +30,25 @@ Each sample should include a `README.md` with:
 
 ### Environment Variables
 
-- Use `.env.example` to document required variables
+- Keep `.env` and `.env.example` variable names identical
+- Include every environment variable read by the sample code
+- Use `YOUR_<VARIABLE>_HERE` placeholders for credentials in `.env.example`
+- Keep operational defaults such as ports, modes, and timeouts in `.env.example`
 - Never commit actual `.env` files
 - Use `ZOOM_` prefix for Zoom credentials
+
+Run the environment audit before submitting changes:
+
+```bash
+node scripts/audit-env-consistency.mjs
+```
+
+Use `--fix` to add code-backed variables, normalize placeholders, remove proven-stale
+local keys, and create missing ignored `.env` files:
+
+```bash
+node scripts/audit-env-consistency.mjs --fix
+```
 
 ## Submitting Changes
 

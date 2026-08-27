@@ -62,6 +62,14 @@ Expose `WEBHOOK_PATH` over HTTPS and configure that URL as the Zoom app's RTMS w
 | `PORT` | No | HTTP port; defaults to `3000` |
 | `WEBHOOK_PATH` | No | Webhook path; defaults to `/webhook` |
 | `RTMSTRIGGERMANAGERTYPE` | No | `webhook` or `websocket` |
+| `zoomWSURLForEvents` | For WebSocket mode | Zoom event WebSocket URL containing the subscription ID |
+| `ZOOM_S2S_CLIENT_ID` | For WebSocket mode | Server-to-Server OAuth client ID |
+| `ZOOM_S2S_CLIENT_SECRET` | For WebSocket mode | Server-to-Server OAuth client secret |
+| `ZOOM_ACCOUNT_ID` | For WebSocket mode | Zoom account ID used for Server-to-Server OAuth |
+| `VIDEO_CLIENT_ID` | For Video SDK RTMS | Video SDK client ID |
+| `VIDEO_CLIENT_SECRET` | For Video SDK RTMS | Video SDK client secret |
+| `VIDEO_SECRET_TOKEN` | For Video SDK RTMS | Video SDK webhook secret token |
+| `LOG_LEVEL` | No | RTMSManager log level; defaults to `info` |
 | `MEDIA_SOCKET_CONNECTION_MODE` | No | Use `split` for audio, video, and transcript |
 | `MEDIA_TYPES_FLAG` | Yes | Use `11`: audio `1` + video `2` + transcript `8` |
 
