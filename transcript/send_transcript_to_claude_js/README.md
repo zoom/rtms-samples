@@ -1,185 +1,79 @@
 # Send Transcript to Claude
 
-Stream real-time Zoom meeting transcripts to Anthropic's Claude for AI-powered conversational analysis.
-
-> **Built with [RTMSManager](../../library/README.md)** - Zoom's JavaScript library for real-time media streaming.
-
-## Quick Start
-
-```bash
-npm install
-cp .env.example .env   # Fill in your credentials
-node index.js
-```
-
-Expose with ngrok: `ngrok http 3000`
-
-## What This Sample Does
-
-This sample captures live transcript data from Zoom meetings via RTMS and sends each transcript segment to Anthropic's Claude API. Unlike stateless calls, this implementation maintains conversation history, allowing Claude to provide contextual responses that build on previous transcript segments throughout the meeting.
+This sample receives Zoom meeting transcript events through RTMS and sends them to a configurable Anthropic Claude model. It uses [RTMSManager](../../library/README.md), the official Anthropic SDK, authenticated Zoom webhooks, bounded per-stream history, and local usage controls.
 
 ## Prerequisites
 
-- Node.js v18+
-- Zoom account with RTMS enabled
-- Anthropic API key with Claude access
-- ngrok for local development
+- Node.js 22 or newer
+- A Zoom app with RTMS enabled and the `meeting.rtms_started` and `meeting.rtms_stopped` webhook events
+- An Anthropic API key with access to the configured model
+- A public HTTPS webhook URL for local development
 
-## Environment Variables
+## Setup
 
-| Variable | Required | Description |
-|----------|----------|-------------|
-| `ZOOM_SECRET_TOKEN` | Yes | Secret token for webhook URL validation |
-| `ZOOM_CLIENT_ID` | Yes | Your Zoom app's Client ID |
-| `ZOOM_CLIENT_SECRET` | Yes | Your Zoom app's Client Secret |
-| `PORT` | No | Server port (default: 3000) |
-| `WEBHOOK_PATH` | No | Webhook endpoint path (default: `/webhook`) |
-| `ANTHROPIC_API_KEY` | Yes | Your Anthropic API key |
-
-## Code Walkthrough
-
-### 1. Initialize RTMSManager
-
-```javascript
-const rtmsConfig = {
-  logging: {
-    enabled: true,
-    logDir: path.join(__dirname, 'logs'),
-    console: true
-  },
-  mediaSocketConnectionMode: process.env.MEDIA_SOCKET_CONNECTION_MODE || 'split',
-  mediaTypes: RTMSManager.MEDIA.TRANSCRIPT,
-  credentials: {
-    meeting: {
-      clientId: process.env.ZOOM_CLIENT_ID,
-      clientSecret: process.env.ZOOM_CLIENT_SECRET,
-      zoomSecretToken: process.env.ZOOM_SECRET_TOKEN,
-    }
-  },
-  mediaParams: {
-    transcript: {
-      contentType: MEDIA_PARAMS.MEDIA_CONTENT_TYPE_TEXT,
-      language: MEDIA_PARAMS.LANGUAGE_ID_ENGLISH,
-    }
-  }
-};
-
-await RTMSManager.init(rtmsConfig);
+```bash
+npm install
+cp .env.example .env
+node index.js
 ```
 
-### 2. Set Up Webhook Handler
+Set the Zoom webhook endpoint to your public URL plus `WEBHOOK_PATH`, for example `https://example.ngrok.app/webhook`.
 
-```javascript
-const webhookManager = new WebhookManager({
-  config: {
-    webhookPath: process.env.WEBHOOK_PATH || '/webhook',
-    zoomSecretToken: rtmsConfig.credentials.meeting.zoomSecretToken,
-  },
-  app: app
-});
+## Configuration
 
-webhookManager.on('event', (event, payload) => {
-  console.log('[send_to_claude] Webhook Event:', event);
-  RTMSManager.handleEvent(event, payload);
-});
+| Variable | Default | Purpose |
+|---|---:|---|
+| `ZOOM_SECRET_TOKEN` | required | Verifies URL validation and signed webhook deliveries |
+| `ZOOM_CLIENT_ID` | required | Zoom app client ID used by RTMS |
+| `ZOOM_CLIENT_SECRET` | required | Zoom app client secret used by RTMS |
+| `ANTHROPIC_API_KEY` | required | Anthropic API credential |
+| `CLAUDE_MODEL` | `claude-sonnet-5` | Model passed to the Messages API |
+| `CLAUDE_TIMEOUT_MS` | `20000` | Timeout for each provider attempt |
+| `CLAUDE_MAX_RETRIES` | `2` | SDK retry limit for retryable failures |
+| `CLAUDE_MAX_OUTPUT_TOKENS` | `512` | Maximum generated tokens per response |
+| `CLAUDE_MAX_INPUT_CHARACTERS` | `40000` | Maximum request context size |
+| `CLAUDE_MAX_HISTORY_MESSAGES` | `20` | Maximum retained user and assistant messages per stream |
+| `CLAUDE_MAX_HISTORY_CHARACTERS` | `40000` | Maximum retained history characters per stream |
+| `CLAUDE_MAX_REQUESTS_PER_MINUTE` | `30` | Process-wide local request-rate limit; `0` disables it |
+| `CLAUDE_MAX_REQUESTS_PER_STREAM` | `300` | Request limit per RTMS stream; `0` disables it |
+| `CLAUDE_MAX_SPEND_USD_PER_STREAM` | `1` | Estimated spend limit per RTMS stream; `0` disables it |
+| `CLAUDE_INPUT_COST_PER_MILLION_TOKENS` | `2` | Input price used only for local spend estimation |
+| `CLAUDE_OUTPUT_COST_PER_MILLION_TOKENS` | `10` | Output price used only for local spend estimation |
+| `PORT` | `3000` | HTTP server port |
+| `WEBHOOK_PATH` | `/webhook` | Zoom webhook route |
+| `WEBHOOK_TIMESTAMP_TOLERANCE_SECONDS` | `300` | Maximum signed-webhook timestamp age |
+| `MEDIA_SOCKET_CONNECTION_MODE` | `split` | RTMS media socket mode |
 
-webhookManager.setup();
-```
+Provider pricing changes independently of this sample. If `CLAUDE_MODEL` changes, update both cost variables using the current [Anthropic pricing](https://docs.anthropic.com/en/docs/about-claude/pricing) so the local spend estimate remains meaningful. Provider-side quotas and billing limits remain authoritative.
 
-### 3. Handle Transcript Events
+## Session Isolation
 
-```javascript
-RTMSManager.on('transcript', async ({ text, userId, userName, timestamp, meetingId }) => {
-  console.log(`[TRANSCRIPT] ${userName}: ${text}`);
-  
-  try {
-    const response = await chatWithClaude(text);
-    console.log('[Claude Response]:', response);
-  } catch (err) {
-    console.error('[Claude Error] Failed to get response');
-  }
-});
+Conversation history is stored in a map keyed by `rtms_stream_id`; transcript data from separate meetings cannot share context. Calls for one stream are serialized to preserve message order, while different streams can run concurrently. History is trimmed by both message count and character count and is deleted when `meeting.rtms_stopped` arrives.
 
-RTMSManager.on('meeting.rtms_started', (payload) => {
-  console.log('[send_to_claude] RTMS Started:', payload.meeting_uuid);
-});
+Timeouts and retry limits are enforced by the Anthropic SDK. Local controls reject oversized context, excessive request rates, per-stream request counts, and projected per-stream spend before a request is sent. Actual token usage replaces the reservation after a successful response.
 
-RTMSManager.on('meeting.rtms_stopped', (payload) => {
-  console.log('[send_to_claude] RTMS Stopped:', payload.meeting_uuid);
-});
-```
+Provider errors are logged as sanitized fields with an error code, suggested action, retryability, status, and request ID when available. Response bodies, conversation content, and API credentials are not included in provider error logs.
 
-### 4. Start the Server
+## Webhook Security
 
-```javascript
-await RTMSManager.start();
-
-server.listen(appConfig.port, () => {
-  console.log(`[send_to_claude] Server listening on port ${appConfig.port}`);
-  console.log(`[send_to_claude] Webhook endpoint: http://localhost:${appConfig.port}${process.env.WEBHOOK_PATH || '/webhook'}`);
-});
-```
-
-## Key Files
-
-| File | Purpose |
-|------|---------|
-| `index.js` | Main application entry point, sets up RTMSManager and webhook handling |
-| `chatWithClaude.js` | Anthropic Claude API integration with conversation history management |
-
-## How It Works
-
-1. Server starts and initializes RTMSManager with transcript media type (flag 32)
-2. WebhookManager listens for Zoom webhook events on the configured endpoint
-3. When a meeting with RTMS starts, `meeting.rtms_started` event triggers connection setup
-4. RTMSManager automatically handles WebSocket connections and authentication
-5. As participants speak, transcript events are emitted with text and speaker info
-6. Each transcript segment is added to the conversation history and sent to Claude
-7. Claude analyzes the content with full context of previous messages
-8. The assistant's response is added to history and logged to the console
-9. This continues, building a contextual conversation throughout the meeting
-10. When the meeting ends, `meeting.rtms_stopped` closes connections gracefully
-
-## Troubleshooting
-
-**No Claude responses**
-- Verify your `ANTHROPIC_API_KEY` is valid
-- Check that the API key has access to the Claude model
-- Review console logs for specific error messages
-
-**Connection issues**
-- Verify ngrok is running and the tunnel is active
-- Check that Zoom app credentials in `.env` are correct
-- Ensure the webhook endpoint is accessible from the internet
-
-**Context too long errors**
-- The conversation history grows with each transcript segment
-- For long meetings, consider implementing history truncation
-- The current implementation uses Claude 3.5 Sonnet with a 1024 max token limit
-
-## See Also
-
-- [RTMSManager Library Docs](../../library/README.md) - Full API reference
-- [Zoom App Setup Guide](../../ZOOM_APP_SETUP.md) - Configure your Zoom app
-- [Troubleshooting Guide](../../TROUBLESHOOTING.md) - Common issues
+Normal webhook deliveries are verified against the exact raw body using `x-zm-signature`, `x-zm-request-timestamp`, and `ZOOM_SECRET_TOKEN`. Missing, invalid, or stale signatures are rejected. URL-validation challenges are signed with the same secret token. A verified normal webhook receives HTTP 200 before RTMS connection work starts.
 
 ## Docker
 
-The project sends RTMS transcript text to Anthropic Claude. Its multi-stage Dockerfile keeps build tooling out of the final runtime image and does not hard-code a CPU architecture.
-
-Build and run it from the `rtms-samples` repository root:
+Build from the repository root because the multi-stage Dockerfile copies the shared JavaScript library:
 
 ```bash
-docker build -f transcript/send_transcript_to_claude_js/Dockerfile -t rtms-transcript-send_transcript_to_claude_js .
-docker run --rm --env-file transcript/send_transcript_to_claude_js/.env -p 3000:3000 rtms-transcript-send_transcript_to_claude_js
+docker build -f transcript/send_transcript_to_claude_js/Dockerfile -t rtms-claude-transcript .
+docker run --rm --env-file transcript/send_transcript_to_claude_js/.env -p 3000:3000 rtms-claude-transcript
 ```
 
-Run the build from the repository root because the Dockerfile uses repository-relative paths. Runtime secrets are supplied with `--env-file` and are excluded from the image build context.
+Runtime secrets are supplied through `--env-file` and are not copied into the image.
 
-## Webhook Delivery Authentication
+## Files
 
-Normal Zoom webhook deliveries are verified against the exact raw request body using
-`x-zm-signature` and `x-zm-request-timestamp`. Configure `ZOOM_SECRET_TOKEN` with the
-Marketplace app's webhook Secret Token. Requests with missing, invalid, or stale
-signatures are rejected; the default replay window is 300 seconds and can be changed
-with `WEBHOOK_TIMESTAMP_TOLERANCE_SECONDS`.
+- `index.js`: HTTP server, webhook verification, and RTMS event handling
+- `chatWithClaude.js`: Messages API client, isolated history, and request controls
+- `.env.example`: complete configuration template
+- `Dockerfile`: platform-agnostic multi-stage Node.js image
+
+See [Zoom App Setup](../../ZOOM_APP_SETUP.md) and [RTMSManager documentation](../../library/README.md) for shared setup.
