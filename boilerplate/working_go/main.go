@@ -1,6 +1,7 @@
 package main
 
 import (
+	"context"
 	"crypto/hmac"
 	"crypto/sha256"
 	"encoding/hex"
@@ -11,9 +12,11 @@ import (
 	"math/rand"
 	"net/http"
 	"os"
+	"os/signal"
 	"strconv"
 	"strings"
 	"sync"
+	"syscall"
 	"time"
 
 	"github.com/gorilla/websocket"
@@ -429,8 +432,41 @@ func main() {
 
 	http.HandleFunc(webhookPath, webhookHandler(clientID, clientSecret, zoomToken))
 
-	log.Printf("Listening on :%s, webhook path: %s, media mode: %s, media types: %d", port, webhookPath, mediaSocketConnectionMode, mediaTypesFlag)
-	if err := http.ListenAndServe(":"+port, nil); err != nil {
-		log.Fatal(err)
+	server := &http.Server{Addr: ":" + port}
+	serverErrors := make(chan error, 1)
+	go func() {
+		log.Printf("Listening on :%s, webhook path: %s, media mode: %s, media types: %d", port, webhookPath, mediaSocketConnectionMode, mediaTypesFlag)
+		serverErrors <- server.ListenAndServe()
+	}()
+
+	signals := make(chan os.Signal, 1)
+	signal.Notify(signals, os.Interrupt, syscall.SIGTERM)
+	select {
+	case receivedSignal := <-signals:
+		log.Printf("Received %s; shutting down", receivedSignal)
+	case err := <-serverErrors:
+		if err != nil && err != http.ErrServerClosed {
+			log.Fatalf("HTTP server failed: %v", err)
+		}
+		return
+	}
+
+	activeConnectionsMu.Lock()
+	connections := activeConnections
+	activeConnections = make(map[string]map[string]*websocket.Conn)
+	activeConnectionsMu.Unlock()
+	for _, streamConnections := range connections {
+		for _, connection := range streamConnections {
+			_ = connection.WriteControl(websocket.CloseMessage,
+				websocket.FormatCloseMessage(websocket.CloseNormalClosure, "Server shutdown"),
+				time.Now().Add(time.Second))
+			_ = connection.Close()
+		}
+	}
+
+	shutdownContext, cancel := context.WithTimeout(context.Background(), 10*time.Second)
+	defer cancel()
+	if err := server.Shutdown(shutdownContext); err != nil {
+		log.Printf("HTTP shutdown failed: %v", err)
 	}
 }

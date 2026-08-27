@@ -4,6 +4,7 @@ import dotenv from 'dotenv';
 import path from 'path';
 import { fileURLToPath } from 'url';
 import express from 'express';
+import { closeHttpServer, installGracefulShutdown } from '../../library/javascript/commonHelpers/gracefulShutdown.js';
 import http from 'http';
 
 import { writeTranscriptToVtt } from './writeTranscriptToVtt.js';
@@ -89,9 +90,7 @@ server.listen(appConfig.port, () => {
   console.log(`[save_transcript] Webhook endpoint: http://localhost:${appConfig.port}${process.env.WEBHOOK_PATH || '/webhook'}`);
 });
 
-process.on('SIGINT', async () => {
-  console.log('[save_transcript] Shutting down...');
-  server.close();
+installGracefulShutdown({ name: 'save_transcript', cleanup: async () => {
+  await closeHttpServer(server);
   await RTMSManager.stop();
-  process.exit(0);
-});
+} });

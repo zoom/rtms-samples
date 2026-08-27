@@ -182,26 +182,6 @@ async function handleRTMSStopped(payload) {
 /**
  * Handle graceful shutdown
  */
-process.on('SIGINT', async () => {
-  console.log('\n\n🛑 RTMS Server shutting down...');
-
-  // Disconnect all active clients
-  for (const [meetingUUID, { client, stream, filename }] of activeClients.entries()) {
-    console.log(`  Disconnecting from meeting: ${meetingUUID}`);
-    try {
-      await client.leave();
-      stream.end();
-      console.log(`  ✅ Transcript saved: ${filename}`);
-    } catch (error) {
-      console.error(`  ❌ Error disconnecting:`, error.message);
-    }
-  }
-
-  activeClients.clear();
-  console.log('✅ All RTMS connections closed');
-  process.exit(0);
-});
-
 // Express server for health checks and webhook reception
 import express from 'express';
 import crypto from 'node:crypto';
@@ -256,8 +236,38 @@ app.post('/webhook', (req, res, next) => {
 });
 
 const PORT = process.env.RTMS_PORT || 3002;
-app.listen(PORT, () => {
+const server = app.listen(PORT, () => {
   console.log(`\n✅ RTMS Server ready on port ${PORT}`);
   console.log(`   Health check: http://localhost:${PORT}/health`);
   console.log(`   Webhook endpoint: http://localhost:${PORT}/webhook\n`);
 });
+
+let shutdownPromise;
+const shutdown = (signal) => {
+  if (shutdownPromise) return shutdownPromise;
+  shutdownPromise = (async () => {
+    console.log(`\n${signal} received; RTMS server shutting down...`);
+    const timeout = setTimeout(() => process.exit(1), 10000);
+    timeout.unref();
+    try {
+      for (const { client, stream } of activeClients.values()) {
+        await client.leave();
+        stream.end();
+      }
+      activeClients.clear();
+      if (server.listening) {
+        await new Promise((resolve, reject) => server.close((error) => error ? reject(error) : resolve()));
+      }
+      process.exitCode = 0;
+    } catch (error) {
+      console.error('Shutdown failed:', error);
+      process.exitCode = 1;
+    } finally {
+      clearTimeout(timeout);
+    }
+  })();
+  return shutdownPromise;
+};
+
+process.once('SIGINT', () => void shutdown('SIGINT'));
+process.once('SIGTERM', () => void shutdown('SIGTERM'));

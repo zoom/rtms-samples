@@ -8,6 +8,7 @@ import path from 'path';
 import { fileURLToPath } from 'url';
 import util from 'node:util';
 import express from 'express';
+import { closeHttpServer, installGracefulShutdown } from '../../library/javascript/commonHelpers/gracefulShutdown.js';
 import http from 'http';
 
 const __filename = fileURLToPath(import.meta.url);
@@ -386,9 +387,7 @@ server.listen(appConfig.port, () => {
   console.log(`[Consumer] Server listening on port ${appConfig.port}`);
 });
 
-process.on('SIGINT', async () => {
-  console.log('[Consumer] Shutting down...');
-  server.close();
+installGracefulShutdown({ name: 'Consumer', cleanup: async () => {
+  await closeHttpServer(server);
   await RTMSManager.stop();
-  process.exit(0);
-});
+} });

@@ -6,6 +6,7 @@ import dotenv from 'dotenv';
 import path from 'path';
 import { fileURLToPath } from 'url';
 import express from 'express';
+import { closeHttpServer, installGracefulShutdown } from '../../library/javascript/commonHelpers/gracefulShutdown.js';
 import http from 'http';
 
 import { saveToS3 } from './S3StorageHelper.js';
@@ -186,13 +187,11 @@ server.listen(appConfig.port, () => {
   console.log(`[Consumer] Server listening on port ${appConfig.port}`);
 });
 
-process.on('SIGINT', async () => {
-  console.log('[Consumer] Shutting down...');
+installGracefulShutdown({ name: 'Consumer', cleanup: async () => {
   for (const [meetingId, state] of meetingState) {
     state.videoFiller.stop();
   }
   meetingState.clear();
-  server.close();
+  await closeHttpServer(server);
   await RTMSManager.stop();
-  process.exit(0);
-});
+} });

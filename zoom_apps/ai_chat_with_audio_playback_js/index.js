@@ -2,6 +2,7 @@ import { RTMSManager } from '../../library/javascript/rtmsManager/RTMSManager.js
 import WebhookManager from '../../library/javascript/webhookManager/WebhookManager.js';
 import WebsocketManager from '../../library/javascript/webSocketManager/WebsocketManager.js';
 import express from 'express';
+import { closeHttpServer, installGracefulShutdown } from '../../library/javascript/commonHelpers/gracefulShutdown.js';
 import http from 'http';
 import path from 'path';
 import { fileURLToPath } from 'url';
@@ -93,7 +94,7 @@ if (config.mode === 'webhook') {
 
 sharedServices.textToSpeech = textToSpeechBase64;
 
-setupFrontendWss(server);
+const frontendWss = setupFrontendWss(server);
 
 RTMSManager.on('transcript', async ({ text, userId, userName, timestamp, meetingId, streamId, productType }) => {
   console.log('Transcript received:', text);
@@ -147,9 +148,9 @@ server.listen(config.port, () => {
   console.log(`Frontend WebSocket available at ws://localhost:${config.port}/ws`);
 });
 
-process.on('SIGINT', async () => {
-  console.log('Shutting down...');
-  server.close();
+installGracefulShutdown({ name: 'AI Chat', cleanup: async () => {
   await RTMSManager.stop();
-  process.exit(0);
-});
+  for (const client of frontendWss.clients) client.terminate();
+  await new Promise((resolve) => frontendWss.close(resolve));
+  await closeHttpServer(server);
+} });

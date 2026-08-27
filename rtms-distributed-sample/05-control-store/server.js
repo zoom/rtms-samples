@@ -1,4 +1,5 @@
 import dotenv from 'dotenv';
+import { installGracefulShutdown } from '../shared/gracefulShutdown.js';
 import express from 'express';
 import path from 'path';
 import { SQLiteControlStore } from './sqliteControlStore.js';
@@ -104,6 +105,15 @@ app.post('/streams/:streamId/blobs', (req, res) => {
   res.json(stream);
 });
 
-app.listen(port, () => {
+const server = app.listen(port, () => {
   logger.info(`[05-control-store] ${storeRole} store listening on http://127.0.0.1:${port}`);
+});
+
+installGracefulShutdown({
+  name: 'control-store',
+  server,
+  cleanup: async () => {
+    await store.close?.();
+    await logger.stop?.();
+  }
 });

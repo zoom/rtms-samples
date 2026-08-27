@@ -15,6 +15,7 @@
  */
 
 import express from 'express';
+import { closeHttpServer, installGracefulShutdown } from '../../library/javascript/commonHelpers/gracefulShutdown.js';
 import WebSocket from 'ws';
 import { authenticateZoomWebhook, captureRawBody } from './webhookSignature.js';
 import crypto from 'crypto';
@@ -876,7 +877,7 @@ app.post(WEBHOOK_PATH, authenticateZoomWebhook(ZOOM_SECRET_TOKEN), (req, res) =>
 //  SECTION 9: START SERVER
 // ============================================================================
 
-app.listen(PORT, () => {
+const server = app.listen(PORT, () => {
   console.log('');
   console.log('============================================================');
   console.log('  RTMS Reconnection & Chaos Mode Sample');
@@ -906,3 +907,8 @@ app.listen(PORT, () => {
   console.log('============================================================');
   console.log('');
 });
+
+installGracefulShutdown({ name: 'RTMS Chaos', cleanup: async () => {
+  for (const streamId of [...activeStreams.keys()]) cleanupStream(streamId);
+  await closeHttpServer(server);
+} });

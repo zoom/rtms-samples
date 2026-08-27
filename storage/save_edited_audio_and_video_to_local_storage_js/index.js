@@ -6,6 +6,7 @@ import dotenv from 'dotenv';
 import path from 'path';
 import { fileURLToPath } from 'url';
 import express from 'express';
+import { closeHttpServer, installGracefulShutdown } from '../../library/javascript/commonHelpers/gracefulShutdown.js';
 import http from 'http';
 import { RecordingStore, sanitizeId } from './lib/recordingStore.js';
 import { createEditorWorkflow } from './lib/editorWorkflow.js';
@@ -197,16 +198,14 @@ server.listen(appConfig.port, () => {
   console.log(`Webhook available at http://localhost:${appConfig.port}${process.env.WEBHOOK_PATH || '/'}`);
 });
 
-process.on('SIGINT', async () => {
-  console.log('[Consumer] Shutting down...');
+installGracefulShutdown({ name: 'Consumer', cleanup: async () => {
   for (const [meetingId, state] of meetingState) {
     state.videoFiller.stop();
   }
   meetingState.clear();
-  server.close();
+  await closeHttpServer(server);
   await RTMSManager.stop();
-  process.exit(0);
-});
+} });
 
 async function finalizeRecording(meetingId, streamId) {
   await recordingStore.finalize(meetingId, streamId);

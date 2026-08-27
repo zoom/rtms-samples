@@ -5,6 +5,7 @@ import dotenv from 'dotenv';
 import path from 'path';
 import { fileURLToPath } from 'url';
 import express from 'express';
+import { closeHttpServer, installGracefulShutdown } from '../../library/javascript/commonHelpers/gracefulShutdown.js';
 import http from 'http';
 
 import { setupFrontendWss, broadcastToFrontendClients, frontendClientCount } from './frontendWss.js';
@@ -88,7 +89,7 @@ setRealtimeFrontendCallbacks({
   broadcast: broadcastToFrontendClients,
 });
 
-setupFrontendWss(server, {
+const frontendWss = setupFrontendWss(server, {
   onClientReady: async (data) => {
     console.log('[Zoom App] Client ready:', data);
     broadcastToFrontendClients({
@@ -163,13 +164,13 @@ server.listen(appConfig.port, () => {
   console.log(`[OpenAI Realtime Playback] Frontend WebSocket path /ws`);
 });
 
-process.on('SIGINT', async () => {
-  console.log('[OpenAI Realtime Playback] Shutting down...');
-  server.close();
+installGracefulShutdown({ name: 'OpenAI Realtime Playback', cleanup: async () => {
   await closeOpenAIRealtime();
   await RTMSManager.stop();
-  process.exit(0);
-});
+  for (const client of frontendWss.clients) client.terminate();
+  await new Promise((resolve) => frontendWss.close(resolve));
+  await closeHttpServer(server);
+} });
 
 function handleRtmsLifecycleEvent(event, payload) {
   const id = payload?.meeting_uuid || payload?.session_id;

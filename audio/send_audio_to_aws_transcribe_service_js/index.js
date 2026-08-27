@@ -5,6 +5,7 @@ import dotenv from 'dotenv';
 import path from 'path';
 import { fileURLToPath } from 'url';
 import express from 'express';
+import { closeHttpServer, installGracefulShutdown } from '../../library/javascript/commonHelpers/gracefulShutdown.js';
 import http from 'http';
 
 // Import the transcription function
@@ -118,12 +119,10 @@ server.listen(appConfig.port, () => {
   console.log(`[AWS Transcribe] Server listening on port ${appConfig.port}`);
 });
 
-process.on('SIGINT', async () => {
-  console.log('[AWS Transcribe] Shutting down...');
-  server.close();
+installGracefulShutdown({ name: 'AWS Transcribe', cleanup: async () => {
+  await closeHttpServer(server);
   await RTMSManager.stop();
-  process.exit(0);
-});
+} });
 
 process.on('uncaughtException', (err) => {
   if (err.code === 'ERR_STREAM_PREMATURE_CLOSE') {

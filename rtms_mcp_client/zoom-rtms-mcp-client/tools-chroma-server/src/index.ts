@@ -1,4 +1,5 @@
 import express from 'express';
+import { installGracefulShutdown } from './gracefulShutdown.js';
 import cors from 'cors';
 import dotenv from 'dotenv';
 import { z } from 'zod';
@@ -115,8 +116,10 @@ app.post('/mcp', (req, res) => {
   transport.handleRequest(req, res, req.body);
 });
 
-app.listen(PORT, () => {
+const httpServer = app.listen(PORT, () => {
   console.log(`✅ Chroma tools MCP server running at http://localhost:${PORT}`);
   console.log(`🌐 Manifest available at: http://localhost:${PORT}/.well-known/mcp.json`);
   console.log(`📮 Accepting POST requests at: http://localhost:${PORT}/mcp`);
 });
+
+installGracefulShutdown('tools-chroma-server', httpServer, async () => transport.close());

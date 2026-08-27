@@ -1,5 +1,6 @@
 // Import necessary libraries
 import express from 'express';
+import { closeHttpServer, installGracefulShutdown } from '../../library/javascript/commonHelpers/gracefulShutdown.js';
 
 
 
@@ -62,7 +63,7 @@ app.get('/player', (req, res) => {
     `);
 });
 
-app.listen(6060, (err) => {
+const playerServer = app.listen(6060, (err) => {
     if (err) {
         console.error('Failed to start server:', err);
     } else {
@@ -86,9 +87,10 @@ function setVideoParamsCompat(client, params) {
 
 // Start live transcoding and get streams
 const { videoStream, audioStream, ffmpeg } = startLocalTranscoding();
+const clients = new Set();
 
 // Set up webhook event handler to receive RTMS events from Zoom
-startAuthenticatedWebhookServer(({ event, payload }) => {
+const webhookServer = startAuthenticatedWebhookServer(({ event, payload }) => {
     console.log(`Received webhook event: ${event}`);
 
     // Only process webhook events for RTMS start notifications
@@ -99,6 +101,7 @@ startAuthenticatedWebhookServer(({ event, payload }) => {
 
     // Create a client instance for this specific meeting
     const client = new rtms.Client();
+    clients.add(client);
 
 
     // client.setAudioParameters({
@@ -165,3 +168,12 @@ startAuthenticatedWebhookServer(({ event, payload }) => {
 
 
 });
+
+installGracefulShutdown({ name: 'Frontend Streaming SDK', cleanup: async () => {
+    await Promise.all([closeHttpServer(playerServer), closeHttpServer(webhookServer)]);
+    await Promise.allSettled([...clients].map((client) => Promise.resolve(client.leave())));
+    clients.clear();
+    videoStream.end();
+    audioStream.end();
+    if (!ffmpeg.killed) ffmpeg.kill('SIGTERM');
+} });

@@ -3,6 +3,7 @@ import { saveToAzure } from './AzureStorageHelper.js';
 import dotenv from 'dotenv';
 import rtms from "@zoom/rtms";
 import { startAuthenticatedWebhookServer } from './authenticatedWebhookServer.js';
+import { closeHttpServer, installGracefulShutdown } from '../../library/javascript/commonHelpers/gracefulShutdown.js';
 
 dotenv.config();
 
@@ -14,7 +15,7 @@ function setVideoParamsCompat(client, params) {
 
 const meetingState = new Map();
 
-startAuthenticatedWebhookServer(async ({ event, payload }) => {
+const webhookServer = startAuthenticatedWebhookServer(async ({ event, payload }) => {
     console.log(`Received webhook event: ${event}`);
 
     if (event === "meeting.rtms_started") {
@@ -63,6 +64,8 @@ startAuthenticatedWebhookServer(async ({ event, payload }) => {
     const client = new rtms.Client();
     const meetingUuid = payload.meeting_uuid;
     const streamId = payload.rtms_stream_id;
+    const state = meetingState.get(meetingUuid);
+    if (state) state.client = client;
 
     setVideoParamsCompat(client, {
         contentType: rtms.VideoContentType.RAW_VIDEO,
@@ -94,3 +97,11 @@ startAuthenticatedWebhookServer(async ({ event, payload }) => {
 
     client.join(payload);
 });
+
+installGracefulShutdown({ name: 'Azure Storage SDK', cleanup: async () => {
+    await closeHttpServer(webhookServer);
+    const states = [...meetingState.values()];
+    for (const state of states) state.videoFiller?.stop();
+    await Promise.allSettled(states.map((state) => Promise.resolve(state.client?.leave?.())));
+    meetingState.clear();
+} });

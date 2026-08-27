@@ -1,4 +1,5 @@
 import express from 'express';
+import { closeHttpServer, closeWebSocket, installGracefulShutdown } from '../../library/javascript/commonHelpers/gracefulShutdown.js';
 import WebSocket from 'ws';
 import path from 'path';
 import { fileURLToPath } from 'url';
@@ -1096,3 +1097,15 @@ server.listen(port, () => {
   console.log(`Webhook available at http://localhost:${port}${config.webhookPath}`);
   console.log(`Frontend WebSocket available at ws://localhost:${port}/ws`);
 });
+
+installGracefulShutdown({ name: 'Video SDK RTMS', cleanup: async () => {
+  const sockets = [];
+  for (const conn of activeConnections.values()) {
+    conn.shouldReconnect = false;
+    if (conn.signaling?.socket) sockets.push(conn.signaling.socket);
+    if (conn.media?.socket) sockets.push(conn.media.socket);
+  }
+  await Promise.allSettled(sockets.map(closeWebSocket));
+  activeConnections.clear();
+  await closeHttpServer(server);
+} });

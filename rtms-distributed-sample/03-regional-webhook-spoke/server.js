@@ -1,4 +1,5 @@
 import dotenv from 'dotenv';
+import { installGracefulShutdown } from '../shared/gracefulShutdown.js';
 import express from 'express';
 import { fireAndForget, postJson, putJson } from '../shared/http.js';
 import { verifyInternalSignedRequest } from '../shared/internalSignature.js';
@@ -138,6 +139,8 @@ function parseComputeEndpoints() {
   }
 }
 
-app.listen(port, () => {
+const server = app.listen(port, () => {
   logger.info(`[03-regional-webhook-spoke] ${regionCode} listening on http://127.0.0.1:${port}/spoke/webhook`);
 });
+
+installGracefulShutdown({ name: 'regional-webhook-spoke', server, cleanup: async () => logger.stop?.() });

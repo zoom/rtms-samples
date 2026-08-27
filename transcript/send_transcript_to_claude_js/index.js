@@ -4,6 +4,7 @@ import dotenv from 'dotenv';
 import path from 'path';
 import { fileURLToPath } from 'url';
 import express from 'express';
+import { closeHttpServer, installGracefulShutdown } from '../../library/javascript/commonHelpers/gracefulShutdown.js';
 import http from 'http';
 
 import { chatWithClaude } from './chatWithClaude.js';
@@ -91,9 +92,7 @@ server.listen(appConfig.port, () => {
   console.log(`[send_to_claude] Webhook endpoint: http://localhost:${appConfig.port}${process.env.WEBHOOK_PATH || '/webhook'}`);
 });
 
-process.on('SIGINT', async () => {
-  console.log('[send_to_claude] Shutting down...');
-  server.close();
+installGracefulShutdown({ name: 'send_to_claude', cleanup: async () => {
+  await closeHttpServer(server);
   await RTMSManager.stop();
-  process.exit(0);
-});
+} });

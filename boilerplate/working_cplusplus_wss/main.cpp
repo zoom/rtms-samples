@@ -4,11 +4,14 @@
 #include <algorithm>
 #include <cctype>
 #include <cstdlib>
+#include <atomic>
+#include <csignal>
 #include "utils.h"
 #include "nlohmann/json.hpp"
 #include <websocketpp/config/asio_client.hpp>
 #include <websocketpp/client.hpp>
 #include <boost/asio/ssl/context.hpp>
+#include <boost/asio/signal_set.hpp>
 
 #include "signaling_ws.h"
 #include "media_ws.h"
@@ -75,6 +78,21 @@ void on_message_event(client* c, websocketpp::connection_hdl hdl, message_ptr ms
 void connect_to_event_server(const std::string& url) {
     client c;
     c.init_asio();
+    std::atomic<bool> stopping{false};
+    websocketpp::connection_hdl event_handle;
+    bool connected = false;
+    std::thread heartbeat_thread;
+
+    boost::asio::signal_set signals(c.get_io_service(), SIGINT, SIGTERM);
+    signals.async_wait([&](const boost::system::error_code& error, int signal_number) {
+        if (error) return;
+        std::cout << "Received signal " << signal_number << "; shutting down\n";
+        stopping = true;
+        if (connected) {
+            websocketpp::lib::error_code close_error;
+            c.close(event_handle, websocketpp::close::status::normal, "Server shutdown", close_error);
+        }
+    });
 
     c.set_tls_init_handler([](websocketpp::connection_hdl) {
         return websocketpp::lib::make_shared<boost::asio::ssl::context>(
@@ -89,9 +107,11 @@ void connect_to_event_server(const std::string& url) {
 
     // 🫀 Handle connection open: send initial heartbeat + start periodic thread
     c.set_open_handler([&](websocketpp::connection_hdl hdl) {
+        event_handle = hdl;
+        connected = true;
         std::cout << "✅ Event WebSocket connected — starting heartbeat\n";
 
-        std::thread([&c, hdl]() {
+        heartbeat_thread = std::thread([&c, hdl, &stopping]() {
             try {
                 json initial = {{"module", "heartbeat"}};
                 c.send(hdl, initial.dump(), websocketpp::frame::opcode::text);
@@ -101,8 +121,11 @@ void connect_to_event_server(const std::string& url) {
                 return;
             }
 
-            while (true) {
-                std::this_thread::sleep_for(std::chrono::seconds(30));
+            while (!stopping) {
+                for (int elapsed = 0; elapsed < 30 && !stopping; ++elapsed) {
+                    std::this_thread::sleep_for(std::chrono::seconds(1));
+                }
+                if (stopping) break;
                 try {
                     json hb = {{"module", "heartbeat"}};
                     c.send(hdl, hb.dump(), websocketpp::frame::opcode::text);
@@ -112,7 +135,12 @@ void connect_to_event_server(const std::string& url) {
                     break;
                 }
             }
-        }).detach();
+        });
+    });
+
+    c.set_close_handler([&](websocketpp::connection_hdl) {
+        connected = false;
+        stopping = true;
     });
 
     // Connect
@@ -125,6 +153,8 @@ void connect_to_event_server(const std::string& url) {
 
     c.connect(con);
     c.run(); // blocking
+    stopping = true;
+    if (heartbeat_thread.joinable()) heartbeat_thread.join();
 }
 
 int main() {

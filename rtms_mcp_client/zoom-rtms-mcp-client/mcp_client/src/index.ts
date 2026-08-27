@@ -4,6 +4,7 @@ import cors from 'cors';
 import crypto from 'crypto';
 import WebSocket from 'ws';
 import dotenv from 'dotenv';
+import { installGracefulShutdown } from './gracefulShutdown';
 import { Client } from '@modelcontextprotocol/sdk/client/index.js';
 import { StreamableHTTPClientTransport } from '@modelcontextprotocol/sdk/client/streamableHttp.js';
 
@@ -315,7 +316,16 @@ function connectToMediaWebSocket(mediaUrl: string, meetingUuid: string, streamId
   });
 }
 
-app.listen(port, () => {
+const httpServer = app.listen(port, () => {
   console.log(`🚀 RTMS MCP Client running at http://localhost:${port}`);
   console.log(`📩 Webhook listening at ${WEBHOOK_PATH}`);
+});
+
+installGracefulShutdown('rtms-mcp-client', httpServer, async () => {
+  for (const connections of activeConnections.values()) {
+    connections.signaling?.close(1000, 'Server shutdown');
+    connections.media?.close(1000, 'Server shutdown');
+  }
+  activeConnections.clear();
+  await mcpClient?.close();
 });

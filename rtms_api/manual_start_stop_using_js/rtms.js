@@ -3,6 +3,7 @@ import WebSocket from 'ws';
 import crypto from 'crypto';
 import dotenv from 'dotenv';
 import axios from 'axios';
+import { closeHttpServer, closeWebSocket, installGracefulShutdown } from '../../library/javascript/commonHelpers/gracefulShutdown.js';
 import { authenticateZoomWebhook, captureRawBody } from './webhookSignature.js';
 
 // Load environment variables from .env
@@ -342,4 +343,12 @@ function scheduleRTMSStop(meetingId, accessToken) {
 }
 
 // Step 7: Start Express server on port 3000
-app.listen(3000, () => console.log('Server running on port 3000'));
+const server = app.listen(3000, () => console.log('Server running on port 3000'));
+
+installGracefulShutdown({ name: 'Manual RTMS', cleanup: async () => {
+  for (const timer of signalingRetryTimersByStreamId.values()) clearTimeout(timer);
+  signalingRetryTimersByStreamId.clear();
+  await Promise.allSettled([...activeSignalingSocketsByStreamId.values()].map(closeWebSocket));
+  activeSignalingSocketsByStreamId.clear();
+  await closeHttpServer(server);
+} });

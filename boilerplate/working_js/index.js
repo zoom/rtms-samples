@@ -4,6 +4,7 @@ import WebsocketManager from '../../library/javascript/webSocketManager/Websocke
 import { FrontendWssManager } from '../../library/javascript/rtmsManager/FrontendWssManager.js';
 import { FrontendManager } from '../../library/javascript/rtmsManager/FrontendManager.js';
 import dotenv from 'dotenv';
+import { closeHttpServer, installGracefulShutdown } from '../../library/javascript/commonHelpers/gracefulShutdown.js';
 import path from 'path';
 import { fileURLToPath } from 'url';
 import express from 'express';
@@ -359,9 +360,7 @@ server.listen(appConfig.port, () => {
   console.log(`[Consumer] Server listening on port ${appConfig.port}`);
 });
 
-process.on('SIGINT', async () => {
-  console.log('[Consumer] Shutting down...');
-  server.close();
+installGracefulShutdown({ name: 'Consumer', cleanup: async () => {
+  await closeHttpServer(server);
   await RTMSManager.stop();
-  process.exit(0);
-});
+} });

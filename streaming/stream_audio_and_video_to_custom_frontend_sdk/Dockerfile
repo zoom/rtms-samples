@@ -3,6 +3,7 @@ FROM node:20-bookworm-slim AS dependencies
 ENV NODE_ENV=production
 RUN apt-get update && apt-get install -y --no-install-recommends python3 make g++ && rm -rf /var/lib/apt/lists/*
 WORKDIR /app
+COPY library/javascript /library/javascript
 COPY streaming/stream_audio_and_video_to_custom_frontend_sdk/package*.json ./
 RUN if [ -f package-lock.json ]; then npm ci --omit=dev || (rm -f package-lock.json && npm install --omit=dev); else npm install --omit=dev; fi
 COPY streaming/stream_audio_and_video_to_custom_frontend_sdk ./
@@ -11,6 +12,7 @@ FROM node:20-bookworm-slim AS runtime
 ENV NODE_ENV=production
 RUN apt-get update && apt-get install -y --no-install-recommends ffmpeg && rm -rf /var/lib/apt/lists/*
 WORKDIR /app
+COPY --from=dependencies --chown=node:node /library /library
 COPY --from=dependencies --chown=node:node /app /app
 USER node
 EXPOSE 6060 8080

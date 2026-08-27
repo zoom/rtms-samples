@@ -5,6 +5,7 @@ import dotenv from 'dotenv';
 import path from 'path';
 import { fileURLToPath } from 'url';
 import express from 'express';
+import { closeHttpServer, installGracefulShutdown } from '../../library/javascript/commonHelpers/gracefulShutdown.js';
 import http from 'http';
 
 import { initializeAudioCollection, cleanupMeeting, sendAudioChunk } from './assemblyai.js';
@@ -135,9 +136,7 @@ server.listen(appConfig.port, () => {
   console.log(`[AssemblyAI] Server listening on port ${appConfig.port}`);
 });
 
-process.on('SIGINT', async () => {
-  console.log('[AssemblyAI] Shutting down...');
-  server.close();
+installGracefulShutdown({ name: 'AssemblyAI', cleanup: async () => {
+  await closeHttpServer(server);
   await RTMSManager.stop();
-  process.exit(0);
-});
+} });

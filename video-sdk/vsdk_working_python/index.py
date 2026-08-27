@@ -9,6 +9,8 @@ from flask import Flask, request, jsonify
 from dotenv import load_dotenv
 import websocket
 import threading
+import signal
+import sys
 
 # Load environment variables
 load_dotenv()
@@ -26,6 +28,7 @@ logger = logging.getLogger(__name__)
 
 app = Flask(__name__)
 active_connections = {}
+shutdown_started = False
 stream_locks_guard = threading.Lock()
 stream_locks = {}
 signaling_handshakes_in_flight = set()
@@ -240,5 +243,24 @@ def verify_zoom_webhook(raw_body):
     expected = 'v0=' + hmac.new(ZOOM_SECRET_TOKEN.encode(), message, hashlib.sha256).hexdigest()
     return hmac.compare_digest(signature, expected)
 
+def shutdown(signal_number, _frame):
+    global shutdown_started
+    if shutdown_started:
+        return
+    shutdown_started = True
+    logger.info("Received %s; closing RTMS WebSockets", signal.Signals(signal_number).name)
+    for connections in list(active_connections.values()):
+        for connection in connections.values():
+            if hasattr(connection, "close"):
+                try:
+                    connection.close()
+                except Exception as error:
+                    logger.warning("WebSocket close failed: %s", error)
+    active_connections.clear()
+    sys.exit(0)
+
+
 if __name__ == '__main__':
+    signal.signal(signal.SIGINT, shutdown)
+    signal.signal(signal.SIGTERM, shutdown)
     app.run(host='0.0.0.0', port=PORT)

@@ -1,4 +1,5 @@
 import express from 'express';
+import { closeHttpServer, installGracefulShutdown } from '../../library/javascript/commonHelpers/gracefulShutdown.js';
 import http from 'http';
 import dotenv from 'dotenv';
 import path from 'path';
@@ -206,10 +207,8 @@ server.listen(appConfig.port, () => {
   console.log(`[ZoomScribe] Webhook endpoint: ${appConfig.webhookPath}`);
 });
 
-process.on('SIGINT', async () => {
-  console.log('[ZoomScribe] Shutting down...');
-  server.close();
+installGracefulShutdown({ name: 'ZoomScribe', cleanup: async () => {
+  await closeHttpServer(server);
   await closeLiveScribe();
   await RTMSManager.stop();
-  process.exit(0);
-});
+} });

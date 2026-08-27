@@ -5,6 +5,7 @@ import dotenv from 'dotenv';
 import path from 'path';
 import { fileURLToPath } from 'url';
 import express from 'express';
+import { closeHttpServer, installGracefulShutdown } from '../../library/javascript/commonHelpers/gracefulShutdown.js';
 import http from 'http';
 
 import { azureSpeechToTextStream } from "./azureSpeechToText.js";
@@ -117,9 +118,7 @@ server.listen(appConfig.port, () => {
   console.log(`[Azure Speech] Server listening on port ${appConfig.port}`);
 });
 
-process.on('SIGINT', async () => {
-  console.log('[Azure Speech] Shutting down...');
-  server.close();
+installGracefulShutdown({ name: 'Azure Speech', cleanup: async () => {
+  await closeHttpServer(server);
   await RTMSManager.stop();
-  process.exit(0);
-});
+} });

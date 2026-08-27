@@ -425,10 +425,26 @@ function stopStreaming(streamId) {
 }
 
 // Start the server and listen on the specified port
-app.listen(port, () => {
+const server = app.listen(port, () => {
     console.log(`Server running at http://localhost:${port}`);
     console.log(`Webhook endpoint available at http://localhost:${port}${WEBHOOK_PATH}`);
 
     //this is for putmedia producer
     //startStream();
 });
+
+let shuttingDown = false;
+async function shutdown(signal) {
+    if (shuttingDown) return;
+    shuttingDown = true;
+    console.log(`[Kinesis Streamer] ${signal} received; shutting down`);
+    const deadline = setTimeout(() => process.exit(1), 10000);
+    deadline.unref();
+    for (const streamId of [...activeConnections.keys()]) stopStreaming(streamId);
+    await new Promise((resolve) => server.close(resolve));
+    clearTimeout(deadline);
+    process.exitCode = 0;
+}
+
+process.once('SIGINT', () => void shutdown('SIGINT'));
+process.once('SIGTERM', () => void shutdown('SIGTERM'));

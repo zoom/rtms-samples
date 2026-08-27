@@ -12,6 +12,7 @@ using Microsoft.Extensions.Hosting;
 using Microsoft.Extensions.Logging;
 using Microsoft.Extensions.DependencyInjection;
 using System.Collections.Concurrent;
+using System.Runtime.InteropServices;
 
 var builder = WebApplication.CreateBuilder(args);
 DotEnv.Load();
@@ -438,4 +439,41 @@ string GenerateSignature(string clientId, string meetingUuid, string streamId, s
     return BitConverter.ToString(hmac.ComputeHash(Encoding.UTF8.GetBytes(message))).Replace("-", "").ToLowerInvariant();
 }
 
-app.Run($"http://0.0.0.0:{port}");
+using var shutdown = new CancellationTokenSource();
+Console.CancelKeyPress += (_, eventArgs) =>
+{
+    eventArgs.Cancel = true;
+    shutdown.Cancel();
+};
+using var sigterm = PosixSignalRegistration.Create(PosixSignal.SIGTERM, context =>
+{
+    context.Cancel = true;
+    shutdown.Cancel();
+});
+
+try
+{
+    app.Urls.Add($"http://0.0.0.0:{port}");
+    await app.RunAsync(shutdown.Token);
+}
+finally
+{
+    using var closeTimeout = new CancellationTokenSource(TimeSpan.FromSeconds(10));
+    foreach (var connectionGroup in activeConnections.Values)
+    {
+        foreach (var socket in connectionGroup.Values)
+        {
+            try
+            {
+                if (socket.State is WebSocketState.Open or WebSocketState.CloseReceived)
+                    await socket.CloseAsync(WebSocketCloseStatus.NormalClosure, "Server shutdown", closeTimeout.Token);
+            }
+            catch (Exception error)
+            {
+                Console.Error.WriteLine($"WebSocket shutdown failed: {error.Message}");
+            }
+            socket.Dispose();
+        }
+    }
+    activeConnections.Clear();
+}

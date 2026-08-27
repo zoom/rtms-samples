@@ -150,6 +150,7 @@ export function setupFrontendWss(server) {
   });
 
   console.log('🧩 Frontend WebSocket server initialized at /ws');
+  return wss;
 }
 
 /**

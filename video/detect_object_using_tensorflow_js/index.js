@@ -7,6 +7,7 @@ import path from 'path';
 import fs from 'fs';
 import { fileURLToPath } from 'url';
 import express from 'express';
+import { closeHttpServer, installGracefulShutdown } from '../../library/javascript/commonHelpers/gracefulShutdown.js';
 import http from 'http';
 
 const __filename = fileURLToPath(import.meta.url);
@@ -116,13 +117,11 @@ server.listen(appConfig.port, () => {
   console.log(`[detect_object] Webhook endpoint: http://localhost:${appConfig.port}${process.env.WEBHOOK_PATH || '/webhook'}`);
 });
 
-process.on('SIGINT', async () => {
-  console.log('[detect_object] Shutting down...');
+installGracefulShutdown({ name: 'detect_object', cleanup: async () => {
   for (const decoder of decoderMap.values()) {
     decoder.close();
   }
   decoderMap.clear();
-  server.close();
+  await closeHttpServer(server);
   await RTMSManager.stop();
-  process.exit(0);
-});
+} });

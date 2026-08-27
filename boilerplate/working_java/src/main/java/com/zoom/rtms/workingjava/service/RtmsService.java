@@ -12,6 +12,7 @@ import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import org.springframework.scheduling.annotation.Async;
 import org.springframework.stereotype.Service;
+import jakarta.annotation.PreDestroy;
 
 import javax.crypto.Mac;
 import javax.crypto.spec.SecretKeySpec;
@@ -29,6 +30,7 @@ import java.util.concurrent.CompletableFuture;
 import java.util.concurrent.CompletionStage;
 import java.util.concurrent.ConcurrentHashMap;
 import java.util.concurrent.ThreadLocalRandom;
+import java.util.concurrent.TimeUnit;
 
 @Service
 @RequiredArgsConstructor
@@ -42,6 +44,28 @@ public class RtmsService {
     private final Map<String, RtmsConnection> activeConnections = new ConcurrentHashMap<>();
     private final Set<String> signalingHandshakeLocks = Collections.newSetFromMap(new ConcurrentHashMap<>());
     private final HttpClient httpClient = HttpClient.newHttpClient();
+
+    @PreDestroy
+    public void shutdown() {
+        log.info("Application shutdown requested; closing {} RTMS connection(s)", activeConnections.size());
+        activeConnections.values().forEach(connection -> {
+            connection.setShouldReconnect(false);
+            closeSocket(connection.getSignaling() == null ? null : connection.getSignaling().getSocket());
+            connection.getMediaConnections().values().forEach(media -> closeSocket(media.getSocket()));
+        });
+        activeConnections.clear();
+        signalingHandshakeLocks.clear();
+    }
+
+    private void closeSocket(WebSocket socket) {
+        if (socket == null) return;
+        try {
+            socket.sendClose(WebSocket.NORMAL_CLOSURE, "Server shutdown").get(5, TimeUnit.SECONDS);
+        } catch (Exception error) {
+            log.warn("WebSocket shutdown failed: {}", error.getMessage());
+            socket.abort();
+        }
+    }
 
     @Async
     public void handleWebhookEventAsync(WebhookEvent webhookEvent) {

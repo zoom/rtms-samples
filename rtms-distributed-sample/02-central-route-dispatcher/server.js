@@ -1,4 +1,5 @@
 import dotenv from 'dotenv';
+import { installGracefulShutdown } from '../shared/gracefulShutdown.js';
 import express from 'express';
 import { fireAndForget, postJson } from '../shared/http.js';
 import {
@@ -161,6 +162,15 @@ function parseRegionalSpokeEndpoints() {
   return parseSpokeEndpoints(process.env);
 }
 
-app.listen(port, () => {
+const server = app.listen(port, () => {
   logger.info(`[02-central-route-dispatcher] listening on http://127.0.0.1:${port}/orchestrate/webhook`);
+});
+
+installGracefulShutdown({
+  name: 'central-route-dispatcher',
+  server,
+  cleanup: async () => {
+    routingStore.close();
+    await logger.stop?.();
+  }
 });

@@ -3,6 +3,7 @@ import WebhookManager from '../../library/javascript/webhookManager/WebhookManag
 import { FrontendManager } from '../../library/javascript/rtmsManager/FrontendManager.js';
 import { FrontendWssManager } from '../../library/javascript/rtmsManager/FrontendWssManager.js';
 import express from 'express';
+import { closeHttpServer, installGracefulShutdown } from '../../library/javascript/commonHelpers/gracefulShutdown.js';
 import http from 'http';
 import dotenv from 'dotenv';
 import path from 'path';
@@ -156,10 +157,8 @@ server.listen(appConfig.port, () => {
   console.log(`Frontend WebSocket available at ws://localhost:${appConfig.port}/ws`);
 });
 
-process.on('SIGINT', async () => {
-  console.log('Shutting down...');
+installGracefulShutdown({ name: 'AI Notetaker', cleanup: async () => {
   frontendWssManager.stop();
-  server.close();
+  await closeHttpServer(server);
   await RTMSManager.stop();
-  process.exit(0);
-});
+} });

@@ -1,5 +1,6 @@
 import dotenv from 'dotenv';
 import express from 'express';
+import { closeHttpServer, installGracefulShutdown } from '../../library/javascript/commonHelpers/gracefulShutdown.js';
 import http from 'http';
 import path from 'path';
 import { fileURLToPath } from 'url';
@@ -167,21 +168,7 @@ server.listen(appConfig.port, () => {
   console.log('[ChatSample] Waiting for RTMS chat messages');
 });
 
-let shuttingDown = false;
-
-async function shutdown(signal) {
-  if (shuttingDown) return;
-  shuttingDown = true;
-
-  console.log(`[ChatSample] ${signal} received; shutting down`);
-  server.close();
+installGracefulShutdown({ name: 'ChatSample', cleanup: async () => {
+  await closeHttpServer(server);
   await RTMSManager.stop();
-}
-
-process.on('SIGINT', () => {
-  void shutdown('SIGINT');
-});
-
-process.on('SIGTERM', () => {
-  void shutdown('SIGTERM');
-});
+} });

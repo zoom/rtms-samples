@@ -5,6 +5,7 @@ import dotenv from 'dotenv';
 import path from 'path';
 import { fileURLToPath } from 'url';
 import express from 'express';
+import { closeHttpServer, installGracefulShutdown } from '../../library/javascript/commonHelpers/gracefulShutdown.js';
 import http from 'http';
 
 import { initializeRealtimeSession, cleanupMeeting, sendAudioChunk, closeOpenAIRealtime } from './openaiRealtime.js';
@@ -137,13 +138,11 @@ server.listen(appConfig.port, () => {
   console.log(`[OpenAI Realtime] Server listening on port ${appConfig.port}`);
 });
 
-process.on('SIGINT', async () => {
-  console.log('[OpenAI Realtime] Shutting down...');
-  server.close();
+installGracefulShutdown({ name: 'OpenAI Realtime', cleanup: async () => {
+  await closeHttpServer(server);
   await closeOpenAIRealtime();
   await RTMSManager.stop();
-  process.exit(0);
-});
+} });
 
 function rtmsAudioSampleRateParam(sampleRateHz) {
   const sampleRateMap = {

@@ -1,4 +1,5 @@
 import express from 'express';
+import { installGracefulShutdown } from './gracefulShutdown.js';
 import cors from 'cors';
 import dotenv from 'dotenv';
 import fetch from 'node-fetch';
@@ -214,7 +215,9 @@ app.get('/health', (_req, res) => {
   });
 });
 
-app.listen(PORT, () => {
+const httpServer = app.listen(PORT, () => {
   console.log(`✅ LLM Router running at http://localhost:${PORT}`);
   console.log(`🌐 Health check: http://localhost:${PORT}/health`);
 });
+
+installGracefulShutdown('llm-router-server', httpServer, async () => transport.close());

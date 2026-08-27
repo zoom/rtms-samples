@@ -9,6 +9,8 @@ from flask import Flask, request, jsonify
 from dotenv import load_dotenv
 import websocket
 import threading
+import signal
+import sys
 from urllib.parse import urlparse
 
 # Load environment variables
@@ -48,6 +50,7 @@ logging.getLogger("websocket").setLevel(logging.CRITICAL)
 
 app = Flask(__name__)
 active_connections = {}
+shutdown_started = False
 stream_locks_guard = threading.Lock()
 stream_locks = {}
 signaling_handshakes_in_flight = set()
@@ -429,7 +432,26 @@ def process_webhook_after_ack(data):
                 signaling_send_locks.pop(sid, None)
         log_stream_snapshot("webhook_stopped_after_cleanup", stream_id)
 
+def shutdown(signal_number, _frame):
+    global shutdown_started
+    if shutdown_started:
+        return
+    shutdown_started = True
+    logger.info("Received %s; closing RTMS WebSockets", signal.Signals(signal_number).name)
+    for connections in list(active_connections.values()):
+        for connection in connections.values():
+            if hasattr(connection, "close"):
+                try:
+                    connection.close()
+                except Exception as error:
+                    logger.warning("WebSocket close failed: %s", error)
+    active_connections.clear()
+    sys.exit(0)
+
+
 if __name__ == '__main__':
+    signal.signal(signal.SIGINT, shutdown)
+    signal.signal(signal.SIGTERM, shutdown)
     logger.info(
         f"RTMS media configuration: mode={MEDIA_SOCKET_CONNECTION_MODE} media_types={MEDIA_TYPES_FLAG}"
     )

@@ -1,4 +1,5 @@
 import express from 'express';
+import { closeHttpServer, installGracefulShutdown } from '../../library/javascript/commonHelpers/gracefulShutdown.js';
 import crypto from 'crypto';
 import WebSocket from 'ws';
 import dotenv from 'dotenv';
@@ -502,7 +503,12 @@ function stopStreaming(streamId) {
 }
 
 // Start the server and listen on the specified port
-app.listen(port, () => {
+const server = app.listen(port, () => {
     console.log(`Server running at http://localhost:${port}`);
     console.log(`Webhook endpoint available at http://localhost:${port}${WEBHOOK_PATH}`);
 });
+
+installGracefulShutdown({ name: 'IVS Jitter Buffer', cleanup: async () => {
+    for (const streamId of [...activeConnections.keys()]) stopStreaming(streamId);
+    await closeHttpServer(server);
+} });

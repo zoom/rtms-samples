@@ -1,4 +1,5 @@
 import dotenv from 'dotenv';
+import { installGracefulShutdown } from '../shared/gracefulShutdown.js';
 import express from 'express';
 import { fireAndForget } from '../shared/http.js';
 import { KubernetesJobLauncher, buildKubernetesJobName } from '../shared/kubernetesJobLauncher.js';
@@ -191,6 +192,8 @@ function remember(entry) {
   }
 }
 
-app.listen(port, () => {
+const server = app.listen(port, () => {
   logger.info(`[04-regional-compute-launcher] ${regionCode} listening on http://127.0.0.1:${port}/compute/webhook`);
 });
+
+installGracefulShutdown({ name: 'regional-compute-launcher', server, cleanup: async () => logger.stop?.() });

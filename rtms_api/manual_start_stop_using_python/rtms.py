@@ -9,6 +9,8 @@ import time
 from flask import Flask, request, jsonify
 from dotenv import load_dotenv
 import threading
+import signal
+import sys
 
 # Load environment variables from .env
 load_dotenv()
@@ -17,6 +19,7 @@ app = Flask(__name__)
 stream_lock_guard = threading.Lock()
 signaling_handshakes_in_flight = set()
 active_signaling_sockets = {}
+shutdown_started = False
 duplicate_signal_retry_counts = {}
 MAX_DUPLICATE_SIGNAL_RETRIES = int(os.getenv("MAX_DUPLICATE_SIGNAL_RETRIES", "3"))
 
@@ -358,7 +361,23 @@ def schedule_rtms_stop(meeting_id, access_token):
     
     stop_after_delay()
 
+def shutdown(signal_number, _frame):
+    global shutdown_started
+    if shutdown_started:
+        return
+    shutdown_started = True
+    print(f"Received {signal.Signals(signal_number).name}; closing signaling sockets")
+    for socket in list(active_signaling_sockets.values()):
+        transport = getattr(socket, "transport", None)
+        if transport:
+            transport.close()
+    active_signaling_sockets.clear()
+    sys.exit(0)
+
+
 # Step 8: Start Flask server on port 3000
 if __name__ == '__main__':
+    signal.signal(signal.SIGINT, shutdown)
+    signal.signal(signal.SIGTERM, shutdown)
     print('Server running on port 3000')
-    app.run(host='0.0.0.0', port=3000, debug=True)
+    app.run(host='0.0.0.0', port=3000, debug=True, use_reloader=False)
