@@ -110,3 +110,16 @@ This sample is implemented as a single `index.js` file that contains all the fun
 Chat data is a UTF-8 JSON object inside `content.data`; the handler logs its
 message, operation, session, sender, receiver, file, and deletion metadata.
 The signaling subscription also includes chat-group events 10 through 14.
+
+## Docker
+
+The project runs the JavaScript Video SDK RTMS sample. Its multi-stage Dockerfile keeps build tooling out of the final runtime image and does not hard-code a CPU architecture.
+
+Build and run it from the `rtms-samples` repository root:
+
+```bash
+docker build -f video-sdk/vsdk_working_js/Dockerfile -t rtms-video-sdk-vsdk_working_js .
+docker run --rm --env-file video-sdk/vsdk_working_js/.env -p 3000:3000 rtms-video-sdk-vsdk_working_js
+```
+
+Run the build from the repository root because the Dockerfile uses repository-relative paths. Runtime secrets are supplied with `--env-file` and are excluded from the image build context.

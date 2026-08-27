@@ -293,3 +293,16 @@ After reconnection, chaos mode stays active, so the disconnect/reconnect cycle r
 - **Handshake fails with status_code 15 (INVALID_SIGNATURE)**: Double-check your `ZOOM_CLIENT_ID` and `ZOOM_CLIENT_SECRET` in `.env`.
 - **No transcripts appearing**: Ensure Zoom closed captions are enabled in the meeting and your app has the transcript RTMS scope.
 - **Keep-alive suppression doesn't trigger disconnection**: Keep-alive pings are only sent during silence. If someone is speaking, use the force-disconnect timer instead (`CHAOS_FORCE_DISCONNECT_MEDIA_AFTER_SEC=15`).
+
+## Docker
+
+The project runs the RTMS reconnection and failure-injection test service. Its multi-stage Dockerfile keeps build tooling out of the final runtime image and does not hard-code a CPU architecture.
+
+Build and run it from the `rtms-samples` repository root:
+
+```bash
+docker build -f rtms_api/reconnection_and_chaos_mode_js/Dockerfile -t rtms-rtms_api-reconnection_and_chaos_mode_js .
+docker run --rm --env-file rtms_api/reconnection_and_chaos_mode_js/.env -p 3000:3000 rtms-rtms_api-reconnection_and_chaos_mode_js
+```
+
+Run the build from the repository root because the Dockerfile uses repository-relative paths. Runtime secrets are supplied with `--env-file` and are excluded from the image build context.

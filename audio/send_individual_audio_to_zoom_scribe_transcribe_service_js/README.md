@@ -213,3 +213,16 @@ Server -> { "type": "session.closed", "reason": ... }
 - Assignment is based on the order in which participant audio first arrives. In a two-person meeting this is normally the host and the other participant, but the code does not infer or prioritize the host role.
 - Server-initiated WebSocket closures, including close code `1000`, are reconnected after `SCRIBE_RECONNECT_DELAY_MS`. Deliberate meeting shutdown does not reconnect.
 - RTMS L16 at 16 kHz mono matches the live API's required `pcm16` format exactly, so audio is forwarded verbatim with no resampling or WAV wrapping.
+
+## Docker
+
+The project assigns individual participant audio to pooled Zoom Scribe Live sessions. Its multi-stage Dockerfile keeps build tooling out of the final runtime image and does not hard-code a CPU architecture.
+
+Build and run it from the `rtms-samples` repository root:
+
+```bash
+docker build -f audio/send_individual_audio_to_zoom_scribe_transcribe_service_js/Dockerfile -t rtms-audio-send_individual_audio_to_zoom_scribe_transcribe_service_js .
+docker run --rm --env-file audio/send_individual_audio_to_zoom_scribe_transcribe_service_js/.env -p 3000:3000 rtms-audio-send_individual_audio_to_zoom_scribe_transcribe_service_js
+```
+
+Run the build from the repository root because the Dockerfile uses repository-relative paths. Runtime secrets are supplied with `--env-file` and are excluded from the image build context.

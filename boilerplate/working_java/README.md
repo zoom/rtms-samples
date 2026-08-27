@@ -224,3 +224,16 @@ Equivalent features from the Node.js version:
 - Event processing and logging
 - Connection reconnection logic
 - HMAC signature generation
+
+## Docker
+
+The project runs the Spring Boot meeting RTMS webhook and media receiver. Its multi-stage Dockerfile keeps build tooling out of the final runtime image and does not hard-code a CPU architecture.
+
+Build and run it from the `rtms-samples` repository root:
+
+```bash
+docker build -f boilerplate/working_java/Dockerfile -t rtms-boilerplate-working_java .
+docker run --rm --env-file boilerplate/working_java/.env -p 3000:3000 rtms-boilerplate-working_java
+```
+
+Run the build from the repository root because the Dockerfile uses repository-relative paths. Runtime secrets are supplied with `--env-file` and are excluded from the image build context.

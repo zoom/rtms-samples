@@ -100,3 +100,15 @@ The application follows this sequence:
 3. **Known Issues**:
    - There might be video artifacts generated on YouTube. Additional fine tuning is necessary on ffmpeg parameters.
 
+## Docker
+
+The project fills media gaps and streams RTMS audio and video to YouTube. Its multi-stage Dockerfile keeps build tooling out of the final runtime image and does not hard-code a CPU architecture.
+
+Build and run it from the `rtms-samples` repository root:
+
+```bash
+docker build -f streaming/stream_audio_and_video_to_youtube_greedy_gap_filler_js/Dockerfile -t rtms-streaming-stream_audio_and_video_to_youtube_greedy_gap_filler_js .
+docker run --rm --env-file streaming/stream_audio_and_video_to_youtube_greedy_gap_filler_js/.env -p 3000:3000 rtms-streaming-stream_audio_and_video_to_youtube_greedy_gap_filler_js
+```
+
+Run the build from the repository root because the Dockerfile uses repository-relative paths. Runtime secrets are supplied with `--env-file` and are excluded from the image build context.

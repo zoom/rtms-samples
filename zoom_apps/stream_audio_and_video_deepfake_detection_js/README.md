@@ -28,6 +28,20 @@ Audio verification inference
   |  configured separately from the video service
 ```
 
+## Docker
+
+The project streams individual RTMS audio and video to configurable verification services. Its multi-stage Dockerfile keeps build tooling out of the final runtime image and does not hard-code a CPU architecture.
+
+Build and run it from the `rtms-samples` repository root:
+
+```bash
+docker build -f zoom_apps/stream_audio_and_video_deepfake_detection_js/Dockerfile -t rtms-zoom_apps-stream_audio_and_video_deepfake_detection_js .
+docker run --rm --env-file zoom_apps/stream_audio_and_video_deepfake_detection_js/.env -p 5050:5050 rtms-zoom_apps-stream_audio_and_video_deepfake_detection_js
+```
+
+Run the build from the repository root because the Dockerfile uses repository-relative paths. Runtime secrets are supplied with `--env-file` and are excluded from the image build context.
+
+
 The Zoom App frontend does not connect directly to RTMS media sockets. The backend owns RTMSManager and uses Socket.IO to coordinate state with the frontend.
 
 When `DEEPFAKE_MODE=service`, the Node backend performs a health probe against the configured video inference service:

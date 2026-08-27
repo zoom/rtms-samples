@@ -106,3 +106,15 @@ The application follows this sequence:
 3. **Known Issues**:
    - The logic for combining audio and video file is over simplified for sample purpose. It just takes the first audio and first video file and combines them.
 
+## Docker
+
+The project stores RTMS audio and video recordings in Amazon S3. Its multi-stage Dockerfile keeps build tooling out of the final runtime image and does not hard-code a CPU architecture.
+
+Build and run it from the `rtms-samples` repository root:
+
+```bash
+docker build -f storage/save_audio_and_video_to_aws_s3_storage_sdk/Dockerfile -t rtms-storage-save_audio_and_video_to_aws_s3_storage_sdk .
+docker run --rm --env-file storage/save_audio_and_video_to_aws_s3_storage_sdk/.env -e ZM_RTMS_PORT=8080 -p 8080:8080 rtms-storage-save_audio_and_video_to_aws_s3_storage_sdk
+```
+
+Run the build from the repository root because the Dockerfile uses repository-relative paths. Runtime secrets are supplied with `--env-file` and are excluded from the image build context.

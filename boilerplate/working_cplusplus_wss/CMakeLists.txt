@@ -39,11 +39,3 @@ target_include_directories(ZoomWebSocketClient
 set_target_properties(ZoomWebSocketClient PROPERTIES
     RUNTIME_OUTPUT_DIRECTORY ${CMAKE_SOURCE_DIR}/bin
 )
-
-# Copy .env to bin/ folder after build
-add_custom_command(TARGET ZoomWebSocketClient POST_BUILD
-    COMMAND ${CMAKE_COMMAND} -E make_directory ${CMAKE_SOURCE_DIR}/bin
-    COMMAND ${CMAKE_COMMAND} -E copy_if_different
-        ${CMAKE_SOURCE_DIR}/.env
-        ${CMAKE_SOURCE_DIR}/bin/.env
-)

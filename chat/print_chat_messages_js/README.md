@@ -121,3 +121,16 @@ Chat messages can contain personal or confidential information. This sample
 prints them to standard output. Restrict access to process logs and avoid
 enabling full-payload logging in environments where chat content must not be
 retained.
+
+## Docker
+
+The project subscribes to RTMS chat and prints meeting chat messages. Its multi-stage Dockerfile keeps build tooling out of the final runtime image and does not hard-code a CPU architecture.
+
+Build and run it from the `rtms-samples` repository root:
+
+```bash
+docker build -f chat/print_chat_messages_js/Dockerfile -t rtms-chat-print_chat_messages_js .
+docker run --rm --env-file chat/print_chat_messages_js/.env -p 3000:3000 rtms-chat-print_chat_messages_js
+```
+
+Run the build from the repository root because the Dockerfile uses repository-relative paths. Runtime secrets are supplied with `--env-file` and are excluded from the image build context.

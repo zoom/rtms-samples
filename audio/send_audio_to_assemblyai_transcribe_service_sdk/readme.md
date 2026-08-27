@@ -91,3 +91,15 @@ The application follows this sequence:
    - The application captures audio at 16kHz sample rate, mono channel
    - If audio quality is poor, check your network connection and Zoom meeting settings
 
+## Docker
+
+The project forwards RTMS audio to AssemblyAI for live transcription. Its multi-stage Dockerfile keeps build tooling out of the final runtime image and does not hard-code a CPU architecture.
+
+Build and run it from the `rtms-samples` repository root:
+
+```bash
+docker build -f audio/send_audio_to_assemblyai_transcribe_service_sdk/Dockerfile -t rtms-audio-send_audio_to_assemblyai_transcribe_service_sdk .
+docker run --rm --env-file audio/send_audio_to_assemblyai_transcribe_service_sdk/.env -e ZM_RTMS_PORT=8080 -p 8080:8080 rtms-audio-send_audio_to_assemblyai_transcribe_service_sdk
+```
+
+Run the build from the repository root because the Dockerfile uses repository-relative paths. Runtime secrets are supplied with `--env-file` and are excluded from the image build context.

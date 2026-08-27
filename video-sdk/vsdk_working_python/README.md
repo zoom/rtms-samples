@@ -95,3 +95,16 @@ This sample is implemented as a single `index.py` file that contains all the fun
 - This is a basic example that checks the msg type and prints the data type received. In a production environment, you would typically process or save this data.
 - The server handles both signaling and media WebSocket connections
 - Keep-alive messages are automatically responded to maintain the connection
+
+## Docker
+
+The project runs the Python Video SDK RTMS webhook and media receiver. Its multi-stage Dockerfile keeps build tooling out of the final runtime image and does not hard-code a CPU architecture.
+
+Build and run it from the `rtms-samples` repository root:
+
+```bash
+docker build -f video-sdk/vsdk_working_python/Dockerfile -t rtms-video-sdk-vsdk_working_python .
+docker run --rm --env-file video-sdk/vsdk_working_python/.env -p 3000:3000 rtms-video-sdk-vsdk_working_python
+```
+
+Run the build from the repository root because the Dockerfile uses repository-relative paths. Runtime secrets are supplied with `--env-file` and are excluded from the image build context.

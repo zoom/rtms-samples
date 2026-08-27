@@ -1,4 +1,3 @@
-
 # Zoom RTMS Media Stream to Amazon KVS (Node.js)
 
 This Node.js example demonstrates how to receive real-time audio and video from a Zoom meeting using the RTMS (Real-Time Media Streaming) service and stream them to **Amazon Kinesis Video Streams (KVS)** using GStreamer and the AWS C++ KVS SDK.
@@ -155,3 +154,18 @@ gst-launch-1.0 -v \
 - Select the mode that fits your application architecture.
 - FFmpeg is required for muxed streaming
 - Audio and video are handled and sent as independent real-time buffers.
+
+## Docker
+
+The project passes RTMS media to Amazon Kinesis Video Streams. Its multi-stage Dockerfile keeps build tooling out of the final runtime image and does not hard-code a CPU architecture.
+
+Build and run it from the `rtms-samples` repository root:
+
+```bash
+docker build -f streaming/stream_to_aws_kinesis_passthru_js/Dockerfile -t rtms-streaming-stream_to_aws_kinesis_passthru_js .
+docker run --rm --env-file streaming/stream_to_aws_kinesis_passthru_js/.env -p 3000:3000 rtms-streaming-stream_to_aws_kinesis_passthru_js
+```
+
+Run the build from the repository root because the Dockerfile uses repository-relative paths. Runtime secrets are supplied with `--env-file` and are excluded from the image build context.
+
+The container supports the sample's default AWS PutMedia implementation. The optional `kvssink` implementation requires the Amazon Kinesis Video Streams GStreamer plugin to be built and supplied separately.

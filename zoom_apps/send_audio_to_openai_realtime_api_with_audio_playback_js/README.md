@@ -119,3 +119,16 @@ This is the same practical pattern used by realtime voice demos: stop local play
 | `public/audio-client.js` | Browser-side PCM playback queue and interruption/truncation reporting |
 | `public/index.ejs` | Zoom App UI |
 | `.env.example` | Environment variable template |
+
+## Docker
+
+The project sends RTMS transcript text to OpenAI. Its multi-stage Dockerfile keeps build tooling out of the final runtime image and does not hard-code a CPU architecture.
+
+Build and run it from the `rtms-samples` repository root:
+
+```bash
+docker build -f zoom_apps/send_audio_to_openai_realtime_api_with_audio_playback_js/Dockerfile -t rtms-zoom_apps-send_audio_to_openai_realtime_api_with_audio_playback_js .
+docker run --rm --env-file zoom_apps/send_audio_to_openai_realtime_api_with_audio_playback_js/.env -p 5050:5050 rtms-zoom_apps-send_audio_to_openai_realtime_api_with_audio_playback_js
+```
+
+Run the build from the repository root because the Dockerfile uses repository-relative paths. Runtime secrets are supplied with `--env-file` and are excluded from the image build context.

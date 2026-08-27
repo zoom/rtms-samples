@@ -284,3 +284,16 @@ process.on('SIGINT', async () => {
 - [RTMSManager Library Docs](../../library/README.md) - Full API reference
 - [Zoom App Setup Guide](../../ZOOM_APP_SETUP.md) - Configure your Zoom app
 - [Troubleshooting Guide](../../TROUBLESHOOTING.md) - Common issues
+
+## Docker
+
+The project subscribes to and displays one participant's individual RTMS video. Its multi-stage Dockerfile keeps build tooling out of the final runtime image and does not hard-code a CPU architecture.
+
+Build and run it from the `rtms-samples` repository root:
+
+```bash
+docker build -f video/individual_video_js/Dockerfile -t rtms-video-individual_video_js .
+docker run --rm --env-file video/individual_video_js/.env -p 3000:3000 rtms-video-individual_video_js
+```
+
+Run the build from the repository root because the Dockerfile uses repository-relative paths. Runtime secrets are supplied with `--env-file` and are excluded from the image build context.

@@ -3,6 +3,7 @@
 #include <vector>
 #include <algorithm>
 #include <cctype>
+#include <cstdlib>
 #include "utils.h"
 #include "nlohmann/json.hpp"
 #include <websocketpp/config/asio_client.hpp>
@@ -129,13 +130,20 @@ void connect_to_event_server(const std::string& url) {
 int main() {
     auto env = load_env(".env");
 
-    CLIENT_ID = env["CLIENT_ID"];
-    CLIENT_SECRET = env["CLIENT_SECRET"];
-    if (env.count("MEDIA_TYPES_FLAG")) {
-        MEDIA_TYPES_FLAG = std::stoi(env["MEDIA_TYPES_FLAG"]);
+    const auto config_value = [&env](const std::string& key) {
+        const char* process_value = std::getenv(key.c_str());
+        return process_value ? std::string(process_value) : env[key];
+    };
+
+    CLIENT_ID = config_value("CLIENT_ID");
+    CLIENT_SECRET = config_value("CLIENT_SECRET");
+    const auto media_types_flag = config_value("MEDIA_TYPES_FLAG");
+    if (!media_types_flag.empty()) {
+        MEDIA_TYPES_FLAG = std::stoi(media_types_flag);
     }
-    if (env.count("MEDIA_SOCKET_CONNECTION_MODE")) {
-        MEDIA_SOCKET_CONNECTION_MODE = env["MEDIA_SOCKET_CONNECTION_MODE"];
+    const auto media_socket_connection_mode = config_value("MEDIA_SOCKET_CONNECTION_MODE");
+    if (!media_socket_connection_mode.empty()) {
+        MEDIA_SOCKET_CONNECTION_MODE = media_socket_connection_mode;
         std::transform(
             MEDIA_SOCKET_CONNECTION_MODE.begin(), MEDIA_SOCKET_CONNECTION_MODE.end(),
             MEDIA_SOCKET_CONNECTION_MODE.begin(), ::tolower);
@@ -159,7 +167,7 @@ int main() {
     std::cout << "Media mode=" << MEDIA_SOCKET_CONNECTION_MODE
               << " media types=" << MEDIA_TYPES_FLAG << std::endl;
 
-    std::string base_ws_url = env["ZOOM_EVENT_WS"];
+    std::string base_ws_url = config_value("ZOOM_EVENT_WS");
     std::cout << "EVENT WS = [" << base_ws_url << "]" << std::endl;
     
     std::string access_token = get_zoom_access_token(CLIENT_ID, CLIENT_SECRET);

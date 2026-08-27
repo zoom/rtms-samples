@@ -97,3 +97,16 @@ The application follows this sequence:
 
 3. **Known Issues**:
    
+
+## Docker
+
+The project passes RTMS audio and video through to a custom frontend. Its multi-stage Dockerfile keeps build tooling out of the final runtime image and does not hard-code a CPU architecture.
+
+Build and run it from the `rtms-samples` repository root:
+
+```bash
+docker build -f streaming/stream_audio_and_video_to_custom_frontend_passthru_js/Dockerfile -t rtms-streaming-stream_audio_and_video_to_custom_frontend_passthru_js .
+docker run --rm --env-file streaming/stream_audio_and_video_to_custom_frontend_passthru_js/.env -p 3000:3000 rtms-streaming-stream_audio_and_video_to_custom_frontend_passthru_js
+```
+
+Run the build from the repository root because the Dockerfile uses repository-relative paths. Runtime secrets are supplied with `--env-file` and are excluded from the image build context.

@@ -135,3 +135,16 @@ Server -> { "type": "session.closed", "reason": ... }
 - This sample uses mixed meeting audio. For per-participant audio, request RTMS audio multi-streams and open one live session per RTMS `userId`.
 - The live session has a server-side maximum duration; very long meetings may be closed by the server (the client logs `session.closed` with the reason). For archival transcription of long recordings, use Scribe batch jobs instead.
 - RTMS L16 at 16 kHz mono matches the live API's required `pcm16` format exactly, so audio is forwarded verbatim with no resampling or WAV wrapping.
+
+## Docker
+
+The project sends mixed RTMS audio to Zoom Scribe Live. Its multi-stage Dockerfile keeps build tooling out of the final runtime image and does not hard-code a CPU architecture.
+
+Build and run it from the `rtms-samples` repository root:
+
+```bash
+docker build -f audio/send_audio_to_zoom_scribe_transcribe_service_js/Dockerfile -t rtms-audio-send_audio_to_zoom_scribe_transcribe_service_js .
+docker run --rm --env-file audio/send_audio_to_zoom_scribe_transcribe_service_js/.env -p 3000:3000 rtms-audio-send_audio_to_zoom_scribe_transcribe_service_js
+```
+
+Run the build from the repository root because the Dockerfile uses repository-relative paths. Runtime secrets are supplied with `--env-file` and are excluded from the image build context.

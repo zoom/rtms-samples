@@ -84,3 +84,15 @@ The application follows this sequence:
    - Ensure the webhook endpoint is accessible from the internet
 
 
+## Docker
+
+The project saves RTMS transcript events to local storage. Its multi-stage Dockerfile keeps build tooling out of the final runtime image and does not hard-code a CPU architecture.
+
+Build and run it from the `rtms-samples` repository root:
+
+```bash
+docker build -f transcript/save_transcript_sdk/Dockerfile -t rtms-transcript-save_transcript_sdk .
+docker run --rm --env-file transcript/save_transcript_sdk/.env -e ZM_RTMS_PORT=8080 -p 8080:8080 rtms-transcript-save_transcript_sdk
+```
+
+Run the build from the repository root because the Dockerfile uses repository-relative paths. Runtime secrets are supplied with `--env-file` and are excluded from the image build context.

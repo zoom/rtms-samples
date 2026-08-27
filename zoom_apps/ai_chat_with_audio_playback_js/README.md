@@ -204,3 +204,16 @@ server.listen(config.port, () => {
 - [RTMSManager Library Docs](../../library/README.md) - Full API reference
 - [Zoom App Setup Guide](../../ZOOM_APP_SETUP.md) - Configure your Zoom app
 - [Troubleshooting Guide](../../TROUBLESHOOTING.md) - Common issues
+
+## Docker
+
+The project runs a Zoom App that combines RTMS audio, transcription, and AI responses. Its multi-stage Dockerfile keeps build tooling out of the final runtime image and does not hard-code a CPU architecture.
+
+Build and run it from the `rtms-samples` repository root:
+
+```bash
+docker build -f zoom_apps/ai_chat_with_audio_playback_js/Dockerfile -t rtms-zoom_apps-ai_chat_with_audio_playback_js .
+docker run --rm --env-file zoom_apps/ai_chat_with_audio_playback_js/.env -p 3000:3000 rtms-zoom_apps-ai_chat_with_audio_playback_js
+```
+
+Run the build from the repository root because the Dockerfile uses repository-relative paths. Runtime secrets are supplied with `--env-file` and are excluded from the image build context.

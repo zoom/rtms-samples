@@ -101,3 +101,16 @@ The application follows this sequence:
    - Reduce the frequency of audio chunk submission.
    - Accumulate audio buffers to ensure optimal chunk size (50-200 ms).
    - Limit the number of concurrent transcription streams.
+
+## Docker
+
+The project forwards RTMS audio to Amazon Transcribe. Its multi-stage Dockerfile keeps build tooling out of the final runtime image and does not hard-code a CPU architecture.
+
+Build and run it from the `rtms-samples` repository root:
+
+```bash
+docker build -f audio/send_audio_to_aws_transcribe_service_sdk/Dockerfile -t rtms-audio-send_audio_to_aws_transcribe_service_sdk .
+docker run --rm --env-file audio/send_audio_to_aws_transcribe_service_sdk/.env -e ZM_RTMS_PORT=8080 -p 8080:8080 rtms-audio-send_audio_to_aws_transcribe_service_sdk
+```
+
+Run the build from the repository root because the Dockerfile uses repository-relative paths. Runtime secrets are supplied with `--env-file` and are excluded from the image build context.

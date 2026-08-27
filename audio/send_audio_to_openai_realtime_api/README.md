@@ -111,3 +111,16 @@ The assistant has short routing guidance for each allowed Zoom MCP tool:
 | `openaiRealtime.js` | OpenAI Realtime WebSocket client, audio resampling, Zoom MCP session config |
 | `.env.example` | Environment variable template |
 | `package.json` | Node dependencies |
+
+## Docker
+
+The project forwards RTMS audio to the OpenAI Realtime API. Its multi-stage Dockerfile keeps build tooling out of the final runtime image and does not hard-code a CPU architecture.
+
+Build and run it from the `rtms-samples` repository root:
+
+```bash
+docker build -f audio/send_audio_to_openai_realtime_api/Dockerfile -t rtms-audio-send_audio_to_openai_realtime_api .
+docker run --rm --env-file audio/send_audio_to_openai_realtime_api/.env -p 3000:3000 rtms-audio-send_audio_to_openai_realtime_api
+```
+
+Run the build from the repository root because the Dockerfile uses repository-relative paths. Runtime secrets are supplied with `--env-file` and are excluded from the image build context.
