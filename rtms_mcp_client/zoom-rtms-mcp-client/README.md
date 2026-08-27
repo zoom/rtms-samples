@@ -9,7 +9,7 @@ The project contains two services:
 - `mcp_client`: public webhook receiver and RTMS transcript WebSocket client, port `3000`
 - `llm-router-server`: private MCP router for Claude and Zoom's hosted MCP server, port `3100`
 
-The old Chroma and mock Zoom OpenAPI MCP services were removed. The router now calls `tools/list` against the configured official Zoom MCP endpoint and rejects every discovered tool not present in `ZOOM_MCP_ALLOWED_TOOLS`.
+The router calls `tools/list` against the configured official Zoom MCP endpoint and rejects every discovered tool not present in `ZOOM_MCP_ALLOWED_TOOLS`.
 
 ## Security Model
 
