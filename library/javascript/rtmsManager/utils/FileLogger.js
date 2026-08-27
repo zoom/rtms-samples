@@ -62,16 +62,6 @@ export class FileLogger {
         this.isShuttingDown = true;
         this.flushSync();
       });
-      process.on('SIGINT', () => {
-        this.isShuttingDown = true;
-        this.flushSync();
-        process.exit(0);
-      });
-      process.on('SIGTERM', () => {
-        this.isShuttingDown = true;
-        this.flushSync();
-        process.exit(0);
-      });
     }
   }
 

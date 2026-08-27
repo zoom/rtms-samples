@@ -184,6 +184,14 @@ export interface RTMSProtocolDefinitions {
 /** Logging levels */
 export type LogLevel = 'off' | 'error' | 'warn' | 'info' | 'debug';
 
+export interface LoggingConfig {
+  enabled?: boolean;
+  level?: LogLevel;
+  console?: boolean;
+  file?: boolean;
+  logDir?: string;
+}
+
 /** Custom logger interface */
 export interface Logger {
   error(message: string, ...args: any[]): void;
@@ -227,18 +235,87 @@ export interface RTMSConfig {
   
   // Logging
   /** Logging level (default: 'off') */
-  logging?: LogLevel;
+  logging?: LogLevel | LoggingConfig;
+  /** Legacy top-level log directory */
+  logDir?: string;
   /** Custom logger instance */
   logger?: Logger;
   
   // Media parameters (advanced)
   /** Media encoding/format parameters */
   mediaParams?: MediaParams;
+  /** Prefer one media socket when Zoom provides an `all` endpoint */
+  useUnifiedMediaSocket?: boolean;
+  /** Dispatch audio/video/screen-share events through a bounded asynchronous queue */
+  asyncMediaEvents?: boolean;
+  /** Maximum number of queued media events before the oldest event is dropped */
+  maxMediaEventQueueSize?: number;
+  /** Timeout for the signaling WebSocket RTT probe */
+  signalingPingTimeoutMs?: number;
 
   /** Override numeric values for newer RTMS protocol additions if Zoom changes them */
   protocolDefinitions?: RTMSProtocolDefinitions;
   /** Subscribe to all known signaling events instead of media-specific events only */
   subscribeAllKnownEvents?: boolean;
+}
+
+export interface FrontendRegistrationContext {
+  meetingUUID: string;
+  userID: string | number;
+  token?: string;
+  request?: unknown;
+  socket?: unknown;
+}
+
+export interface FrontendRegistrationResult {
+  authorized: boolean;
+  meetingUUID?: string;
+  userID?: string | number;
+}
+
+export type FrontendRegistrationAuthorizer = (
+  context: FrontendRegistrationContext
+) => boolean | FrontendRegistrationResult | Promise<boolean | FrontendRegistrationResult>;
+
+export interface FrontendWssManagerOptions {
+  config?: {
+    frontendWssEnabled?: boolean;
+    frontendWssPath?: string;
+    frontendWssMaxPayloadBytes?: number;
+    authorizeRegistration?: FrontendRegistrationAuthorizer;
+  };
+  server?: unknown;
+  logger?: Logger;
+  authorizeRegistration?: FrontendRegistrationAuthorizer;
+}
+
+export class FrontendWssManager {
+  constructor(options?: FrontendWssManagerOptions);
+  setup(): void;
+  validateRegistration(context: FrontendRegistrationContext): Promise<FrontendRegistrationResult>;
+  broadcast(message: unknown): void;
+  broadcastToFrontendClients(message: unknown): void;
+  broadcastToMeeting(meetingUUID: string, message: unknown): void;
+  broadcastToUser(meetingUUID: string, userID: string, message: unknown): void;
+  stop(): void;
+}
+
+export interface FrontendManagerOptions {
+  config?: {
+    serveStaticEnabled?: boolean;
+    viewsPath?: string;
+    staticPath?: string;
+    frontendWssPath?: string;
+    frontendWssUrl?: string;
+    port?: number | string;
+  };
+  app?: unknown;
+  logger?: Logger;
+}
+
+export class FrontendManager {
+  constructor(options?: FrontendManagerOptions);
+  setup(): void;
 }
 
 // =============================================================================
@@ -630,6 +707,7 @@ export class RTMSManager extends EventEmitter {
    * @returns Promise resolving to the RTMSManager instance
    */
   static init(config: RTMSConfig): Promise<RTMSManager>;
+  static start(): Promise<void>;
 
   /**
    * Stop the RTMSManager and close all connections

@@ -83,6 +83,9 @@ export function handleMediaMessage(data, {
           }
 
           emit('error', error);
+          if (mediaWs.readyState === 0 || mediaWs.readyState === 1) {
+            mediaWs.close();
+          }
         }
         break;
 

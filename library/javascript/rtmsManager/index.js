@@ -49,6 +49,8 @@ export { ActiveConnectionManager } from './ActiveConnectionManager.js';
 
 // Message handlers
 export { RTMSMessageHandler } from './RTMSMessageHandler.js';
+export { FrontendManager } from './FrontendManager.js';
+export { FrontendWssManager } from './FrontendWssManager.js';
 
 // Default export
 export { RTMSManager as default } from './RTMSManager.js';

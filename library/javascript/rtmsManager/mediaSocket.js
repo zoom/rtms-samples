@@ -31,6 +31,11 @@ function buildMediaParamsForSocket(configuredMediaParams, mediaType) {
   return paramsBySocketType;
 }
 
+export function mergeMediaConfig(currentConfig, mediaParams, mediaType) {
+  if (mediaType === 'all') return { ...mediaParams };
+  return { ...(currentConfig || {}), ...mediaParams };
+}
+
 /**
  * Connect to a media WebSocket for a specific media type.
  * 
@@ -63,11 +68,15 @@ export function connectToMediaWebSocket(
 ) {
   FileLogger.log(`[Media] [${conn.rtmsType},${meetingUuid},${streamId}] Connecting ${mediaType} socket to ${mediaUrl}...`);
 
-  const mediaWs = new WebSocket(mediaUrl);
-
   // Each media type gets its own connection object
   const mediaObj = conn.media[mediaType] || { socket: null, state: 'idle', url: mediaUrl };
   if (!conn.media[mediaType]) conn.media[mediaType] = mediaObj;
+  if (mediaObj.reconnectTimer) {
+    clearTimeout(mediaObj.reconnectTimer);
+    mediaObj.reconnectTimer = null;
+  }
+
+  const mediaWs = new WebSocket(mediaUrl);
 
   mediaObj.socket = mediaWs;
   mediaObj.state = 'connecting';
@@ -148,10 +157,8 @@ export function connectToMediaWebSocket(
         media_params: mediaParams
       })}`
     );
-    FileLogger.log(`[Media] [${conn.rtmsType},${meetingUuid},${streamId}] ${mediaType} handshake payload: ${JSON.stringify(handshakeMsg, null, 2)}`);
-
     // Store the media configuration in the connection object
-    conn.mediaConfig = handshakeMsg.media_params;
+    conn.mediaConfig = mergeMediaConfig(conn.mediaConfig, handshakeMsg.media_params, mediaType);
 
     mediaWs.send(JSON.stringify(handshakeMsg));
     mediaObj.state = 'authenticated';
@@ -171,6 +178,10 @@ export function connectToMediaWebSocket(
 
   mediaWs.on('close', async () => {
     FileLogger.warn(`[Media] [${conn.rtmsType},${meetingUuid},${streamId}] ${mediaType} socket closed`);
+    if (mediaObj.socket !== mediaWs) {
+      FileLogger.log(`[Media] [${conn.rtmsType},${meetingUuid},${streamId}] Ignoring stale ${mediaType} socket close`);
+      return;
+    }
     mediaObj.state = 'closed';
 
     if (!conn.shouldReconnect) {
@@ -183,7 +194,15 @@ export function connectToMediaWebSocket(
       conn.signaling.socket?.readyState === WebSocket.OPEN
     ) {
       FileLogger.log(`[Media] [${conn.rtmsType},${meetingUuid},${streamId}] Reconnecting in 3s...`);
-      setTimeout(() => {
+      mediaObj.reconnectTimer = setTimeout(() => {
+        mediaObj.reconnectTimer = null;
+        if (
+          !conn.shouldReconnect ||
+          conn.signaling.state !== 'ready' ||
+          conn.signaling.socket?.readyState !== WebSocket.OPEN
+        ) {
+          return;
+        }
         connectToMediaWebSocket(
           mediaObj.url,
           meetingUuid,

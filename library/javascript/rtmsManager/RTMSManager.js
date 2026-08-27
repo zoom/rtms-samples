@@ -395,6 +395,7 @@ export class RTMSManager extends EventEmitter {
     this.connectionManager = new ActiveConnectionManager();
     this.streamHistory = new Map();
     this.streamHistoryAccessOrder = []; // Track access order for LRU eviction
+    this._stopPromise = null;
 
     this.on('error', (error) => {
       const errorText = error && typeof error.toShortString === 'function'
@@ -518,32 +519,41 @@ export class RTMSManager extends EventEmitter {
     }
 
     this._state = 'STARTED';
+    this._stopPromise = null;
     this.logger.info(`[RTMSManager] Ready - feed RTMS events via emit(event, payload)`);
     return Promise.resolve();
   }
 
   // Stop the RTMS manager
-  stop() {
-    return new Promise((resolve) => {
-      if (this._state !== 'STARTED') {
-        this.logger.warn('[RTMSManager] Manager not started.');
-        resolve();
-        return;
-      }
+  async stop() {
+    if (this._state === 'STOPPING' && this._stopPromise) {
+      return this._stopPromise;
+    }
+    if (this._state !== 'STARTED') {
+      this.logger.warn('[RTMSManager] Manager not started.');
+      return;
+    }
 
-      const handlers = this.connectionManager.getAll();
-      for (const handler of handlers) {
+    this._state = 'STOPPING';
+    const handlers = this.connectionManager.getAll();
+    this._stopPromise = (async () => {
+      await Promise.allSettled(handlers.map((handler) => Promise.resolve().then(() => {
         this.logger.info(`[RTMSManager] Stopping ${handler.rtmsType} ${handler.rtmsId}`);
-        handler.stop();
-      }
+        return handler.stop();
+      })));
       this.connectionManager.clear();
       this.logger.info('[RTMSManager] Stopped');
       this._state = 'STOPPED';
-      resolve();
-    });
+    })();
+    return this._stopPromise;
   }
 
-  onStreamStart(rtmsId, rtmsType, streamId, serverUrls, creds, startTime = null) {
+  async onStreamStart(rtmsId, rtmsType, streamId, serverUrls, creds, startTime = null) {
+    if (this._state !== 'STARTED') {
+      this.logger.warn(`[RTMSManager] Ignoring ${rtmsType} stream ${streamId} while manager state is ${this._state}`);
+      return true;
+    }
+
     const existingByRtmsId = this.connectionManager.findByRtmsId(rtmsId);
     if (existingByRtmsId) {
       if (existingByRtmsId.streamId === streamId) {
@@ -551,7 +561,7 @@ export class RTMSManager extends EventEmitter {
           this.logger.warn(
             `[RTMSManager] Refreshing ${rtmsType} ${rtmsId} stream ${streamId} with new signaling server URLs`
           );
-          this.onStreamStop(streamId);
+          await this.onStreamStop(streamId);
         } else {
           this.logger.warn(`[RTMSManager] Duplicate stream ID ${streamId} for ${rtmsType} ${rtmsId}`);
           return true;
@@ -560,8 +570,13 @@ export class RTMSManager extends EventEmitter {
         this.logger.warn(
           `[RTMSManager] Replacing stale ${existingByRtmsId.rtmsType} ${rtmsId} stream ${existingByRtmsId.streamId} with new stream ${streamId}`
         );
-        this.onStreamStop(existingByRtmsId.streamId);
+        await this.onStreamStop(existingByRtmsId.streamId);
       }
+    }
+
+    if (this._state !== 'STARTED') {
+      this.logger.warn(`[RTMSManager] Stream ${streamId} was closed while manager shutdown was in progress`);
+      return true;
     }
 
     if (this.connectionManager.has(streamId)) {
@@ -587,11 +602,11 @@ export class RTMSManager extends EventEmitter {
     return false;
   }
 
-  onStreamStop(streamId) {
+  async onStreamStop(streamId) {
     const handler = this.connectionManager.get(streamId);
     if (handler) {
       this.logger.info(`[RTMSManager] Stopping ${handler.rtmsType} ${handler.rtmsId} stream ${streamId}`);
-      handler.stop();
+      await handler.stop();
 
       // Archive stream data
       RTMSManager.archiveStream(streamId, {
