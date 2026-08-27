@@ -74,6 +74,7 @@ SCRIBE_DIARIZATION=false
 SCRIBE_CHANNEL_SEPARATION=false
 SCRIBE_PROFANITY_FILTER=false
 SCRIBE_OUTPUT_FORMAT=json
+SCRIBE_VOCABULARY_JSON=
 SCRIBE_POOL_SIZE=3
 SCRIBE_HEARTBEAT_IDLE_MS=10000
 SCRIBE_HEARTBEAT_AUDIO_MS=1000
@@ -95,6 +96,21 @@ JSON when a meeting stops. `SCRIBE_TRANSCRIPT_OUTPUT_DIR` can be absolute or
 relative to this sample folder and defaults to `diarized_transcripts`. Generated
 files use owner-only permissions (`0600`), and the default output directory is
 excluded from Git.
+
+### Custom Vocabulary
+
+Set `SCRIBE_VOCABULARY_JSON` to bias Live Scribe toward product names, acronyms,
+and domain-specific terms. It accepts the ASR vocabulary object with optional
+`phrases`, `pronunciations`, and `aliases` arrays:
+
+```env
+SCRIBE_VOCABULARY_JSON={"phrases":["AIAGW","Zoom AI Companion","ServiceNow"],"pronunciations":[{"phrase":"AIAGW","pronunciation":"A I A gateway"}],"aliases":[{"canonical":"Zoom AI Companion","variants":["AI Companion","Zoom Companion"]}]}
+```
+
+The sample validates this JSON during startup and includes it under
+`session.update.config.vocabulary`. Leave the value empty to omit vocabulary
+configuration. Vocabulary improves recognition bias but does not replace the
+RTMS `user_id` and `user_name` attribution used for named diarization.
 
 ## How It Works
 
@@ -172,7 +188,19 @@ Client -> {
     "channel_separation": false,
     "diarization": false,
     "profanity_filter": false,
-    "output_format": "json"
+    "output_format": "json",
+    "vocabulary": {
+      "phrases": ["AIAGW", "Zoom AI Companion"],
+      "pronunciations": [
+        { "phrase": "AIAGW", "pronunciation": "A I A gateway" }
+      ],
+      "aliases": [
+        {
+          "canonical": "Zoom AI Companion",
+          "variants": ["AI Companion", "Zoom Companion"]
+        }
+      ]
+    }
   }
 }
 Client -> <binary PCM16 frames>                       # streamed RTMS audio
