@@ -1,16 +1,5 @@
 # LLM Router Server
 
-This service routes model requests between the RTMS MCP components.
+Internal MCP service that sends transcript batches to Claude and exposes only the explicitly allowed tools discovered from Zoom's official hosted MCP server.
 
-## Docker
-
-Its multi-stage Dockerfile keeps build tooling out of the final runtime image and does not hard-code a CPU architecture.
-
-Build and run it from the `rtms-samples` repository root:
-
-```bash
-docker build -f rtms_mcp_client/zoom-rtms-mcp-client/llm-router-server/Dockerfile -t rtms-zoom-rtms-mcp-client-llm-router-server .
-docker run --rm --env-file rtms_mcp_client/zoom-rtms-mcp-client/llm-router-server/.env -p 3000:3000 rtms-zoom-rtms-mcp-client-llm-router-server
-```
-
-Run the build from the repository root because the Dockerfile uses repository-relative paths. Runtime secrets are supplied with `--env-file` and are excluded from the image build context.
+See the project-level `README.md` for OAuth, security, configuration, and Docker instructions. This service defaults to port `3100` and requires bearer authentication on `/mcp`.

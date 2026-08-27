@@ -44,3 +44,6 @@ out/
 load_vector_into_chromadb/outputvector/
 
 .env
+package-lock.json
+!llm-router-server/package-lock.json
+!mcp_client/package-lock.json
