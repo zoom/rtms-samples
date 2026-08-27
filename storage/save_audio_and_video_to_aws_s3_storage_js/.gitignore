@@ -46,3 +46,4 @@ debug.log
 
 recordings/*
 !recordings/.gitkeep
+!package-lock.json
