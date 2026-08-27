@@ -204,6 +204,7 @@ process.on('SIGINT', async () => {
 
 // Express server for health checks and webhook reception
 import express from 'express';
+import crypto from 'node:crypto';
 const app = express();
 app.use(express.json());
 
@@ -217,7 +218,19 @@ app.get('/health', (req, res) => {
 });
 
 // Webhook endpoint for receiving RTMS events from backend
-app.post('/webhook', async (req, res) => {
+app.post('/webhook', (req, res, next) => {
+  const expectedToken = process.env.INTERNAL_WEBHOOK_TOKEN;
+  const receivedToken = req.headers.authorization?.replace(/^Bearer\s+/i, '');
+  if (!expectedToken || !receivedToken) {
+    return res.status(expectedToken ? 401 : 500).json({ error: 'unauthorized' });
+  }
+  const expected = Buffer.from(expectedToken);
+  const received = Buffer.from(receivedToken);
+  if (expected.length !== received.length || !crypto.timingSafeEqual(expected, received)) {
+    return res.status(401).json({ error: 'unauthorized' });
+  }
+  return next();
+}, async (req, res) => {
   const { event, payload } = req.body;
 
   console.log(`\n${'='.repeat(60)}`);

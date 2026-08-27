@@ -16,6 +16,7 @@
 
 import express from 'express';
 import WebSocket from 'ws';
+import { authenticateZoomWebhook, captureRawBody } from './webhookSignature.js';
 import crypto from 'crypto';
 import dotenv from 'dotenv';
 
@@ -788,9 +789,9 @@ function cleanupStream(streamId) {
 // ============================================================================
 
 const app = express();
-app.use(express.json());
+app.use(express.json({ verify: captureRawBody }));
 
-app.post(WEBHOOK_PATH, (req, res) => {
+app.post(WEBHOOK_PATH, authenticateZoomWebhook(ZOOM_SECRET_TOKEN), (req, res) => {
   const { event, payload } = req.body;
 
   // ---------------------------------------------------------------

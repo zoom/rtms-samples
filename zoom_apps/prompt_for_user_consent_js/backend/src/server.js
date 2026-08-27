@@ -46,7 +46,9 @@ app.use(cors({
   origin: process.env.PUBLIC_URL || 'http://localhost:3001',
   credentials: true
 }));
-app.use(express.json());
+app.use(express.json({
+  verify: (req, _res, buffer) => { req.rawBody = Buffer.from(buffer); }
+}));
 app.use(express.urlencoded({ extended: true }));
 app.use(securityHeaders);
 

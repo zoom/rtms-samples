@@ -28,6 +28,14 @@ Audio verification inference
   |  configured separately from the video service
 ```
 
+## Webhook Delivery Authentication
+
+Normal Zoom webhook deliveries are verified against the exact raw request body using
+`x-zm-signature` and `x-zm-request-timestamp`. Configure `ZOOM_SECRET_TOKEN` with the
+Marketplace app's webhook Secret Token. Requests with missing, invalid, or stale
+signatures are rejected; the default replay window is 300 seconds and can be changed
+with `WEBHOOK_TIMESTAMP_TOLERANCE_SECONDS`.
+
 ## Docker
 
 The project streams individual RTMS audio and video to configurable verification services. Its multi-stage Dockerfile keeps build tooling out of the final runtime image and does not hard-code a CPU architecture.

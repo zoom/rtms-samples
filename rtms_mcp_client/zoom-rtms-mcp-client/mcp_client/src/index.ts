@@ -18,7 +18,11 @@ const WEBHOOK_PATH = process.env.WEBHOOK_PATH || '/webhook';
 const LLM_MCP_SERVER_URL=process.env.LLM_MCP_SERVER_URL || 'http://localhost:3000/mcp';
 
 app.use(cors());
-app.use(express.json());
+app.use(express.json({
+  verify: (req, _res, buffer) => {
+    (req as Request & { rawBody?: Buffer }).rawBody = Buffer.from(buffer);
+  },
+}));
 
 
 let buffer1: string | null = null;
@@ -40,6 +44,34 @@ let isConnected = false;
 
 const MAX_DUPLICATE_SIGNAL_RETRIES = Number(process.env.MAX_DUPLICATE_SIGNAL_RETRIES || 3);
 const INITIAL_DUPLICATE_SIGNAL_RETRY_DELAY_MS = Number(process.env.INITIAL_DUPLICATE_SIGNAL_RETRY_DELAY_MS || 1500);
+const configuredWebhookTolerance = Number(process.env.WEBHOOK_TIMESTAMP_TOLERANCE_SECONDS || 300);
+const WEBHOOK_TIMESTAMP_TOLERANCE_SECONDS =
+  Number.isFinite(configuredWebhookTolerance) && configuredWebhookTolerance >= 0
+    ? configuredWebhookTolerance
+    : 300;
+
+function verifyZoomWebhook(req: Request): boolean {
+  if (!ZOOM_SECRET_TOKEN) return false;
+  const signature = req.headers['x-zm-signature'];
+  const timestamp = req.headers['x-zm-request-timestamp'];
+  const rawBody = (req as Request & { rawBody?: Buffer }).rawBody;
+  if (typeof signature !== 'string' || typeof timestamp !== 'string' || !rawBody) return false;
+  const timestampSeconds = Number(timestamp);
+  if (
+    !Number.isFinite(timestampSeconds) ||
+    (WEBHOOK_TIMESTAMP_TOLERANCE_SECONDS > 0 &&
+      Math.abs(Math.floor(Date.now() / 1000) - timestampSeconds) > WEBHOOK_TIMESTAMP_TOLERANCE_SECONDS)
+  ) return false;
+
+  const expected = `v0=${crypto
+    .createHmac('sha256', ZOOM_SECRET_TOKEN)
+    .update(`v0:${timestamp}:${rawBody.toString('utf8')}`)
+    .digest('hex')}`;
+  const receivedBuffer = Buffer.from(signature);
+  const expectedBuffer = Buffer.from(expected);
+  return receivedBuffer.length === expectedBuffer.length &&
+    crypto.timingSafeEqual(receivedBuffer, expectedBuffer);
+}
 
 async function initMcpClient() {
   try {
@@ -71,6 +103,11 @@ const webhookHandler: RequestHandler = async (
         .update(payload.plainToken)
         .digest('hex');
       res.json({ plainToken: payload.plainToken, encryptedToken: hash });
+      return;
+    }
+
+    if (!verifyZoomWebhook(req)) {
+      res.status(ZOOM_SECRET_TOKEN ? 401 : 500).json({ error: 'invalid_zoom_webhook' });
       return;
     }
 

@@ -100,7 +100,7 @@ console.log('[ZoomScribe] App Configuration:', appConfig);
 console.log('[ZoomScribe] RTMS Configuration:', RTMSManager.redactSecrets(rtmsConfig));
 console.log('[ZoomScribe] Live Scribe Configuration:', liveScribeConfig());
 
-app.use(express.json());
+app.use(express.json({ verify: (req, _res, buffer) => { req.rawBody = Buffer.from(buffer); } }));
 
 app.get('/health', (req, res) => {
   res.json({

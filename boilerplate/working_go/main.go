@@ -14,6 +14,7 @@ import (
 	"strconv"
 	"strings"
 	"sync"
+	"time"
 
 	"github.com/gorilla/websocket"
 	"github.com/joho/godotenv"
@@ -303,6 +304,15 @@ func webhookHandler(clientID, clientSecret, zoomToken string) http.HandlerFunc {
 		event := payload.Event
 		data := payload.Payload
 
+		if event != "endpoint.url_validation" && !verifyZoomWebhook(r, body, zoomToken) {
+			status := http.StatusUnauthorized
+			if zoomToken == "" {
+				status = http.StatusInternalServerError
+			}
+			http.Error(w, "invalid Zoom webhook", status)
+			return
+		}
+
 		if event == "endpoint.url_validation" {
 			plainToken := data["plainToken"].(string)
 			hash := hmac.New(sha256.New, []byte(zoomToken))
@@ -346,6 +356,39 @@ func webhookHandler(clientID, clientSecret, zoomToken string) http.HandlerFunc {
 			activeConnectionsMu.Unlock()
 		}
 	}
+}
+
+func verifyZoomWebhook(r *http.Request, body []byte, secretToken string) bool {
+	if secretToken == "" {
+		return false
+	}
+	signature := r.Header.Get("x-zm-signature")
+	timestamp := r.Header.Get("x-zm-request-timestamp")
+	timestampSeconds, err := strconv.ParseInt(timestamp, 10, 64)
+	if signature == "" || err != nil {
+		return false
+	}
+	toleranceSeconds := int64(300)
+	if configured := os.Getenv("WEBHOOK_TIMESTAMP_TOLERANCE_SECONDS"); configured != "" {
+		if parsed, parseErr := strconv.ParseInt(configured, 10, 64); parseErr == nil {
+			toleranceSeconds = parsed
+		}
+	}
+	if toleranceSeconds > 0 && absInt64(time.Now().Unix()-timestampSeconds) > toleranceSeconds {
+		return false
+	}
+	mac := hmac.New(sha256.New, []byte(secretToken))
+	mac.Write([]byte("v0:" + timestamp + ":"))
+	mac.Write(body)
+	expected := []byte("v0=" + hex.EncodeToString(mac.Sum(nil)))
+	return hmac.Equal([]byte(signature), expected)
+}
+
+func absInt64(value int64) int64 {
+	if value < 0 {
+		return -value
+	}
+	return value
 }
 
 func main() {

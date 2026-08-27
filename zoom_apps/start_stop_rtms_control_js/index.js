@@ -67,7 +67,7 @@ const rtmsConfig = {
 const app = express();
 const server = http.createServer(app);
 
-app.use(express.json());
+app.use(express.json({ verify: (req, _res, buffer) => { req.rawBody = Buffer.from(buffer); } }));
 app.set('view engine', 'ejs');
 app.use(express.static(path.join(__dirname, 'public')));
 

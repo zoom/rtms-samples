@@ -184,3 +184,11 @@ docker run --rm --env-file video/detect_object_using_tensorflow_js/.env -p 3000:
 ```
 
 Run the build from the repository root because the Dockerfile uses repository-relative paths. Runtime secrets are supplied with `--env-file` and are excluded from the image build context.
+
+## Webhook Delivery Authentication
+
+Normal Zoom webhook deliveries are verified against the exact raw request body using
+`x-zm-signature` and `x-zm-request-timestamp`. Configure `ZOOM_SECRET_TOKEN` with the
+Marketplace app's webhook Secret Token. Requests with missing, invalid, or stale
+signatures are rejected; the default replay window is 300 seconds and can be changed
+with `WEBHOOK_TIMESTAMP_TOLERANCE_SECONDS`.

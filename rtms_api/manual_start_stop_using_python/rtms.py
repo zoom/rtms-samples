@@ -5,6 +5,7 @@ import websockets
 import requests
 import hmac
 import hashlib
+import time
 from flask import Flask, request, jsonify
 from dotenv import load_dotenv
 import threading
@@ -21,16 +22,27 @@ MAX_DUPLICATE_SIGNAL_RETRIES = int(os.getenv("MAX_DUPLICATE_SIGNAL_RETRIES", "3"
 
 # Webhook endpoint configuration
 WEBHOOK_PATH = os.getenv("WEBHOOK_PATH", "/webhook")
+ZOOM_SECRET_TOKEN = os.getenv("ZOOM_SECRET_TOKEN")
 
 # Step 1: Webhook Receiver - Listen for meeting events
 @app.route(WEBHOOK_PATH, methods=['POST'])
 def webhook():
+    raw_body = request.get_data(cache=True)
     data = request.get_json()
     event = data.get('event')
     payload = data.get('payload')
     
     print(f'Webhook received: {event}')
     print(f'Payload: {json.dumps(payload, indent=2)}')
+
+    if event == 'endpoint.url_validation' and payload.get('plainToken'):
+        encrypted_token = hmac.new(
+            ZOOM_SECRET_TOKEN.encode(), payload['plainToken'].encode(), hashlib.sha256
+        ).hexdigest()
+        return jsonify({'plainToken': payload['plainToken'], 'encryptedToken': encrypted_token})
+
+    if not verify_zoom_webhook(raw_body):
+        return jsonify({'error': 'invalid_zoom_webhook'}), 500 if not ZOOM_SECRET_TOKEN else 401
 
     # Step 2a: Listen to meeting started event
     if event == 'meeting.started':
@@ -73,6 +85,22 @@ def webhook():
         # Open WebSocket connections will close naturally
 
     return jsonify({'status': 'success'}), 200
+
+def verify_zoom_webhook(raw_body):
+    signature = request.headers.get('x-zm-signature')
+    timestamp = request.headers.get('x-zm-request-timestamp')
+    if not ZOOM_SECRET_TOKEN or not signature or not timestamp:
+        return False
+    try:
+        timestamp_seconds = int(timestamp)
+        tolerance = int(os.getenv('WEBHOOK_TIMESTAMP_TOLERANCE_SECONDS', '300'))
+    except ValueError:
+        return False
+    if tolerance > 0 and abs(int(time.time()) - timestamp_seconds) > tolerance:
+        return False
+    message = b'v0:' + timestamp.encode() + b':' + raw_body
+    expected = 'v0=' + hmac.new(ZOOM_SECRET_TOKEN.encode(), message, hashlib.sha256).hexdigest()
+    return hmac.compare_digest(signature, expected)
 
 # Step 4: Generate Signature for authentication handshake
 def generate_signature(meeting_uuid, stream_id):

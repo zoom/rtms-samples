@@ -756,7 +756,10 @@ app.use((req, res, next) => {
   }
   next();
 });
-app.use(express.json({ limit: '2mb' }));
+app.use(express.json({
+  limit: '2mb',
+  verify: (req, _res, buffer) => { req.rawBody = Buffer.from(buffer); }
+}));
 app.use(express.static(path.join(__dirname, 'public'), {
   dotfiles: 'deny',
   setHeaders(res) {

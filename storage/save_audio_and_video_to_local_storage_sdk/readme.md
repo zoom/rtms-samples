@@ -111,3 +111,11 @@ docker run --rm --env-file storage/save_audio_and_video_to_local_storage_sdk/.en
 ```
 
 Run the build from the repository root because the Dockerfile uses repository-relative paths. Runtime secrets are supplied with `--env-file` and are excluded from the image build context. Mount the sample's generated output directory as a volume when recordings must survive container replacement.
+
+## Webhook Delivery Authentication
+
+Normal Zoom webhook deliveries are verified against the exact raw request body using
+`x-zm-signature` and `x-zm-request-timestamp`. Configure `ZM_RTMS_SECRET_TOKEN` with the
+Marketplace app's webhook Secret Token. Requests with missing, invalid, or stale
+signatures are rejected; the default replay window is 300 seconds and can be changed
+with `WEBHOOK_TIMESTAMP_TOLERANCE_SECONDS`.

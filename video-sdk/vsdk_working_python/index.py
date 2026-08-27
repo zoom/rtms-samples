@@ -4,6 +4,7 @@ import hmac
 import hashlib
 import logging
 import random
+import time
 from flask import Flask, request, jsonify
 from dotenv import load_dotenv
 import websocket
@@ -187,6 +188,7 @@ def connect_to_signaling_ws(session_id, stream_id, server_url):
 
 @app.route(WEBHOOK_PATH, methods=['POST'])
 def handle_webhook():
+    raw_body = request.get_data(cache=True)
     data = request.get_json(force=True)
     logger.debug(f"Received POST request at {WEBHOOK_PATH} with data: {json.dumps(data, indent=2)}")
 
@@ -196,6 +198,9 @@ def handle_webhook():
     if event == "endpoint.url_validation" and payload.get("plainToken"):
         hash_ = hmac.new(ZOOM_SECRET_TOKEN.encode(), payload["plainToken"].encode(), hashlib.sha256).hexdigest()
         return jsonify({"plainToken": payload["plainToken"], "encryptedToken": hash_})
+
+    if not verify_zoom_webhook(raw_body):
+        return jsonify({"error": "invalid_zoom_webhook"}), 500 if not ZOOM_SECRET_TOKEN else 401
 
     if event == "session.rtms_started":
         session_id = payload.get("session_id")
@@ -218,6 +223,22 @@ def handle_webhook():
             del active_connections[session_id]
 
     return '', 200
+
+def verify_zoom_webhook(raw_body):
+    signature = request.headers.get('x-zm-signature')
+    timestamp = request.headers.get('x-zm-request-timestamp')
+    if not ZOOM_SECRET_TOKEN or not signature or not timestamp:
+        return False
+    try:
+        timestamp_seconds = int(timestamp)
+        tolerance = int(os.getenv('WEBHOOK_TIMESTAMP_TOLERANCE_SECONDS', '300'))
+    except ValueError:
+        return False
+    if tolerance > 0 and abs(int(time.time()) - timestamp_seconds) > tolerance:
+        return False
+    message = b'v0:' + timestamp.encode() + b':' + raw_body
+    expected = 'v0=' + hmac.new(ZOOM_SECRET_TOKEN.encode(), message, hashlib.sha256).hexdigest()
+    return hmac.compare_digest(signature, expected)
 
 if __name__ == '__main__':
     app.run(host='0.0.0.0', port=PORT)

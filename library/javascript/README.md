@@ -10,11 +10,10 @@ npm install ws express
 
 ```javascript
 import { RTMSManager } from './rtmsManager/index.js';
-import crypto from 'node:crypto';
+import { WebhookManager } from './webhookManager/WebhookManager.js';
 import express from 'express';
 
 const app = express();
-app.use(express.json());
 
 // 1. Initialize
 await RTMSManager.init({
@@ -42,26 +41,24 @@ RTMSManager.on('error', (error) => {
   console.error(error.toString());  // Pretty-printed with causes & fixes
 });
 
-// 3. Webhook endpoint
-app.post('/webhook', (req, res) => {
-  const { event, payload } = req.body;
-  
-  // Handle URL validation challenge
-  if (event === 'endpoint.url_validation') {
-    const hashForValidate = crypto
-      .createHmac('sha256', process.env.ZOOM_SECRET_TOKEN)
-      .update(payload.plainToken)
-      .digest('hex');
-    return res.json({ plainToken: payload.plainToken, encryptedToken: hashForValidate });
+// 3. Authenticated webhook endpoint
+const webhook = new WebhookManager({
+  app,
+  config: {
+    webhookPath: '/webhook',
+    zoomSecretToken: process.env.ZOOM_SECRET_TOKEN
   }
-  
-  // Feed RTMS events to manager
-  RTMSManager.handleEvent(event, payload);
-  res.status(200).send();
 });
+webhook.on('event', (event, payload) => {
+  RTMSManager.handleEvent(event, payload);
+});
+webhook.setup();
 
 app.listen(3000);
 ```
+
+Normal deliveries are verified against the exact raw body using `x-zm-signature`
+and `x-zm-request-timestamp`. The default replay window is 300 seconds.
 
 ## Media Types
 

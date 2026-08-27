@@ -2,6 +2,7 @@ import HelperManager, { VideoGapFiller } from '../../library/javascript/commonHe
 import { saveToAzure } from './AzureStorageHelper.js';
 import dotenv from 'dotenv';
 import rtms from "@zoom/rtms";
+import { startAuthenticatedWebhookServer } from './authenticatedWebhookServer.js';
 
 dotenv.config();
 
@@ -13,7 +14,7 @@ function setVideoParamsCompat(client, params) {
 
 const meetingState = new Map();
 
-rtms.onWebhookEvent(async ({ event, payload }) => {
+startAuthenticatedWebhookServer(async ({ event, payload }) => {
     console.log(`Received webhook event: ${event}`);
 
     if (event === "meeting.rtms_started") {

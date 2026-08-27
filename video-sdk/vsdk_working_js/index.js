@@ -8,6 +8,7 @@ import dotenv from 'dotenv';
 import crypto from 'crypto';
 import { constants } from 'crypto';
 import fs from 'fs';
+import { authenticateZoomWebhook, captureRawBody } from './webhookSignature.js';
 
 dotenv.config();
 
@@ -974,7 +975,7 @@ function connectToSignalingWebSocket(
 const app = express();
 const port = config.port;
 
-app.use(express.json());
+app.use(express.json({ verify: captureRawBody }));
 
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = path.dirname(__filename);
@@ -995,7 +996,7 @@ app.get('/', (req, res) => {
 console.log("Webhook mode activated");
 console.log(`Webhook endpoint: ${config.webhookPath}`);
 
-app.post(config.webhookPath, async (req, res) => {
+app.post(config.webhookPath, authenticateZoomWebhook(config.zoomSecretToken), async (req, res) => {
   console.log('Webhook request received');
   console.log(`Request method: ${req.method}`);
   console.log(`Request URL: ${req.url}`);

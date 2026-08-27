@@ -7,6 +7,7 @@ import dotenv from 'dotenv';
 dotenv.config();
 // Import the RTMS SDK
 import rtms from "@zoom/rtms";
+import { startAuthenticatedWebhookServer } from './authenticatedWebhookServer.js';
 
 function setVideoParamsCompat(client, params) {
     if (typeof client.setVideoParams === "function") return client.setVideoParams(params);
@@ -17,7 +18,7 @@ function setVideoParamsCompat(client, params) {
 let meetingUUID;
 
 // Set up webhook event handler to receive RTMS events from Zoom
-rtms.onWebhookEvent(({ event, payload }) => {
+startAuthenticatedWebhookServer(({ event, payload }) => {
     console.log(`Received webhook event: ${event}`);
 
     if (event === "meeting.rtms_started") {
