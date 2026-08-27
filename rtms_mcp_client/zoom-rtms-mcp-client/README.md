@@ -6,10 +6,22 @@ This sample streams Zoom meeting transcripts through RTMS, sends bounded transcr
 
 The project contains two services:
 
-- `mcp_client`: public webhook receiver and RTMS transcript WebSocket client, port `3000`
-- `llm-router-server`: private MCP router for Claude and Zoom's hosted MCP server, port `3100`
+| Service | Default port | Purpose |
+|---|---:|---|
+| `mcp_client` | `3000` | Authenticates Zoom webhooks, connects to RTMS transcript media, and batches transcript text per stream. |
+| `llm-router-server` | `3100` | Calls Claude and an allowlisted subset of tools discovered from Zoom's hosted MCP server. |
 
 The router calls `tools/list` against the configured official Zoom MCP endpoint and rejects every discovered tool not present in `ZOOM_MCP_ALLOWED_TOOLS`.
+
+```text
+Zoom webhook
+    -> RTMS transcript WebSocket
+    -> mcp_client
+    -> authenticated private MCP request
+    -> llm-router-server
+    -> Claude
+    -> official Zoom hosted MCP server
+```
 
 ## Security Model
 
