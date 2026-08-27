@@ -20,6 +20,7 @@
 
     <properties>
         <java.version>17</java.version>
+        <jackson-bom.version>2.18.8</jackson-bom.version>
     </properties>
 
     <dependencies>
