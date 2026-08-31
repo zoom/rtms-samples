@@ -3,11 +3,15 @@
 #include <vector>
 #include <algorithm>
 #include <cctype>
+#include <cstdlib>
+#include <atomic>
+#include <csignal>
 #include "utils.h"
 #include "nlohmann/json.hpp"
 #include <websocketpp/config/asio_client.hpp>
 #include <websocketpp/client.hpp>
 #include <boost/asio/ssl/context.hpp>
+#include <boost/asio/signal_set.hpp>
 
 #include "signaling_ws.h"
 #include "media_ws.h"
@@ -74,6 +78,21 @@ void on_message_event(client* c, websocketpp::connection_hdl hdl, message_ptr ms
 void connect_to_event_server(const std::string& url) {
     client c;
     c.init_asio();
+    std::atomic<bool> stopping{false};
+    websocketpp::connection_hdl event_handle;
+    bool connected = false;
+    std::thread heartbeat_thread;
+
+    boost::asio::signal_set signals(c.get_io_service(), SIGINT, SIGTERM);
+    signals.async_wait([&](const boost::system::error_code& error, int signal_number) {
+        if (error) return;
+        std::cout << "Received signal " << signal_number << "; shutting down\n";
+        stopping = true;
+        if (connected) {
+            websocketpp::lib::error_code close_error;
+            c.close(event_handle, websocketpp::close::status::normal, "Server shutdown", close_error);
+        }
+    });
 
     c.set_tls_init_handler([](websocketpp::connection_hdl) {
         return websocketpp::lib::make_shared<boost::asio::ssl::context>(
@@ -88,9 +107,11 @@ void connect_to_event_server(const std::string& url) {
 
     // 🫀 Handle connection open: send initial heartbeat + start periodic thread
     c.set_open_handler([&](websocketpp::connection_hdl hdl) {
+        event_handle = hdl;
+        connected = true;
         std::cout << "✅ Event WebSocket connected — starting heartbeat\n";
 
-        std::thread([&c, hdl]() {
+        heartbeat_thread = std::thread([&c, hdl, &stopping]() {
             try {
                 json initial = {{"module", "heartbeat"}};
                 c.send(hdl, initial.dump(), websocketpp::frame::opcode::text);
@@ -100,8 +121,11 @@ void connect_to_event_server(const std::string& url) {
                 return;
             }
 
-            while (true) {
-                std::this_thread::sleep_for(std::chrono::seconds(30));
+            while (!stopping) {
+                for (int elapsed = 0; elapsed < 30 && !stopping; ++elapsed) {
+                    std::this_thread::sleep_for(std::chrono::seconds(1));
+                }
+                if (stopping) break;
                 try {
                     json hb = {{"module", "heartbeat"}};
                     c.send(hdl, hb.dump(), websocketpp::frame::opcode::text);
@@ -111,7 +135,12 @@ void connect_to_event_server(const std::string& url) {
                     break;
                 }
             }
-        }).detach();
+        });
+    });
+
+    c.set_close_handler([&](websocketpp::connection_hdl) {
+        connected = false;
+        stopping = true;
     });
 
     // Connect
@@ -124,18 +153,27 @@ void connect_to_event_server(const std::string& url) {
 
     c.connect(con);
     c.run(); // blocking
+    stopping = true;
+    if (heartbeat_thread.joinable()) heartbeat_thread.join();
 }
 
 int main() {
     auto env = load_env(".env");
 
-    CLIENT_ID = env["CLIENT_ID"];
-    CLIENT_SECRET = env["CLIENT_SECRET"];
-    if (env.count("MEDIA_TYPES_FLAG")) {
-        MEDIA_TYPES_FLAG = std::stoi(env["MEDIA_TYPES_FLAG"]);
+    const auto config_value = [&env](const std::string& key) {
+        const char* process_value = std::getenv(key.c_str());
+        return process_value ? std::string(process_value) : env[key];
+    };
+
+    CLIENT_ID = config_value("CLIENT_ID");
+    CLIENT_SECRET = config_value("CLIENT_SECRET");
+    const auto media_types_flag = config_value("MEDIA_TYPES_FLAG");
+    if (!media_types_flag.empty()) {
+        MEDIA_TYPES_FLAG = std::stoi(media_types_flag);
     }
-    if (env.count("MEDIA_SOCKET_CONNECTION_MODE")) {
-        MEDIA_SOCKET_CONNECTION_MODE = env["MEDIA_SOCKET_CONNECTION_MODE"];
+    const auto media_socket_connection_mode = config_value("MEDIA_SOCKET_CONNECTION_MODE");
+    if (!media_socket_connection_mode.empty()) {
+        MEDIA_SOCKET_CONNECTION_MODE = media_socket_connection_mode;
         std::transform(
             MEDIA_SOCKET_CONNECTION_MODE.begin(), MEDIA_SOCKET_CONNECTION_MODE.end(),
             MEDIA_SOCKET_CONNECTION_MODE.begin(), ::tolower);
@@ -159,7 +197,7 @@ int main() {
     std::cout << "Media mode=" << MEDIA_SOCKET_CONNECTION_MODE
               << " media types=" << MEDIA_TYPES_FLAG << std::endl;
 
-    std::string base_ws_url = env["ZOOM_EVENT_WS"];
+    std::string base_ws_url = config_value("ZOOM_EVENT_WS");
     std::cout << "EVENT WS = [" << base_ws_url << "]" << std::endl;
     
     std::string access_token = get_zoom_access_token(CLIENT_ID, CLIENT_SECRET);

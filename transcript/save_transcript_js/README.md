@@ -1,157 +1,95 @@
-# Save Transcript to VTT/SRT/TXT
+# Capture Zoom Meeting Transcripts with RTMS
 
-Capture real-time Zoom meeting transcripts and save them in VTT, SRT, and plain text formats.
-
-> **Built with [RTMSManager](../../library/README.md)** - Zoom's JavaScript library for real-time media streaming.
-
-## Quick Start
-
-```bash
-npm install
-cp .env.example .env   # Fill in your credentials
-node index.js
-```
-
-Expose with ngrok: `ngrok http 3000`
-
-## What This Sample Does
-
-This sample captures live transcript data from Zoom meetings via RTMS and automatically saves them in three formats: WebVTT (.vtt), SubRip (.srt), and plain text (.txt). Each meeting's transcripts are stored in a dedicated folder named by the meeting UUID, with accurate timestamps for subtitle synchronization.
+This sample receives live Zoom meeting transcripts through RTMS and persists each stream as WebVTT, SubRip, plain text, and a canonical JSON Lines event log. It supports concurrent meetings, duplicate-event suppression, restart recovery, and configurable retention.
 
 ## Prerequisites
 
-- Node.js v18+
-- Zoom account with RTMS enabled
-- ngrok for local development
+- Node.js 22 or newer
+- A Zoom app with RTMS enabled
+- Event subscriptions for `meeting.rtms_started` and `meeting.rtms_stopped`
+- A public HTTPS webhook endpoint during local development
 
-## Environment Variables
+See [Zoom App Setup](../../ZOOM_APP_SETUP.md) and the [RTMSManager documentation](../../library/README.md) for the shared Marketplace and RTMS configuration.
 
-| Variable | Required | Description |
-|----------|----------|-------------|
-| `ZOOM_SECRET_TOKEN` | Yes | Secret token for webhook URL validation |
-| `ZOOM_CLIENT_ID` | Yes | Your Zoom app's Client ID |
-| `ZOOM_CLIENT_SECRET` | Yes | Your Zoom app's Client Secret |
-| `PORT` | No | Server port (default: 3000) |
-| `WEBHOOK_PATH` | No | Webhook endpoint path (default: `/webhook`) |
+## Setup
 
-## Code Walkthrough
-
-### 1. Initialize RTMSManager
-
-```javascript
-const rtmsConfig = {
-  logging: {
-    enabled: true,
-    logDir: path.join(__dirname, 'logs'),
-    console: true
-  },
-  mediaSocketConnectionMode: process.env.MEDIA_SOCKET_CONNECTION_MODE || 'split',
-  mediaTypes: RTMSManager.MEDIA.TRANSCRIPT,
-  credentials: {
-    meeting: {
-      clientId: process.env.ZOOM_CLIENT_ID,
-      clientSecret: process.env.ZOOM_CLIENT_SECRET,
-      zoomSecretToken: process.env.ZOOM_SECRET_TOKEN,
-    }
-  },
-  mediaParams: {
-    transcript: {
-      contentType: MEDIA_PARAMS.MEDIA_CONTENT_TYPE_TEXT,
-      language: MEDIA_PARAMS.LANGUAGE_ID_ENGLISH,
-    }
-  }
-};
-
-await RTMSManager.init(rtmsConfig);
+```bash
+npm install
+cp .env.example .env
+node index.js
 ```
 
-### 2. Set Up Webhook Handler
+Configure the Marketplace webhook endpoint as your public base URL plus `WEBHOOK_PATH`, for example `https://example.ngrok.app/webhook`.
 
-```javascript
-const webhookManager = new WebhookManager({
-  config: {
-    webhookPath: process.env.WEBHOOK_PATH || '/webhook',
-    zoomSecretToken: rtmsConfig.credentials.meeting.zoomSecretToken,
-  },
-  app: app
-});
+## Configuration
 
-webhookManager.on('event', (event, payload) => {
-  console.log('[save_transcript] Webhook Event:', event);
-  RTMSManager.handleEvent(event, payload);
-});
+| Variable | Default | Purpose |
+|---|---:|---|
+| `ZOOM_SECRET_TOKEN` | required | Validates webhook challenges and signed deliveries |
+| `ZOOM_CLIENT_ID` | required | Zoom app client ID used by RTMS |
+| `ZOOM_CLIENT_SECRET` | required | Zoom app client secret used by RTMS |
+| `PORT` | `3000` | HTTP server port |
+| `WEBHOOK_PATH` | `/webhook` | Zoom webhook route |
+| `WEBHOOK_TIMESTAMP_TOLERANCE_SECONDS` | `300` | Maximum age of a signed webhook |
+| `MEDIA_SOCKET_CONNECTION_MODE` | `split` | RTMS media socket mode |
+| `TRANSCRIPT_OUTPUT_DIR` | `recordings` | Output directory, resolved from this sample folder |
+| `TRANSCRIPT_RETENTION_DAYS` | `30` | Delete inactive stream folders older than this; `0` disables deletion |
+| `TRANSCRIPT_CLEANUP_INTERVAL_HOURS` | `6` | Cleanup frequency; `0` disables scheduled cleanup |
+| `TRANSCRIPT_DEDUP_WINDOW_EVENTS` | `10000` | Recent event fingerprints retained per active or recovered stream |
 
-webhookManager.setup();
+Transcript files can contain meeting content and participant names. Set retention according to your privacy and compliance requirements and restrict access to `TRANSCRIPT_OUTPUT_DIR`.
+
+## Storage Layout
+
+Each `rtms_stream_id` has independent timing, counters, writes, and deduplication state:
+
+```text
+recordings/
+  <meeting-id-and-hash>/
+    <stream-id-and-hash>/
+      events.jsonl
+      metadata.json
+      transcript.vtt
+      transcript.srt
+      transcript.txt
 ```
 
-### 3. Handle Transcript Events
+The hashes prevent different IDs that sanitize to the same filesystem name from colliding. Participant names and transcript text are normalized and escaped before they are placed in VTT or SRT cues.
 
-```javascript
-RTMSManager.on('transcript', (payload) => {
-  console.log('='.repeat(60));
-  console.log('[TRANSCRIPT PAYLOAD]', JSON.stringify(payload, null, 2));
-  console.log('='.repeat(60));
-  
-  const { text, userName, timestamp, meetingId, startTime, endTime } = payload;
-  writeTranscriptToVtt(userName, text, meetingId, startTime, endTime, timestamp);
-});
+`events.jsonl` is the canonical append-only record. On first use after a process restart, the sample reads this log, removes an incomplete trailing record if necessary, restores the SRT counter and timing origin, restores the configured deduplication window, and rebuilds VTT/SRT/TXT. This also repairs projections left partially written by a crash.
 
-RTMSManager.on('meeting.rtms_started', (payload) => {
-  console.log('[save_transcript] RTMS Started:', payload.meeting_uuid);
-});
+All filesystem work uses asynchronous APIs. Events for one stream are serialized to preserve order, while separate streams can write concurrently. Duplicate fingerprints are ignored before another subtitle cue is appended.
 
-RTMSManager.on('meeting.rtms_stopped', (payload) => {
-  console.log('[save_transcript] RTMS Stopped:', payload.meeting_uuid);
-});
+## Webhook Security
+
+Normal webhook deliveries are verified against the exact raw request body using `x-zm-signature`, `x-zm-request-timestamp`, and `ZOOM_SECRET_TOKEN`. Missing, invalid, or stale signatures are rejected. Verified normal deliveries receive HTTP 200 before RTMS processing begins. URL-validation challenges are signed with the same secret token.
+
+## Testing
+
+```bash
+npm test
 ```
 
-### 4. Start the Server
+The tests cover concurrent stream isolation, VTT/SRT escaping, replay deduplication, restart recovery, and retention cleanup.
 
-```javascript
-await RTMSManager.start();
+## Docker
 
-server.listen(appConfig.port, () => {
-  console.log(`[save_transcript] Server listening on port ${appConfig.port}`);
-  console.log(`[save_transcript] Webhook endpoint: http://localhost:${appConfig.port}${process.env.WEBHOOK_PATH || '/webhook'}`);
-});
+Build from the repository root because the multi-stage Dockerfile copies the shared JavaScript library:
+
+```bash
+docker build -f transcript/save_transcript_js/Dockerfile -t rtms-save-transcript .
+docker run --rm \
+  --env-file transcript/save_transcript_js/.env \
+  -p 3000:3000 \
+  -v rtms-transcripts:/app/recordings \
+  rtms-save-transcript
 ```
+
+The volume is required if transcript files must survive container replacement. Runtime secrets are supplied through `--env-file` and are not copied into the image.
 
 ## Key Files
 
-| File | Purpose |
-|------|---------|
-| `index.js` | Main application entry point, sets up RTMSManager and webhook handling |
-| `writeTranscriptToVtt.js` | Utility functions to format and save transcripts in VTT, SRT, and TXT formats |
-
-## How It Works
-
-1. Server starts and initializes RTMSManager with transcript media type (flag 32)
-2. WebhookManager listens for Zoom webhook events on the configured endpoint
-3. When a meeting with RTMS starts, `meeting.rtms_started` event triggers connection setup
-4. RTMSManager automatically handles WebSocket connections and authentication
-5. As participants speak, transcript events are emitted with text, speaker info, and timestamps
-6. `writeTranscriptToVtt()` saves each transcript segment to VTT, SRT, and TXT files
-7. Files are organized in `recordings/{meetingUUID}/` folders
-8. When the meeting ends, `meeting.rtms_stopped` closes connections gracefully
-
-## Troubleshooting
-
-**No transcript files generated**
-- Verify the `recordings/` folder exists in the project root
-- Check that your Zoom app has RTMS scopes enabled
-- Ensure the webhook URL is correctly configured in the Zoom app
-
-**Connection issues**
-- Verify ngrok is running and the tunnel is active
-- Check that Zoom app credentials in `.env` are correct
-- Ensure the webhook endpoint is accessible from the internet
-
-**Empty or missing timestamps**
-- Confirm `startTime` and `endTime` are being received in the payload
-- Check console logs for the full transcript payload structure
-
-## See Also
-
-- [RTMSManager Library Docs](../../library/README.md) - Full API reference
-- [Zoom App Setup Guide](../../ZOOM_APP_SETUP.md) - Configure your Zoom app
-- [Troubleshooting Guide](../../TROUBLESHOOTING.md) - Common issues
+- `index.js`: HTTP server, signed webhook handling, and RTMS event wiring
+- `writeTranscriptToVtt.js`: isolated asynchronous transcript storage and recovery
+- `writeTranscriptToVtt.test.js`: persistence and safety tests
+- `.env.example`: complete configuration template

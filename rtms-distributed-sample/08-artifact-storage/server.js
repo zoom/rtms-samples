@@ -1,4 +1,5 @@
 import dotenv from 'dotenv';
+import { installGracefulShutdown } from '../shared/gracefulShutdown.js';
 import express from 'express';
 import {
   createArtifactRecord,
@@ -116,6 +117,8 @@ function parseMetadataHeader(value) {
   }
 }
 
-app.listen(port, () => {
+const server = app.listen(port, () => {
   logger.info(`[08-artifact-storage] listening on http://127.0.0.1:${port} provider=${storage.health().provider}`);
 });
+
+installGracefulShutdown({ name: 'artifact-storage', server, cleanup: async () => logger.stop?.() });

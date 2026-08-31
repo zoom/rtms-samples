@@ -5,6 +5,7 @@ import dotenv from 'dotenv';
 import path from 'path';
 import { fileURLToPath } from 'url';
 import express from 'express';
+import { closeHttpServer, installGracefulShutdown } from '../../library/javascript/commonHelpers/gracefulShutdown.js';
 import http from 'http';
 
 const __filename = fileURLToPath(import.meta.url);
@@ -107,9 +108,7 @@ server.listen(appConfig.port, () => {
   console.log(`[detect_emotion] Webhook endpoint: http://localhost:${appConfig.port}${process.env.WEBHOOK_PATH || '/webhook'}`);
 });
 
-process.on('SIGINT', async () => {
-  console.log('[detect_emotion] Shutting down...');
-  server.close();
+installGracefulShutdown({ name: 'detect_emotion', cleanup: async () => {
+  await closeHttpServer(server);
   await RTMSManager.stop();
-  process.exit(0);
-});
+} });

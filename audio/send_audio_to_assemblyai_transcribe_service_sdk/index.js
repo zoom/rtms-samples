@@ -11,11 +11,13 @@ import { sendAudioChunk, initializeAudioCollection, cleanupMeeting, closeAssembl
 
 // Load secrets from .env
 import dotenv from 'dotenv';
+import { closeHttpServer, installGracefulShutdown } from '../../library/javascript/commonHelpers/gracefulShutdown.js';
 dotenv.config();
 
 
 // Import the RTMS SDK
 import rtms from "@zoom/rtms";
+import { startAuthenticatedWebhookServer } from './authenticatedWebhookServer.js';
 
 function setAudioParamsCompat(client, params) {
   if (typeof client.setAudioParams === "function") return client.setAudioParams(params);
@@ -29,8 +31,10 @@ function setVideoParamsCompat(client, params) {
   throw new Error("RTMS SDK client missing setVideoParams/setVideoParameters");
 }
 
+const clients = new Map();
+
 // Set up webhook event handler to receive RTMS events from Zoom
-rtms.onWebhookEvent(({ event, payload }) => {
+const webhookServer = startAuthenticatedWebhookServer(({ event, payload }) => {
   console.log(`📡 Received webhook event: ${event}`);
 
   // Handle meeting start
@@ -42,6 +46,7 @@ rtms.onWebhookEvent(({ event, payload }) => {
 
     // Create a client instance for this specific meeting
     const client = new rtms.Client();
+    clients.set(payload.meeting_uuid, client);
 
 
     // client.setAudioParameters({
@@ -101,16 +106,20 @@ rtms.onWebhookEvent(({ event, payload }) => {
 
     // Cleanup AssemblyAI for this meeting
     cleanupMeeting(payload.meeting_uuid);
+    const client = clients.get(payload.meeting_uuid);
+    if (client) void Promise.resolve(client.leave());
+    clients.delete(payload.meeting_uuid);
   } else {
     console.log(`📋 Received event ${event}, ignoring...`);
   }
 });
 
 // Graceful shutdown
-process.on('SIGINT', async () => {
-  console.log('\n🛑 Shutting down...');
+installGracefulShutdown({ name: 'AssemblyAI SDK', cleanup: async () => {
+  await closeHttpServer(webhookServer);
+  await Promise.allSettled([...clients.values()].map((client) => Promise.resolve(client.leave())));
+  clients.clear();
   await closeAssemblyTranscription();
-  process.exit(0);
-});
+} });
 
 console.log('🚀 RTMS SDK service ready for webhook events!');

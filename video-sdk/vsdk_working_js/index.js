@@ -1,4 +1,5 @@
 import express from 'express';
+import { closeHttpServer, closeWebSocket, installGracefulShutdown } from '../../library/javascript/commonHelpers/gracefulShutdown.js';
 import WebSocket from 'ws';
 import path from 'path';
 import { fileURLToPath } from 'url';
@@ -8,6 +9,7 @@ import dotenv from 'dotenv';
 import crypto from 'crypto';
 import { constants } from 'crypto';
 import fs from 'fs';
+import { authenticateZoomWebhook, captureRawBody } from './webhookSignature.js';
 
 dotenv.config();
 
@@ -974,7 +976,7 @@ function connectToSignalingWebSocket(
 const app = express();
 const port = config.port;
 
-app.use(express.json());
+app.use(express.json({ verify: captureRawBody }));
 
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = path.dirname(__filename);
@@ -995,7 +997,7 @@ app.get('/', (req, res) => {
 console.log("Webhook mode activated");
 console.log(`Webhook endpoint: ${config.webhookPath}`);
 
-app.post(config.webhookPath, async (req, res) => {
+app.post(config.webhookPath, authenticateZoomWebhook(config.zoomSecretToken), async (req, res) => {
   console.log('Webhook request received');
   console.log(`Request method: ${req.method}`);
   console.log(`Request URL: ${req.url}`);
@@ -1095,3 +1097,15 @@ server.listen(port, () => {
   console.log(`Webhook available at http://localhost:${port}${config.webhookPath}`);
   console.log(`Frontend WebSocket available at ws://localhost:${port}/ws`);
 });
+
+installGracefulShutdown({ name: 'Video SDK RTMS', cleanup: async () => {
+  const sockets = [];
+  for (const conn of activeConnections.values()) {
+    conn.shouldReconnect = false;
+    if (conn.signaling?.socket) sockets.push(conn.signaling.socket);
+    if (conn.media?.socket) sockets.push(conn.media.socket);
+  }
+  await Promise.allSettled(sockets.map(closeWebSocket));
+  activeConnections.clear();
+  await closeHttpServer(server);
+} });

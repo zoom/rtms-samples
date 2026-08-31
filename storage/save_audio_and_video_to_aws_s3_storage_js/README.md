@@ -1,220 +1,154 @@
-# Save Audio and Video to AWS S3 Storage
+# Archive Zoom Meeting Media to Amazon S3
 
-Record Zoom meeting audio and video streams and upload them to Amazon S3 for cloud storage.
+This sample records mixed Zoom meeting audio and active-speaker video through RTMS, finalizes the media with FFmpeg, and uploads it to Amazon S3 through a durable, recoverable queue.
 
-> **Built with [RTMSManager](../../library/README.md)** - Zoom's JavaScript library for real-time media streaming.
+## Architecture
 
-## Quick Start
+1. RTMS audio and video are written to stream-specific local files.
+2. `meeting.rtms_stopped` stops the video filler and explicitly flushes that stream's files.
+3. A durable job is atomically written under `recordings/.upload-queue`.
+4. FFmpeg converts PCM and H.264 and creates `mixed_final.mp4` when both tracks exist.
+5. Finalized files are streamed to S3. Large files use multipart upload with bounded concurrency.
+6. Completed and failed local media is cleaned according to the configured retention policy.
 
-```bash
-npm install
-cp .env.example .env   # Fill in your credentials
-node index.js
-```
-
-Expose with ngrok: `ngrok http 3000`
-
-## What This Sample Does
-
-This sample captures real-time audio and video streams from Zoom meetings using RTMS. Media is first saved locally during the meeting, then converted to MP4 using FFmpeg when the meeting ends. The final recordings (.wav, .mp4, .vtt, .srt, .txt files) are automatically uploaded to your AWS S3 bucket, organized by meeting UUID and stream ID.
+There is no fixed post-meeting delay. Different meetings have independent write streams, and stopping one stream does not close another meeting's files.
 
 ## Prerequisites
 
-- Node.js v18+
-- Zoom account with RTMS enabled
-- FFmpeg installed and accessible in your PATH
-- AWS account with S3 bucket configured
-- AWS credentials with S3 write permissions
-- ngrok for local development
+- Node.js 22 or newer
+- A Zoom app with RTMS enabled
+- Event subscriptions for `meeting.rtms_started` and `meeting.rtms_stopped`, or a configured Zoom event WebSocket
+- An existing S3 bucket
+- FFmpeg on `PATH` for direct host execution
 
-## Environment Variables
+The Docker image installs a pinned Debian FFmpeg package, so a separate FFmpeg installation is not required in the container.
 
-| Variable | Required | Description |
-|----------|----------|-------------|
-| `ZOOM_SECRET_TOKEN` | Yes | Secret token for webhook URL validation |
-| `ZOOM_CLIENT_ID` | Yes | Zoom OAuth client ID |
-| `ZOOM_CLIENT_SECRET` | Yes | Zoom OAuth client secret |
-| `AWS_REGION` | Yes | AWS region (e.g., `us-east-1`) |
-| `AWS_ACCESS_KEY_ID` | Yes | AWS access key ID |
-| `AWS_SECRET_ACCESS_KEY` | Yes | AWS secret access key |
-| `S3_BUCKET` | Yes | Name of your S3 bucket |
-| `PORT` | No | Server port (default: 3000) |
-| `WEBHOOK_PATH` | No | Webhook endpoint path (default: `/webhook`) |
-| `RTMSTRIGGERMANAGERTYPE` | No | Event trigger type: `webhook` or `websocket` (default: `webhook`) |
-| `zoomWSURLForEvents` | No | WebSocket URL for events (required if using websocket mode) |
-| `ZOOM_S2S_CLIENT_ID` | No | Server-to-server OAuth client ID |
-| `ZOOM_S2S_CLIENT_SECRET` | No | Server-to-server OAuth client secret |
-| `ZOOM_ACCOUNT_ID` | No | Zoom account ID for S2S OAuth |
-| `VIDEO_CLIENT_ID` | No | Video SDK client ID (for Video SDK events) |
-| `VIDEO_CLIENT_SECRET` | No | Video SDK client secret |
-| `VIDEO_SECRET_TOKEN` | No | Video SDK webhook secret token |
-| `MEDIA_SOCKET_CONNECTION_MODE` | No | Socket mode: `split` or `combined` (default: `split`) |
-| `MEDIA_TYPES_FLAG` | No | Media types bitmask: 1=audio, 2=video, 3=both (default: `3`) |
+## Setup
 
-## Code Walkthrough
-
-### 1. Initialize RTMSManager
-
-```javascript
-const rtmsConfig = {
-  logging: process.env.LOG_LEVEL || 'info',
-  logDir: path.join(__dirname, 'logs'),
-  mediaSocketConnectionMode: process.env.MEDIA_SOCKET_CONNECTION_MODE || 'split',
-  mediaTypesFlag: parseInt(process.env.MEDIA_TYPES_FLAG || '3'),
-  credentials: {
-    meeting: {
-      clientId: process.env.ZOOM_CLIENT_ID,
-      clientSecret: process.env.ZOOM_CLIENT_SECRET,
-      zoomSecretToken: process.env.ZOOM_SECRET_TOKEN,
-    },
-    video: {
-      videoClientId: process.env.VIDEO_CLIENT_ID,
-      videoClientSecret: process.env.VIDEO_CLIENT_SECRET,
-      videoSecretToken: process.env.VIDEO_SECRET_TOKEN,
-    },
-    s2s: s2sCredentials,
-    websocket: websocketCredentials
-  },
-  mediaParams: {
-    audio: {
-      contentType: MEDIA_PARAMS.MEDIA_CONTENT_TYPE_RAW_AUDIO,
-      sampleRate: MEDIA_PARAMS.AUDIO_SAMPLE_RATE_SR_16K,
-      channel: MEDIA_PARAMS.AUDIO_CHANNEL_MONO,
-      codec: MEDIA_PARAMS.MEDIA_PAYLOAD_TYPE_L16,
-      dataOpt: MEDIA_PARAMS.MEDIA_DATA_OPTION_AUDIO_MIXED_STREAM,
-      sendRate: 20,
-    },
-    video: {
-      contentType: MEDIA_PARAMS.MEDIA_CONTENT_TYPE_RAW_VIDEO,
-      codec: MEDIA_PARAMS.MEDIA_PAYLOAD_TYPE_H264,
-      dataOpt: MEDIA_PARAMS.MEDIA_DATA_OPTION_VIDEO_SINGLE_ACTIVE_STREAM,
-      resolution: MEDIA_PARAMS.MEDIA_RESOLUTION_HD,
-      fps: 25,
-    },
-  }
-};
-
-await RTMSManager.init(rtmsConfig);
+```bash
+npm ci
+cp .env.example .env
+node index.js
 ```
 
-### 2. Set Up Webhook Handler
+For webhook mode, configure the Marketplace webhook endpoint as your public base URL plus `WEBHOOK_PATH`.
 
-```javascript
-const webhookManager = new WebhookManager({
-  config: {
-    webhookPath: process.env.WEBHOOK_PATH || '/',
-    zoomSecretToken: rtmsConfig.credentials.meeting.zoomSecretToken,
-    videoSecretToken: rtmsConfig.credentials.video?.videoSecretToken
-  },
-  app: app
-});
+## AWS Authentication
 
-webhookManager.on('event', (event, payload) => {
-  console.log('[Consumer] Webhook Event:', event, payload);
-  RTMSManager.handleEvent(event, payload);
-});
+The code does not set an AWS credential provider. `S3Client` uses the standard AWS SDK for JavaScript credential-provider chain, including:
 
-webhookManager.setup();
+- IAM roles for ECS tasks or EC2 instances
+- Web identity credentials for EKS and other OIDC environments
+- IAM Identity Center and shared AWS config/credential files
+- `credential_process`
+- Standard `AWS_ACCESS_KEY_ID`, `AWS_SECRET_ACCESS_KEY`, and optional session-token variables
+
+Prefer short-lived role credentials over static keys. `AWS_PROFILE` can select a local shared profile. See [AWS SDK credential configuration](https://docs.aws.amazon.com/sdk-for-javascript/v3/developer-guide/setting-credentials-node.html).
+
+Uploads require:
+
+- `s3:PutObject`
+- `s3:AbortMultipartUpload`
+
+Add `s3:ListBucketMultipartUploads` and `s3:ListMultipartUploadParts` only if your operational tooling lists incomplete multipart uploads.
+
+SSE-KMS also requires appropriate `kms:GenerateDataKey` and `kms:Decrypt` access to the configured key.
+
+## Configuration
+
+### Zoom and Runtime
+
+| Variable | Default | Purpose |
+|---|---:|---|
+| `ZOOM_SECRET_TOKEN` | required | Verifies Zoom webhook deliveries |
+| `ZOOM_CLIENT_ID` | required | Zoom app client ID |
+| `ZOOM_CLIENT_SECRET` | required | Zoom app client secret |
+| `PORT` | `3000` | HTTP port |
+| `WEBHOOK_PATH` | `/webhook` | Webhook route |
+| `WEBHOOK_TIMESTAMP_TOLERANCE_SECONDS` | `300` | Signed-webhook replay window |
+| `RTMSTRIGGERMANAGERTYPE` | `webhook` | `webhook` or `websocket` |
+| `zoomWSURLForEvents` | empty | Zoom event WebSocket URL when using WebSocket mode |
+| `MEDIA_SOCKET_CONNECTION_MODE` | `split` | RTMS media socket mode |
+| `MEDIA_TYPES_FLAG` | `3` | Audio and video media bitmask |
+| `RECORDINGS_DIR` | `recordings` | Local media and durable queue root |
+| `FFMPEG_PATH` | `ffmpeg` | FFmpeg executable path |
+| `SHUTDOWN_TIMEOUT_MS` | `30000` | SIGINT/SIGTERM graceful-shutdown deadline |
+
+Optional S2S and Video SDK credentials remain documented in `.env.example` for the shared trigger infrastructure.
+
+### S3 Upload
+
+| Variable | Default | Purpose |
+|---|---:|---|
+| `AWS_REGION` | SDK configuration | S3 region; may also come from shared AWS configuration |
+| `S3_BUCKET` | required | Destination bucket |
+| `S3_PREFIX` | `rtms` | Object-key prefix |
+| `AWS_MAX_ATTEMPTS` | `3` | AWS SDK request attempts |
+| `S3_MULTIPART_PART_SIZE_MB` | `16` | Multipart part size, minimum 5 MiB |
+| `S3_MULTIPART_CONCURRENCY` | `4` | Concurrent uploaded parts per file |
+| `S3_SERVER_SIDE_ENCRYPTION` | `AES256` | Explicit `AES256`, `aws:kms`, or `aws:kms:dsse` encryption |
+| `S3_KMS_KEY_ID` | empty | KMS key ID, alias, or ARN for KMS modes |
+| `S3_BUCKET_KEY_ENABLED` | `true` | Enables an S3 Bucket Key for KMS modes |
+
+Every upload explicitly requests server-side encryption rather than depending only on bucket defaults. See [SSE-S3](https://docs.aws.amazon.com/AmazonS3/latest/userguide/specifying-s3-encryption.html) and [SSE-KMS](https://docs.aws.amazon.com/AmazonS3/latest/userguide/specifying-kms-encryption.html).
+
+### Queue and Retention
+
+| Variable | Default | Purpose |
+|---|---:|---|
+| `UPLOAD_QUEUE_CONCURRENCY` | `1` | Concurrent recording jobs |
+| `UPLOAD_MAX_ATTEMPTS` | `5` | Processing attempts before permanent failure |
+| `UPLOAD_RETRY_BASE_SECONDS` | `5` | Initial retry delay |
+| `UPLOAD_RETRY_MAX_SECONDS` | `300` | Maximum exponential-backoff delay |
+| `RECOVERY_STALE_AFTER_MINUTES` | `10` | Media inactivity required before orphan recovery |
+| `RECOVERY_SCAN_INTERVAL_MINUTES` | `5` | Orphan scan frequency; `0` disables scheduled scans |
+| `DELETE_LOCAL_AFTER_UPLOAD` | `true` | Remove local media immediately after successful upload |
+| `COMPLETED_MEDIA_RETENTION_HOURS` | `24` | Completed-media retention when immediate deletion is disabled |
+| `FAILED_MEDIA_RETENTION_DAYS` | `7` | Failed-media retention |
+| `QUEUE_RECORD_RETENTION_DAYS` | `30` | Completed/failed queue-record retention after media cleanup |
+| `CLEANUP_INTERVAL_MINUTES` | `60` | Retention cleanup frequency |
+
+Use `-1` for a media or queue-record retention value to retain it indefinitely. Pending and retryable jobs are never removed by retention cleanup.
+
+Queue records survive process and container restarts when the recordings directory is persisted. Jobs interrupted in `processing` return to `pending` on startup. A periodic stability scan recovers media written before a crash could create a queue job; active or recently modified stream directories are not processed.
+
+## Security and Privacy
+
+Webhook deliveries are verified against the exact raw body using Zoom's signature and timestamp headers. Valid normal events receive HTTP 200 before RTMS connection work begins.
+
+Application logs contain queue job IDs and file names, not meeting UUIDs, RTMS stream IDs, webhook payloads, or transcript content. RTMSManager file and console logging is disabled in this sample because its connection diagnostics include those identifiers.
+
+## Testing
+
+```bash
+npm test
+npm audit --omit=dev
 ```
 
-### 3. Handle Media Events
+Tests cover per-stream file flushing, durable restart recovery, retries, stale-media recovery, stream-based upload bodies, multipart settings, and explicit encryption parameters.
 
-```javascript
-RTMSManager.on('audio', ({ buffer, userId, userName, timestamp, meetingId, streamId, productType }) => {
-  HelperManager.audio.saveRawAudio(buffer, meetingId, 'mixed', timestamp, streamId, true);
-});
+## Docker
 
-RTMSManager.on('video', ({ buffer, userId, userName, timestamp, meetingId, streamId, productType }) => {
-  if (!meetingState.has(meetingId)) {
-    const videoFiller = new VideoGapFiller({ fps: 25, gapThreshold: 320 });
-    
-    videoFiller.on('data', ({ buffer: videoBuffer, timestamp: ts, isFiller }) => {
-      HelperManager.video.saveRawVideo(videoBuffer, 'mixed', ts, meetingId, streamId, true);
-    });
-    
-    videoFiller.start();
-    meetingState.set(meetingId, { videoFiller, streamId });
-  }
-  
-  meetingState.get(meetingId).videoFiller.push(buffer, timestamp);
-});
+Build from the repository root:
 
-RTMSManager.on('meeting.rtms_stopped', async (payload) => {
-  const { meeting_uuid, rtms_stream_id } = payload;
+```bash
+docker build \
+  -f storage/save_audio_and_video_to_aws_s3_storage_js/Dockerfile \
+  -t rtms-s3-archive .
 
-  const state = meetingState.get(meeting_uuid);
-  if (state) {
-    state.videoFiller.stop();
-    meetingState.delete(meeting_uuid);
-  }
-
-  setTimeout(async () => {
-    await HelperManager.audiovideo.convertMeetingMedia(meeting_uuid, rtms_stream_id);
-    await HelperManager.audiovideo.muxMixedAudioVideo(meeting_uuid, rtms_stream_id);
-
-    try {
-      await saveToS3(meeting_uuid, rtms_stream_id);
-      console.log(`[Consumer] S3 upload complete for meeting ${meeting_uuid}`);
-    } catch (error) {
-      console.error(`[Consumer] S3 upload failed for meeting ${meeting_uuid}:`, error.message);
-      console.log(`[Consumer] Files are still available locally in recordings/`);
-    }
-  }, 2000);
-});
+docker run --rm \
+  --env-file storage/save_audio_and_video_to_aws_s3_storage_js/.env \
+  -p 3000:3000 \
+  -v rtms-s3-recordings:/workspace/rtms-samples/storage/save_audio_and_video_to_aws_s3_storage_js/recordings \
+  rtms-s3-archive
 ```
 
-### 4. Start the Server
-
-```javascript
-await RTMSManager.start();
-
-server.listen(appConfig.port, () => {
-  console.log(`[Consumer] Server listening on port ${appConfig.port}`);
-});
-```
+The volume is required for durable queue and media recovery across container replacement. The image uses `npm ci` with the committed lockfile and includes FFmpeg `7:5.1.9-0+deb12u1`.
 
 ## Key Files
 
-| File | Purpose |
-|------|---------|
-| `index.js` | Main application entry point with RTMS setup and media handlers |
-| `S3StorageHelper.js` | AWS S3 upload logic with content-type detection |
-
-## How It Works
-
-1. The server starts and initializes RTMSManager with audio/video configuration
-2. WebhookManager listens for Zoom RTMS events at the configured endpoint
-3. When a meeting starts, RTMS connection is established automatically
-4. Audio chunks are saved to raw files using `HelperManager.audio.saveRawAudio()`
-5. Video frames pass through `VideoGapFiller` to handle timing gaps, then saved via `HelperManager.video.saveRawVideo()`
-6. When the meeting ends (`meeting.rtms_stopped`), FFmpeg converts and muxes audio/video into MP4
-7. The `saveToS3()` function uploads all finalized files (.wav, .mp4, .vtt, .srt, .txt) to S3
-8. Files are stored in S3 at `rtms/{meetingUuid}/{streamId}/{filename}`
-
-## Troubleshooting
-
-**No audio/video files generated**
-- Verify FFmpeg is installed: `ffmpeg -version`
-- Check that the `recordings/` folder exists
-- Ensure your Zoom app has RTMS scopes enabled
-
-**S3 upload failures**
-- Verify AWS credentials are correct and have S3 write permissions
-- Check that `S3_BUCKET` exists and is accessible
-- Ensure your AWS region matches your bucket's region
-- Files remain available locally in `recordings/` if upload fails
-
-**Connection issues**
-- Verify ngrok is running and the tunnel URL matches your Zoom app webhook configuration
-- Check that credentials in `.env` match your Zoom app settings
-- Ensure the webhook endpoint is publicly accessible
-
-**Empty or corrupted recordings**
-- This may occur with very short meetings or if the stream was interrupted
-- Check the `logs/` folder for detailed error messages
-
-## See Also
-
-- [RTMSManager Library Docs](../../library/README.md) - Full API reference
-- [Zoom App Setup Guide](../../ZOOM_APP_SETUP.md) - Configure your Zoom app
-- [Troubleshooting Guide](../../TROUBLESHOOTING.md) - Common issues
+- `index.js`: RTMS lifecycle, webhook verification, recovery scheduling, and shutdown
+- `MediaRecorder.js`: independent stream writers and reliable finalization
+- `DurableUploadQueue.js`: persisted jobs, retries, restart recovery, and retention
+- `MediaProcessingPipeline.js`: FFmpeg conversion and muxing
+- `S3StorageHelper.js`: credential-chain S3 client and streaming multipart uploads

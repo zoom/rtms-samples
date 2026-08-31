@@ -74,6 +74,7 @@ SCRIBE_DIARIZATION=false
 SCRIBE_CHANNEL_SEPARATION=false
 SCRIBE_PROFANITY_FILTER=false
 SCRIBE_OUTPUT_FORMAT=json
+SCRIBE_VOCABULARY_JSON=
 SCRIBE_POOL_SIZE=3
 SCRIBE_HEARTBEAT_IDLE_MS=10000
 SCRIBE_HEARTBEAT_AUDIO_MS=1000
@@ -95,6 +96,21 @@ JSON when a meeting stops. `SCRIBE_TRANSCRIPT_OUTPUT_DIR` can be absolute or
 relative to this sample folder and defaults to `diarized_transcripts`. Generated
 files use owner-only permissions (`0600`), and the default output directory is
 excluded from Git.
+
+### Custom Vocabulary
+
+Set `SCRIBE_VOCABULARY_JSON` to bias Live Scribe toward product names, acronyms,
+and domain-specific terms. It accepts the ASR vocabulary object with optional
+`phrases`, `pronunciations`, and `aliases` arrays:
+
+```env
+SCRIBE_VOCABULARY_JSON={"phrases":["AIAGW","Zoom AI Companion","ServiceNow"],"pronunciations":[{"phrase":"AIAGW","pronunciation":"A I A gateway"}],"aliases":[{"canonical":"Zoom AI Companion","variants":["AI Companion","Zoom Companion"]}]}
+```
+
+The sample validates this JSON during startup and includes it under
+`session.update.config.vocabulary`. Leave the value empty to omit vocabulary
+configuration. Vocabulary improves recognition bias but does not replace the
+RTMS `user_id` and `user_name` attribution used for named diarization.
 
 ## How It Works
 
@@ -172,7 +188,19 @@ Client -> {
     "channel_separation": false,
     "diarization": false,
     "profanity_filter": false,
-    "output_format": "json"
+    "output_format": "json",
+    "vocabulary": {
+      "phrases": ["AIAGW", "Zoom AI Companion"],
+      "pronunciations": [
+        { "phrase": "AIAGW", "pronunciation": "A I A gateway" }
+      ],
+      "aliases": [
+        {
+          "canonical": "Zoom AI Companion",
+          "variants": ["AI Companion", "Zoom Companion"]
+        }
+      ]
+    }
   }
 }
 Client -> <binary PCM16 frames>                       # streamed RTMS audio
@@ -213,3 +241,24 @@ Server -> { "type": "session.closed", "reason": ... }
 - Assignment is based on the order in which participant audio first arrives. In a two-person meeting this is normally the host and the other participant, but the code does not infer or prioritize the host role.
 - Server-initiated WebSocket closures, including close code `1000`, are reconnected after `SCRIBE_RECONNECT_DELAY_MS`. Deliberate meeting shutdown does not reconnect.
 - RTMS L16 at 16 kHz mono matches the live API's required `pcm16` format exactly, so audio is forwarded verbatim with no resampling or WAV wrapping.
+
+## Docker
+
+The project assigns individual participant audio to pooled Zoom Scribe Live sessions. Its multi-stage Dockerfile keeps build tooling out of the final runtime image and does not hard-code a CPU architecture.
+
+Build and run it from the `rtms-samples` repository root:
+
+```bash
+docker build -f audio/send_individual_audio_to_zoom_scribe_transcribe_service_js/Dockerfile -t rtms-audio-send_individual_audio_to_zoom_scribe_transcribe_service_js .
+docker run --rm --env-file audio/send_individual_audio_to_zoom_scribe_transcribe_service_js/.env -p 3000:3000 rtms-audio-send_individual_audio_to_zoom_scribe_transcribe_service_js
+```
+
+Run the build from the repository root because the Dockerfile uses repository-relative paths. Runtime secrets are supplied with `--env-file` and are excluded from the image build context.
+
+## Webhook Delivery Authentication
+
+Normal Zoom webhook deliveries are verified against the exact raw request body using
+`x-zm-signature` and `x-zm-request-timestamp`. Configure `ZOOM_SECRET_TOKEN` with the
+Marketplace app's webhook Secret Token. Requests with missing, invalid, or stale
+signatures are rejected; the default replay window is 300 seconds and can be changed
+with `WEBHOOK_TIMESTAMP_TOLERANCE_SECONDS`.

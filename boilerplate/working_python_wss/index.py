@@ -8,6 +8,8 @@ from flask import Flask, request, jsonify
 from dotenv import load_dotenv
 import websocket
 import threading
+import signal
+import sys
 import base64
 import requests
 import time
@@ -27,6 +29,8 @@ logger = logging.getLogger(__name__)
 
 app = Flask(__name__)
 active_connections = {}
+event_websocket = None
+shutdown_started = False
 stream_locks_guard = threading.Lock()
 stream_locks = {}
 signaling_handshakes_in_flight = set()
@@ -262,6 +266,7 @@ def get_zoom_access_token():
 
 
 def start_zoom_event_websocket():
+    global event_websocket
     logger.info("🔌 Initiating Zoom Event WebSocket connection...")
 
     base_ws_url = os.getenv("ZOOM_EVENT_WS_BASE")
@@ -357,9 +362,32 @@ def start_zoom_event_websocket():
         on_close=on_close
     )
 
+    event_websocket = ws
+
     threading.Thread(target=ws.run_forever, daemon=True).start()
 
 
+def shutdown(signal_number, _frame):
+    global shutdown_started
+    if shutdown_started:
+        return
+    shutdown_started = True
+    logger.info("Received %s; closing WebSockets", signal.Signals(signal_number).name)
+    if event_websocket:
+        event_websocket.close()
+    for connections in list(active_connections.values()):
+        for connection in connections.values():
+            if hasattr(connection, "close"):
+                try:
+                    connection.close()
+                except Exception as error:
+                    logger.warning("WebSocket close failed: %s", error)
+    active_connections.clear()
+    sys.exit(0)
+
+
 if __name__ == '__main__':
+    signal.signal(signal.SIGINT, shutdown)
+    signal.signal(signal.SIGTERM, shutdown)
     start_zoom_event_websocket()
     app.run(host='0.0.0.0', port=PORT)

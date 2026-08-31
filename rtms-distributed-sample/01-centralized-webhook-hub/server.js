@@ -12,6 +12,7 @@ import { isInterruptedEvent, isStartEvent, isStopEvent } from '../shared/regions
 import { SqliteRoutingStore } from '../shared/sqliteRoutingStore.js';
 import { postRealtimeEvent, postWebhookObservation } from '../shared/realtimeCacheClient.js';
 import { createRtmsObservabilityLogger } from '../shared/rtmsObservabilityLogger.js';
+import { installGracefulShutdown } from '../shared/gracefulShutdown.js';
 
 dotenv.config();
 
@@ -37,9 +38,10 @@ const logger = createRtmsObservabilityLogger({
   console: process.env.SERVICE_LOG_CONSOLE !== 'false'
 });
 let rabbitChannel = null;
+let rabbitConnection = null;
 
 if (deliveryMode === 'rabbitmq') {
-  const rabbitConnection = await connectRabbitMq(rabbitmqUrl, { label: 'webhook hub rabbitmq connect' });
+  rabbitConnection = await connectRabbitMq(rabbitmqUrl, { label: 'webhook hub rabbitmq connect' });
   rabbitChannel = await createConfirmChannel(rabbitConnection);
 }
 
@@ -151,8 +153,19 @@ app.post(webhookPath, async (req, res) => {
   fireAndForget(postJson(dispatcherUrl, envelope, { timeoutMs: 3000 }), `hub handoff ${event}`);
 });
 
-app.listen(port, () => {
+const server = app.listen(port, () => {
   logger.info(`[01-centralized-webhook-hub] listening on http://127.0.0.1:${port}${webhookPath} deliveryMode=${deliveryMode}`);
+});
+
+installGracefulShutdown({
+  name: 'centralized-webhook-hub',
+  server,
+  cleanup: async () => {
+    await rabbitChannel?.close();
+    await rabbitConnection?.close();
+    routingStore.close();
+    await logger.stop?.();
+  }
 });
 
 function getSecretTokenForEvent(event = '') {

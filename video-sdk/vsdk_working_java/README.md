@@ -203,3 +203,24 @@ Equivalent features from the Node.js version:
 - Event processing and logging
 - Connection reconnection logic
 - HMAC signature generation
+
+## Docker
+
+The project runs the Java Video SDK RTMS webhook and media receiver. Its multi-stage Dockerfile keeps build tooling out of the final runtime image and does not hard-code a CPU architecture.
+
+Build and run it from the `rtms-samples` repository root:
+
+```bash
+docker build -f video-sdk/vsdk_working_java/Dockerfile -t rtms-video-sdk-vsdk_working_java .
+docker run --rm --env-file video-sdk/vsdk_working_java/.env -p 3000:3000 rtms-video-sdk-vsdk_working_java
+```
+
+Run the build from the repository root because the Dockerfile uses repository-relative paths. Runtime secrets are supplied with `--env-file` and are excluded from the image build context.
+
+## Webhook Delivery Authentication
+
+Normal Zoom webhook deliveries are verified against the exact raw request body using
+`x-zm-signature` and `x-zm-request-timestamp`. Configure `ZOOM_SECRET_TOKEN` with the
+Marketplace app's webhook Secret Token. Requests with missing, invalid, or stale
+signatures are rejected; the default replay window is 300 seconds and can be changed
+with `WEBHOOK_TIMESTAMP_TOLERANCE_SECONDS`.

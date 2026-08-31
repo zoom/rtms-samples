@@ -2,10 +2,13 @@
   "name": "rtms-sample",
   "version": "1.0.0",
   "type": "module",
+  "engines": {
+    "node": ">=22"
+  },
   "dependencies": {
-    "dotenv": "^16.4.1",
-    "express": "^4.21.2",
-    "openai": "^4.103.0",
-    "ws": "^8.16.0"
+    "dotenv": "^17.4.2",
+    "express": "^5.2.1",
+    "openai": "^7.7.0",
+    "ws": "^8.21.3"
   }
 }

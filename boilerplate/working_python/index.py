@@ -4,10 +4,13 @@ import hmac
 import hashlib
 import logging
 import random
+import time
 from flask import Flask, request, jsonify
 from dotenv import load_dotenv
 import websocket
 import threading
+import signal
+import sys
 from urllib.parse import urlparse
 
 # Load environment variables
@@ -47,6 +50,7 @@ logging.getLogger("websocket").setLevel(logging.CRITICAL)
 
 app = Flask(__name__)
 active_connections = {}
+shutdown_started = False
 stream_locks_guard = threading.Lock()
 stream_locks = {}
 signaling_handshakes_in_flight = set()
@@ -344,6 +348,7 @@ def connect_to_signaling_ws(meeting_uuid, stream_id, server_url):
 
 @app.route(WEBHOOK_PATH, methods=['POST'])
 def handle_webhook():
+    raw_body = request.get_data(cache=True)
     data = request.get_json(force=True)
     event = data.get("event")
     payload = data.get("payload", {})
@@ -352,12 +357,31 @@ def handle_webhook():
         hash_ = hmac.new(ZOOM_SECRET_TOKEN.encode(), payload["plainToken"].encode(), hashlib.sha256).hexdigest()
         return jsonify({"plainToken": payload["plainToken"], "encryptedToken": hash_})
 
+    if not verify_zoom_webhook(raw_body):
+        return jsonify({"error": "invalid_zoom_webhook"}), 500 if not ZOOM_SECRET_TOKEN else 401
+
     # Flask invokes this callback after the HTTP response iterable is closed.
     response = app.response_class(status=200)
     response.call_on_close(
         lambda: threading.Thread(target=process_webhook_after_ack, args=(data,), daemon=True).start()
     )
     return response
+
+def verify_zoom_webhook(raw_body):
+    signature = request.headers.get('x-zm-signature')
+    timestamp = request.headers.get('x-zm-request-timestamp')
+    if not ZOOM_SECRET_TOKEN or not signature or not timestamp:
+        return False
+    try:
+        timestamp_seconds = int(timestamp)
+        tolerance = int(os.getenv('WEBHOOK_TIMESTAMP_TOLERANCE_SECONDS', '300'))
+    except ValueError:
+        return False
+    if tolerance > 0 and abs(int(time.time()) - timestamp_seconds) > tolerance:
+        return False
+    message = b'v0:' + timestamp.encode() + b':' + raw_body
+    expected = 'v0=' + hmac.new(ZOOM_SECRET_TOKEN.encode(), message, hashlib.sha256).hexdigest()
+    return hmac.compare_digest(signature, expected)
 
 def process_webhook_after_ack(data):
     logger.debug(f"Acknowledged POST request at {WEBHOOK_PATH} with data: {json.dumps(data, indent=2)}")
@@ -408,7 +432,26 @@ def process_webhook_after_ack(data):
                 signaling_send_locks.pop(sid, None)
         log_stream_snapshot("webhook_stopped_after_cleanup", stream_id)
 
+def shutdown(signal_number, _frame):
+    global shutdown_started
+    if shutdown_started:
+        return
+    shutdown_started = True
+    logger.info("Received %s; closing RTMS WebSockets", signal.Signals(signal_number).name)
+    for connections in list(active_connections.values()):
+        for connection in connections.values():
+            if hasattr(connection, "close"):
+                try:
+                    connection.close()
+                except Exception as error:
+                    logger.warning("WebSocket close failed: %s", error)
+    active_connections.clear()
+    sys.exit(0)
+
+
 if __name__ == '__main__':
+    signal.signal(signal.SIGINT, shutdown)
+    signal.signal(signal.SIGTERM, shutdown)
     logger.info(
         f"RTMS media configuration: mode={MEDIA_SOCKET_CONNECTION_MODE} media_types={MEDIA_TYPES_FLAG}"
     )

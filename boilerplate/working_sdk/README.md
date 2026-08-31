@@ -1,4 +1,8 @@
-# Manual Workaround (Temporary)
+# Zoom RTMS Node.js SDK Boilerplate
+
+This sample receives RTMS media through the official `@zoom/rtms` Node.js SDK and exposes an HTTP webhook endpoint for RTMS lifecycle events.
+
+## Legacy Manual Setup
 
 > ⚠️ **Note:** This workaround is temporary. The documentation is being updated, and this process will be simplified in the near future.
 
@@ -132,3 +136,24 @@ client.setVideoParams({
 - **Codec**: UNDEFINED, JPG, PNG, H264
 - **Resolution**: SD, HD, FHD, QHD
 - **DataOption**: UNDEFINED, VIDEO_SINGLE_ACTIVE_STREAM, VIDEO_MIXED_SPEAKER_VIEW, VIDEO_MIXED_GALLERY_VIEW
+
+## Docker
+
+The project runs the official JavaScript RTMS SDK boilerplate. Its multi-stage Dockerfile keeps build tooling out of the final runtime image and does not hard-code a CPU architecture.
+
+Build and run it from the `rtms-samples` repository root:
+
+```bash
+docker build -f boilerplate/working_sdk/Dockerfile -t rtms-boilerplate-working_sdk .
+docker run --rm --env-file boilerplate/working_sdk/.env -e ZM_RTMS_PORT=8080 -p 8080:8080 rtms-boilerplate-working_sdk
+```
+
+Run the build from the repository root because the Dockerfile uses repository-relative paths. Runtime secrets are supplied with `--env-file` and are excluded from the image build context.
+
+## Webhook Delivery Authentication
+
+Normal Zoom webhook deliveries are verified against the exact raw request body using
+`x-zm-signature` and `x-zm-request-timestamp`. Configure `ZM_RTMS_SECRET_TOKEN` with the
+Marketplace app's webhook Secret Token. Requests with missing, invalid, or stale
+signatures are rejected; the default replay window is 300 seconds and can be changed
+with `WEBHOOK_TIMESTAMP_TOLERANCE_SECONDS`.

@@ -12,6 +12,14 @@ process.env.SCRIBE_PENDING_AUDIO_MAX_BYTES = '160000';
 process.env.SCRIBE_HEARTBEAT_IDLE_MS = '25';
 process.env.SCRIBE_HEARTBEAT_AUDIO_MS = '20';
 process.env.SCRIBE_RECONNECT_DELAY_MS = '10';
+process.env.SCRIBE_VOCABULARY_JSON = JSON.stringify({
+  phrases: ['AIAGW', 'Zoom AI Companion'],
+  pronunciations: [{ phrase: 'AIAGW', pronunciation: 'A I A gateway' }],
+  aliases: [{
+    canonical: 'Zoom AI Companion',
+    variants: ['AI Companion', 'Zoom Companion'],
+  }],
+});
 
 const {
   cleanupMeeting,
@@ -21,6 +29,7 @@ const {
   formatNamedUtterance,
   getPoolSnapshot,
   initializeLiveScribeSession,
+  parseVocabulary,
   resolveTranscriptAttribution,
   sendAudioChunk,
   setWebSocketFactoryForTesting,
@@ -81,6 +90,31 @@ test('session update includes configured ASR options', () => {
   assert.equal(payload.audio.format, 'pcm16');
   assert.equal(typeof payload.config.diarization, 'boolean');
   assert.equal(typeof payload.config.word_time_offsets, 'boolean');
+  assert.deepEqual(payload.config.vocabulary, {
+    phrases: ['AIAGW', 'Zoom AI Companion'],
+    pronunciations: [{ phrase: 'AIAGW', pronunciation: 'A I A gateway' }],
+    aliases: [{
+      canonical: 'Zoom AI Companion',
+      variants: ['AI Companion', 'Zoom Companion'],
+    }],
+  });
+});
+
+test('vocabulary is optional and invalid entries are rejected', () => {
+  assert.equal(parseVocabulary(''), null);
+  assert.equal(parseVocabulary('{}'), null);
+  assert.throws(
+    () => parseVocabulary('{invalid'),
+    /must be valid JSON/
+  );
+  assert.throws(
+    () => parseVocabulary(JSON.stringify({ phrases: [''] })),
+    /phrases must be an array of non-empty strings/
+  );
+  assert.throws(
+    () => parseVocabulary(JSON.stringify({ aliases: [{ canonical: 'Zoom' }] })),
+    /aliases must contain a canonical string and non-empty variants array/
+  );
 });
 
 test('transcript is attributed to the lease with the largest audio overlap', () => {

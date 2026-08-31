@@ -4,6 +4,7 @@ import dotenv from 'dotenv';
 import path from 'path';
 import { fileURLToPath } from 'url';
 import express from 'express';
+import { closeHttpServer, installGracefulShutdown } from '../../library/javascript/commonHelpers/gracefulShutdown.js';
 import http from 'http';
 
 import { contextualSynthesisFromMultipleModels } from './chatWithOpenrouter.js';
@@ -85,9 +86,7 @@ server.listen(appConfig.port, () => {
   console.log(`[send_to_openrouter] Webhook endpoint: http://localhost:${appConfig.port}${process.env.WEBHOOK_PATH || '/webhook'}`);
 });
 
-process.on('SIGINT', async () => {
-  console.log('[send_to_openrouter] Shutting down...');
-  server.close();
+installGracefulShutdown({ name: 'send_to_openrouter', cleanup: async () => {
+  await closeHttpServer(server);
   await RTMSManager.stop();
-  process.exit(0);
-});
+} });

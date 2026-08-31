@@ -1,4 +1,5 @@
 import express from 'express';
+import { closeHttpServer, installGracefulShutdown } from '../../library/javascript/commonHelpers/gracefulShutdown.js';
 import http from 'http';
 import { Server as SocketIOServer } from 'socket.io';
 import dotenv from 'dotenv';
@@ -756,7 +757,10 @@ app.use((req, res, next) => {
   }
   next();
 });
-app.use(express.json({ limit: '2mb' }));
+app.use(express.json({
+  limit: '2mb',
+  verify: (req, _res, buffer) => { req.rawBody = Buffer.from(buffer); }
+}));
 app.use(express.static(path.join(__dirname, 'public'), {
   dotfiles: 'deny',
   setHeaders(res) {
@@ -1284,10 +1288,9 @@ server.listen(appConfig.port, () => {
   console.log(`[DeepfakeDemo] Webhook URL: ${(appConfig.publicBaseUrl || `http://localhost:${appConfig.port}`)}${appConfig.webhookPath}`);
 });
 
-process.on('SIGINT', async () => {
-  console.log('[DeepfakeDemo] Shutting down...');
+installGracefulShutdown({ name: 'DeepfakeDemo', cleanup: async () => {
   hlsPipeline.stop();
-  server.close();
   await RTMSManager.stop();
-  process.exit(0);
-});
+  await new Promise((resolve) => io.close(resolve));
+  await closeHttpServer(server);
+} });

@@ -77,6 +77,7 @@ export function setupFrontendWss(server, handlers = {}) {
   });
 
   console.log('[Zoom App] Frontend WebSocket server initialized at /ws');
+  return wss;
 }
 
 export function broadcastToFrontendClients(message) {

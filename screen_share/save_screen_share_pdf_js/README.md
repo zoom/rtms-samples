@@ -166,3 +166,24 @@ server.listen(appConfig.port, () => {
 - [RTMSManager Library Docs](../../library/README.md) - Full API reference
 - [Zoom App Setup Guide](../../ZOOM_APP_SETUP.md) - Configure your Zoom app
 - [Troubleshooting Guide](../../TROUBLESHOOTING.md) - Common issues
+
+## Docker
+
+The project captures RTMS screen-share frames and assembles them into PDF output. Its multi-stage Dockerfile keeps build tooling out of the final runtime image and does not hard-code a CPU architecture.
+
+Build and run it from the `rtms-samples` repository root:
+
+```bash
+docker build -f screen_share/save_screen_share_pdf_js/Dockerfile -t rtms-screen_share-save_screen_share_pdf_js .
+docker run --rm --env-file screen_share/save_screen_share_pdf_js/.env -p 3000:3000 rtms-screen_share-save_screen_share_pdf_js
+```
+
+Run the build from the repository root because the Dockerfile uses repository-relative paths. Runtime secrets are supplied with `--env-file` and are excluded from the image build context. Mount the sample's generated output directory as a volume when recordings must survive container replacement.
+
+## Webhook Delivery Authentication
+
+Normal Zoom webhook deliveries are verified against the exact raw request body using
+`x-zm-signature` and `x-zm-request-timestamp`. Configure `ZOOM_SECRET_TOKEN` with the
+Marketplace app's webhook Secret Token. Requests with missing, invalid, or stale
+signatures are rejected; the default replay window is 300 seconds and can be changed
+with `WEBHOOK_TIMESTAMP_TOLERANCE_SECONDS`.

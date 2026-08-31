@@ -5,6 +5,9 @@
   "main": "index.js",
   "types": "types/index.d.ts",
   "type": "module",
+  "scripts": {
+    "test": "node --test tests/*.test.js"
+  },
   "exports": {
     ".": {
       "types": "./types/index.d.ts",
@@ -24,6 +27,7 @@
     "webinar"
   ],
   "dependencies": {
+    "ejs": "^3.1.10",
     "express": "^4.21.2",
     "node-fetch": "^3.3.2",
     "ws": "^8.16.0"

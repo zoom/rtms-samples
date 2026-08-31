@@ -97,3 +97,24 @@ The application follows this sequence:
 
 3. **Known Issues**:
    
+
+## Docker
+
+The project passes RTMS audio and video through to a custom frontend. Its multi-stage Dockerfile keeps build tooling out of the final runtime image and does not hard-code a CPU architecture.
+
+Build and run it from the `rtms-samples` repository root:
+
+```bash
+docker build -f streaming/stream_audio_and_video_to_custom_frontend_sdk/Dockerfile -t rtms-streaming-stream_audio_and_video_to_custom_frontend_sdk .
+docker run --rm --env-file streaming/stream_audio_and_video_to_custom_frontend_sdk/.env -e ZM_RTMS_PORT=8080 -p 6060:6060 -p 8080:8080 rtms-streaming-stream_audio_and_video_to_custom_frontend_sdk
+```
+
+Run the build from the repository root because the Dockerfile uses repository-relative paths. Runtime secrets are supplied with `--env-file` and are excluded from the image build context.
+
+## Webhook Delivery Authentication
+
+Normal Zoom webhook deliveries are verified against the exact raw request body using
+`x-zm-signature` and `x-zm-request-timestamp`. Configure `ZM_RTMS_SECRET_TOKEN` with the
+Marketplace app's webhook Secret Token. Requests with missing, invalid, or stale
+signatures are rejected; the default replay window is 300 seconds and can be changed
+with `WEBHOOK_TIMESTAMP_TOLERANCE_SECONDS`.

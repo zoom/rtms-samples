@@ -2,6 +2,7 @@ import { RTMSManager } from '../../library/javascript/rtmsManager/RTMSManager.js
 import WebhookManager from '../../library/javascript/webhookManager/WebhookManager.js';
 import { FrontendWssManager } from '../../library/javascript/rtmsManager/FrontendWssManager.js';
 import express from 'express';
+import { closeHttpServer, installGracefulShutdown } from '../../library/javascript/commonHelpers/gracefulShutdown.js';
 import http from 'http';
 import https from 'https';
 import { WebSocket } from 'ws';
@@ -67,7 +68,7 @@ const rtmsConfig = {
 const app = express();
 const server = http.createServer(app);
 
-app.use(express.json());
+app.use(express.json({ verify: (req, _res, buffer) => { req.rawBody = Buffer.from(buffer); } }));
 app.set('view engine', 'ejs');
 app.use(express.static(path.join(__dirname, 'public')));
 
@@ -329,10 +330,8 @@ server.listen(config.port, () => {
   console.log(`Frontend WebSocket available at ws://localhost:${config.port}/ws`);
 });
 
-process.on('SIGINT', async () => {
-  console.log('Shutting down...');
+installGracefulShutdown({ name: 'RTMS Control', cleanup: async () => {
   frontendWss.stop();
-  server.close();
+  await closeHttpServer(server);
   await RTMSManager.stop();
-  process.exit(0);
-});
+} });

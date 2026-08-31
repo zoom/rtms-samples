@@ -46,7 +46,9 @@ app.use(cors({
   origin: process.env.PUBLIC_URL || 'http://localhost:3001',
   credentials: true
 }));
-app.use(express.json());
+app.use(express.json({
+  verify: (req, _res, buffer) => { req.rawBody = Buffer.from(buffer); }
+}));
 app.use(express.urlencoded({ extended: true }));
 app.use(securityHeaders);
 
@@ -167,14 +169,31 @@ async function startServer() {
       console.log(`${'='.repeat(50)}\n`);
     });
 
-    // Handle shutdown gracefully
-    process.on('SIGTERM', () => {
-      console.log('SIGTERM received, shutting down gracefully...');
-      server.close(() => {
-        console.log('Server closed');
-        process.exit(0);
-      });
-    });
+    let shutdownPromise;
+    const shutdown = (signal) => {
+      if (shutdownPromise) return shutdownPromise;
+      shutdownPromise = (async () => {
+        console.log(`${signal} received, shutting down gracefully...`);
+        const timeout = setTimeout(() => process.exit(1), 10000);
+        timeout.unref();
+        try {
+          await new Promise((resolve) => io.close(resolve));
+          if (server.listening) {
+            await new Promise((resolve, reject) => server.close((error) => error ? reject(error) : resolve()));
+          }
+          process.exitCode = 0;
+        } catch (error) {
+          console.error('Shutdown failed:', error);
+          process.exitCode = 1;
+        } finally {
+          clearTimeout(timeout);
+        }
+      })();
+      return shutdownPromise;
+    };
+
+    process.once('SIGINT', () => void shutdown('SIGINT'));
+    process.once('SIGTERM', () => void shutdown('SIGTERM'));
   } catch (error) {
     console.error('Failed to start server:', error);
     process.exit(1);

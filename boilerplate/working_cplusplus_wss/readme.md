@@ -1,4 +1,3 @@
-
 # Zoom RTMS WebSocket C++ Client
 
 This project demonstrates how to connect to Zoom's Real-Time Media Service (RTMS) using C++. It establishes WebSocket connections to the Zoom Event server, signaling server, and split or unified media servers, handling authentication, keep-alives, H.264 video, and PCM audio.
@@ -241,3 +240,16 @@ Used for both WebSocket TLS (WSS) and for generating HMAC SHA-256 signatures use
 Boost
 Required for WebSocket++’s Asio transport.
 Used for event loop and asynchronous handling.
+
+## Docker
+
+The project runs the C++ Zoom event WebSocket and RTMS receiver. Its multi-stage Dockerfile keeps build tooling out of the final runtime image and does not hard-code a CPU architecture.
+
+Build and run it from the `rtms-samples` repository root:
+
+```bash
+docker build -f boilerplate/working_cplusplus_wss/Dockerfile -t rtms-boilerplate-working_cplusplus_wss .
+docker run --rm --env-file boilerplate/working_cplusplus_wss/.env rtms-boilerplate-working_cplusplus_wss
+```
+
+Run the build from the repository root. The process accepts values from `--env-file`; `.env` is not copied into the image.

@@ -2,12 +2,18 @@
   "name": "rtms-sample",
   "version": "1.0.0",
   "type": "module",
+  "engines": {
+    "node": ">=22"
+  },
+  "scripts": {
+    "test": "node --test"
+  },
   "dependencies": {
-    "@aws-sdk/client-s3": "^3.804.0",
-    "@aws-sdk/credential-providers": "^3.804.0",
-    "dotenv": "^16.4.1",
-    "express": "^4.21.2",
+    "@aws-sdk/client-s3": "3.1119.0",
+    "@aws-sdk/lib-storage": "3.1119.0",
+    "dotenv": "17.4.2",
+    "express": "5.2.1",
     "rtms-manager": "file:../../library/javascript/rtmsManager",
-    "ws": "^8.16.0"
+    "ws": "8.21.3"
   }
 }

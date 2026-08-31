@@ -165,6 +165,8 @@ await RTMSManager.init({
   logDir: '/var/log/rtms',            // Log file directory
   useUnifiedMediaSocket: false,        // Single socket for all media
   enableGapFilling: false,             // Fill gaps in recordings
+  asyncMediaEvents: true,              // Keep media consumers outside socket parsing
+  maxMediaEventQueueSize: 500,         // Bound memory under slow consumers
 });
 ```
 
@@ -214,6 +216,10 @@ import { FrontendWssManager } from './javascript/rtmsManager/FrontendWssManager.
 
 const frontendWss = new FrontendWssManager({
   server: httpServer,
+  // Validate a server-issued token or authenticated application session.
+  authorizeRegistration: async ({ meetingUUID, userID, token, request }) => {
+    return verifyFrontendToken({ meetingUUID, userID, token, request });
+  },
   config: {
     frontendWssPath: '/ws',
     frontendWssEnabled: true
@@ -221,7 +227,7 @@ const frontendWss = new FrontendWssManager({
 });
 frontendWss.setup();
 
-// Broadcast to all connected clients
+// Broadcast to all authorized clients
 frontendWss.broadcast({ type: 'transcript', text: 'Hello world' });
 
 // Broadcast to specific meeting
@@ -245,7 +251,7 @@ frontend_wss.broadcast_to_user(meeting_uuid, user_id, {'type': 'private'})
 ```
 
 **Features:**
-- Client registration with `meetingUUID` and `userID`
+- Fail-closed client registration through an application-provided `authorizeRegistration` callback
 - Auto-disconnect unregistered clients after 15s timeout
 - Keep-alive ping/pong every 10s
 - Targeted broadcasting (all clients, per-meeting, per-user)
@@ -261,7 +267,8 @@ ws.onopen = () => {
   ws.send(JSON.stringify({
     type: 'register',
     meetingUUID: 'abc123',
-    userID: 'user456'
+    userID: 'user456',
+    token: serverIssuedRegistrationToken
   }));
 };
 
@@ -275,6 +282,11 @@ ws.onmessage = (event) => {
   }
 };
 ```
+
+`meetingUUID` and `userID` are routing claims, not authentication. The server rejects
+registration when `authorizeRegistration` is missing or returns anything other than
+`true` or `{ authorized: true }`. Validate a signed, short-lived token or an
+authenticated server session before allowing RTMS data to reach the browser.
 
 ---
 

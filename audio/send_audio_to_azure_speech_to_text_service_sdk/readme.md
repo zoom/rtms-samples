@@ -1,8 +1,8 @@
-This project is based on https://github.com/zoom/rtms-developer-preview-js
-
-# Zoom RTMS real time speech-to-text service with audio stream
+# Send RTMS Audio to Azure Speech Using the Node.js SDK
 
 This project demonstrates the use of 3rd party speech-to-text service which accepts audio buffer as an input. The sample here utilize Microsoft Azure's speech-to-text service (Azure Speech service). Utilizing RTMS, it sends the audio buffer to Azure's API in real time, and prints out the transcribed text in the console log.
+
+This project is based on https://github.com/zoom/rtms-developer-preview-js.
 
 ## Prerequisites
 
@@ -102,3 +102,24 @@ The application follows this sequence:
 **SDK Installation Issues**:
    - Make sure you have the correct token for fetching prebuilt binaries
    - Check that you've installed the SDK correctly: `npm install github:zoom/rtms`
+
+## Docker
+
+The project forwards RTMS audio to Azure Speech to Text. Its multi-stage Dockerfile keeps build tooling out of the final runtime image and does not hard-code a CPU architecture.
+
+Build and run it from the `rtms-samples` repository root:
+
+```bash
+docker build -f audio/send_audio_to_azure_speech_to_text_service_sdk/Dockerfile -t rtms-audio-send_audio_to_azure_speech_to_text_service_sdk .
+docker run --rm --env-file audio/send_audio_to_azure_speech_to_text_service_sdk/.env -e ZM_RTMS_PORT=8080 -p 8080:8080 rtms-audio-send_audio_to_azure_speech_to_text_service_sdk
+```
+
+Run the build from the repository root because the Dockerfile uses repository-relative paths. Runtime secrets are supplied with `--env-file` and are excluded from the image build context.
+
+## Webhook Delivery Authentication
+
+Normal Zoom webhook deliveries are verified against the exact raw request body using
+`x-zm-signature` and `x-zm-request-timestamp`. Configure `ZM_RTMS_SECRET_TOKEN` with the
+Marketplace app's webhook Secret Token. Requests with missing, invalid, or stale
+signatures are rejected; the default replay window is 300 seconds and can be changed
+with `WEBHOOK_TIMESTAMP_TOLERANCE_SECONDS`.

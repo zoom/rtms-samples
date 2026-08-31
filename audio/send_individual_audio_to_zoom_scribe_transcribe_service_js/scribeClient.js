@@ -35,6 +35,69 @@ function envPositiveNumber(name, defaultValue) {
   return value;
 }
 
+export function parseVocabulary(value) {
+  if (value == null || String(value).trim() === '') return null;
+
+  let vocabulary;
+  try {
+    vocabulary = typeof value === 'string' ? JSON.parse(value) : value;
+  } catch (error) {
+    throw new Error(`SCRIBE_VOCABULARY_JSON must be valid JSON: ${error.message}`);
+  }
+
+  if (!vocabulary || typeof vocabulary !== 'object' || Array.isArray(vocabulary)) {
+    throw new Error('SCRIBE_VOCABULARY_JSON must be a JSON object');
+  }
+
+  const allowedKeys = new Set(['phrases', 'pronunciations', 'aliases']);
+  const unknownKey = Object.keys(vocabulary).find((key) => !allowedKeys.has(key));
+  if (unknownKey) {
+    throw new Error(`SCRIBE_VOCABULARY_JSON contains unsupported field: ${unknownKey}`);
+  }
+
+  const result = {};
+  if (vocabulary.phrases != null) {
+    if (!Array.isArray(vocabulary.phrases) ||
+        vocabulary.phrases.some((phrase) => typeof phrase !== 'string' || !phrase.trim())) {
+      throw new Error('SCRIBE_VOCABULARY_JSON phrases must be an array of non-empty strings');
+    }
+    if (vocabulary.phrases.length > 0) result.phrases = vocabulary.phrases;
+  }
+
+  if (vocabulary.pronunciations != null) {
+    if (!Array.isArray(vocabulary.pronunciations) ||
+        vocabulary.pronunciations.some((entry) =>
+          !entry || typeof entry !== 'object' || Array.isArray(entry) ||
+          typeof entry.phrase !== 'string' || !entry.phrase.trim() ||
+          typeof entry.pronunciation !== 'string' || !entry.pronunciation.trim()
+        )) {
+      throw new Error(
+        'SCRIBE_VOCABULARY_JSON pronunciations must contain phrase and pronunciation strings'
+      );
+    }
+    if (vocabulary.pronunciations.length > 0) {
+      result.pronunciations = vocabulary.pronunciations;
+    }
+  }
+
+  if (vocabulary.aliases != null) {
+    if (!Array.isArray(vocabulary.aliases) ||
+        vocabulary.aliases.some((entry) =>
+          !entry || typeof entry !== 'object' || Array.isArray(entry) ||
+          typeof entry.canonical !== 'string' || !entry.canonical.trim() ||
+          !Array.isArray(entry.variants) || entry.variants.length === 0 ||
+          entry.variants.some((variant) => typeof variant !== 'string' || !variant.trim())
+        )) {
+      throw new Error(
+        'SCRIBE_VOCABULARY_JSON aliases must contain a canonical string and non-empty variants array'
+      );
+    }
+    if (vocabulary.aliases.length > 0) result.aliases = vocabulary.aliases;
+  }
+
+  return Object.keys(result).length > 0 ? result : null;
+}
+
 export function generateScribeJwt(apiKey, apiSecret) {
   requireValue(apiKey, 'ZOOM_API_KEY');
   requireValue(apiSecret, 'ZOOM_API_SECRET');
@@ -58,6 +121,7 @@ const CONFIG = {
   diarization: envBoolean('SCRIBE_DIARIZATION', false),
   profanityFilter: envBoolean('SCRIBE_PROFANITY_FILTER', false),
   outputFormat: process.env.SCRIBE_OUTPUT_FORMAT || 'json',
+  vocabulary: parseVocabulary(process.env.SCRIBE_VOCABULARY_JSON),
   poolSize: Math.floor(envPositiveNumber('SCRIBE_POOL_SIZE', 3)),
   pendingAudioMaxBytes: envPositiveNumber(
     'SCRIBE_PENDING_AUDIO_MAX_BYTES',
@@ -88,6 +152,7 @@ export function buildSessionUpdatePayload() {
       diarization: CONFIG.diarization,
       profanity_filter: CONFIG.profanityFilter,
       output_format: CONFIG.outputFormat,
+      ...(CONFIG.vocabulary ? { vocabulary: CONFIG.vocabulary } : {}),
     },
   };
 }
@@ -108,6 +173,7 @@ export function liveScribeConfig() {
     diarization: CONFIG.diarization,
     profanityFilter: CONFIG.profanityFilter,
     outputFormat: CONFIG.outputFormat,
+    vocabulary: CONFIG.vocabulary,
     poolSize: CONFIG.poolSize,
     initialPoolSize: INITIAL_POOL_SIZE,
     pendingAudioMaxBytes: CONFIG.pendingAudioMaxBytes,

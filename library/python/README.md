@@ -1,5 +1,9 @@
 # RTMSManager - Python
 
+`WebhookManager` authenticates normal Zoom webhook deliveries against the exact raw
+request body and rejects missing, stale, or invalid signatures. The default timestamp
+tolerance is 300 seconds.
+
 ## Installation
 
 ```bash

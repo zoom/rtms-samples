@@ -6,6 +6,8 @@ export class FrontendWssManager {
     this.config = options.config || {};
     this.server = options.server || null;
     this.logger = options.logger || FileLogger;
+    this.authorizeRegistration =
+      options.authorizeRegistration || this.config.authorizeRegistration || null;
     this.frontendClients = new Set();
     this.broadcast = this.broadcastToFrontendClients.bind(this);
   }
@@ -18,7 +20,8 @@ export class FrontendWssManager {
 
     this.wss = new WebSocketServer({
       server: this.server,
-      path: this.config.frontendWssPath
+      path: this.config.frontendWssPath,
+      maxPayload: Number(this.config.frontendWssMaxPayloadBytes) || 64 * 1024
     });
 
     const pingInterval = 10000;
@@ -32,7 +35,7 @@ export class FrontendWssManager {
       }
     }, pingInterval);
 
-    this.wss.on('connection', (ws) => {
+    this.wss.on('connection', (ws, request) => {
       this.frontendClients.add(ws);
       this.logger.log('[FrontendWssManager] 🌐 Frontend client connected (unregistered, registering now...)');
 
@@ -40,7 +43,9 @@ export class FrontendWssManager {
       const registrationTimeout = setTimeout(() => {
         if (!ws.meetingUUID || !ws.userID) {
           this.logger.log('[FrontendWssManager] ❌ Registration timeout. Closing connection.');
-          ws.send(JSON.stringify({ type: 'error', message: 'Registration timeout' }));
+          if (ws.readyState === 1) {
+            ws.send(JSON.stringify({ type: 'error', message: 'Registration timeout' }));
+          }
           ws.terminate();
         }
       }, 15000);
@@ -57,41 +62,49 @@ export class FrontendWssManager {
           }
 
           if (data.type === 'register') {
-            const { meetingUUID, userID } = data;
-            
-            // Validate meeting is active
-            // Note: In decoupled mode, we might need a way to check active meetings from RTMSManager
-            // For now, we'll assume if they register, they are valid, or we can inject a validator function
-            
-            // const { RTMSManager } = await import('./RTMSManager.js');
-            // const activeMeeting = RTMSManager.instance.connectionManager.findByRtmsId(meetingUUID);
-            
-            // if (activeMeeting && userID) {
-            if (meetingUUID && userID) {
-              ws.meetingUUID = meetingUUID;
-              ws.userID = userID;
+            const { meetingUUID, userID, token } = data;
+            const registration = await this.validateRegistration({
+              meetingUUID,
+              userID,
+              token,
+              request,
+              socket: ws
+            });
+
+            if (registration.authorized) {
+              ws.meetingUUID = String(registration.meetingUUID ?? meetingUUID);
+              ws.userID = String(registration.userID ?? userID);
               clearTimeout(registrationTimeout);
-              ws.send(JSON.stringify({ type: 'registration_success', meetingUUID, userID }));
-              this.logger.log(`[FrontendWssManager] ✅ Client registered: ${userID} for meeting ${meetingUUID}`);
+              ws.send(JSON.stringify({
+                type: 'registration_success',
+                meetingUUID: ws.meetingUUID,
+                userID: ws.userID
+              }));
+              this.logger.log(`[FrontendWssManager] ✅ Client registered: ${ws.userID} for meeting ${ws.meetingUUID}`);
             } else {
-              this.logger.log(`[FrontendWssManager] ❌ Registration rejected: Invalid meetingUUID or userID`);
-              ws.send(JSON.stringify({ type: 'error', message: 'Registration invalid' }));
+              this.logger.warn('[FrontendWssManager] Registration rejected');
+              ws.send(JSON.stringify({ type: 'error', message: 'Registration unauthorized' }));
               ws.terminate();
             }
             return;
           }
         } catch (e) {
-          // Ignore non-JSON messages
+          this.logger.warn(`[FrontendWssManager] Invalid client message: ${e.message}`);
+          if (ws.readyState === 1) {
+            ws.send(JSON.stringify({ type: 'error', message: 'Invalid message' }));
+          }
         }
       });
 
       ws.on('close', () => {
+        clearTimeout(registrationTimeout);
         this.frontendClients.delete(ws);
         const info = ws.userID && ws.meetingUUID ? `: ${ws.userID} from ${ws.meetingUUID}` : '';
         this.logger.log(`[FrontendWssManager] ❌ Frontend client disconnected${info}`);
       });
 
       ws.on('error', (err) => {
+        clearTimeout(registrationTimeout);
         this.frontendClients.delete(ws);
         this.logger.error('⚠️ Frontend WS error:', err);
       });
@@ -100,10 +113,29 @@ export class FrontendWssManager {
     this.logger.log(`[FrontendWssManager] 🧩 Frontend WSS initialized at ${this.config.frontendWssPath}`);
   }
 
+  async validateRegistration(context) {
+    if (!context.meetingUUID || context.userID == null || !this.authorizeRegistration) {
+      return { authorized: false };
+    }
+
+    const result = await this.authorizeRegistration(context);
+    if (result === true) {
+      return {
+        authorized: true,
+        meetingUUID: context.meetingUUID,
+        userID: context.userID
+      };
+    }
+    if (result && typeof result === 'object' && result.authorized === true) {
+      return result;
+    }
+    return { authorized: false };
+  }
+
   broadcastToFrontendClients(message) {
     const json = typeof message === 'string' ? message : JSON.stringify(message);
     for (const client of this.frontendClients) {
-      if (client.readyState === 1) { // OPEN
+      if (client.readyState === 1 && client.meetingUUID && client.userID) {
         client.send(json);
       }
     }
@@ -117,7 +149,7 @@ export class FrontendWssManager {
   broadcastToMeeting(meetingUUID, message) {
     const json = typeof message === 'string' ? message : JSON.stringify(message);
     for (const client of this.frontendClients) {
-      if (client.readyState === 1 && client.meetingUUID === meetingUUID) {
+      if (client.readyState === 1 && client.meetingUUID === String(meetingUUID)) {
         client.send(json);
       }
     }
@@ -132,7 +164,11 @@ export class FrontendWssManager {
   broadcastToUser(meetingUUID, userID, message) {
     const json = typeof message === 'string' ? message : JSON.stringify(message);
     for (const client of this.frontendClients) {
-      if (client.readyState === 1 && client.meetingUUID === meetingUUID && client.userID === userID) {
+      if (
+        client.readyState === 1 &&
+        client.meetingUUID === String(meetingUUID) &&
+        client.userID === String(userID)
+      ) {
         client.send(json);
       }
     }

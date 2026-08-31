@@ -215,7 +215,17 @@ export function connectToSignalingWebSocket(
       FileLogger.warn(`[Signaling] [${conn.rtmsType},${meetingUuid},${streamId}] Ignoring message from stale signaling socket.`);
       return;
     }
-    handleSignalingMessage(data, meetingUuid, streamId, signalingWs, conn, emit, mediaTypesFlag, clientId, clientSecret);
+    try {
+      handleSignalingMessage(data, meetingUuid, streamId, signalingWs, conn, emit, mediaTypesFlag, clientId, clientSecret);
+    } catch (err) {
+      const error = new RTMSError('SIGNALING_ERROR', `Failed to handle signaling message: ${err.message}`, {
+        meetingId: meetingUuid,
+        streamId,
+        cause: err
+      });
+      FileLogger.error(`[Signaling] ${error.toShortString()}`);
+      emit('error', error);
+    }
   });
 
   signalingWs.on('close', (code, reason) => {

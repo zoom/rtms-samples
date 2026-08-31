@@ -15,19 +15,22 @@ function setWebSocketServer(server) {
  */
 function validateWebhookSignature(req) {
   if (!config.zoomSecretToken) {
-    console.warn('ZOOM_SECRET_TOKEN not configured, skipping signature validation');
-    return true;
-  }
-
-  const signature = req.headers['x-zm-signature'];
-  if (!signature) {
+    console.error('ZOOM_SECRET_TOKEN not configured');
     return false;
   }
 
+  const signature = req.headers['x-zm-signature'];
   const timestamp = req.headers['x-zm-request-timestamp'];
-  const body = JSON.stringify(req.body);
+  if (!signature || !timestamp || !Buffer.isBuffer(req.rawBody)) return false;
+  const timestampSeconds = Number(timestamp);
+  const toleranceSeconds = Number(process.env.WEBHOOK_TIMESTAMP_TOLERANCE_SECONDS || 300);
+  if (
+    !Number.isFinite(timestampSeconds) ||
+    (toleranceSeconds > 0 &&
+      Math.abs(Math.floor(Date.now() / 1000) - timestampSeconds) > toleranceSeconds)
+  ) return false;
 
-  const message = `v0:${timestamp}:${body}`;
+  const message = `v0:${timestamp}:${req.rawBody.toString('utf8')}`;
   const hash = crypto
     .createHmac('sha256', config.zoomSecretToken)
     .update(message)
@@ -35,7 +38,10 @@ function validateWebhookSignature(req) {
 
   const expectedSignature = `v0=${hash}`;
 
-  return signature === expectedSignature;
+  const receivedBuffer = Buffer.from(String(signature));
+  const expectedBuffer = Buffer.from(expectedSignature);
+  return receivedBuffer.length === expectedBuffer.length &&
+    crypto.timingSafeEqual(receivedBuffer, expectedBuffer);
 }
 
 /**
@@ -211,7 +217,10 @@ async function handleRTMSStarted(payload) {
       const fetch = require('node-fetch');
       const response = await fetch(`${rtmsServerUrl}/webhook`, {
         method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
+        headers: {
+          'Content-Type': 'application/json',
+          'Authorization': `Bearer ${process.env.INTERNAL_WEBHOOK_TOKEN}`
+        },
         body: JSON.stringify({
           event: 'meeting.rtms_started',
           payload: {
@@ -257,7 +266,10 @@ async function handleRTMSStopped(payload) {
       const fetch = require('node-fetch');
       await fetch(`${rtmsServerUrl}/webhook`, {
         method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
+        headers: {
+          'Content-Type': 'application/json',
+          'Authorization': `Bearer ${process.env.INTERNAL_WEBHOOK_TOKEN}`
+        },
         body: JSON.stringify({
           event: 'meeting.rtms_stopped',
           payload: {

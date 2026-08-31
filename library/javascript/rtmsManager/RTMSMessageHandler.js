@@ -9,6 +9,43 @@ import {
 } from './utils/rtmsEventLookupHelper.js';
 import { FileLogger } from './utils/FileLogger.js';
 import { getProtocolDefinitions } from './utils/rtmsProtocolDefinitions.js';
+import { MediaEventDispatcher } from './utils/MediaEventDispatcher.js';
+
+const SOCKET_CLOSE_TIMEOUT_MS = 2000;
+
+function closeSocket(socket, timeoutMs = SOCKET_CLOSE_TIMEOUT_MS) {
+  return new Promise((resolve) => {
+    if (!socket || socket.readyState === 3) {
+      resolve();
+      return;
+    }
+
+    let settled = false;
+    const finish = () => {
+      if (settled) return;
+      settled = true;
+      clearTimeout(timer);
+      socket.off?.('close', finish);
+      socket.off?.('error', finish);
+      resolve();
+    };
+    const timer = setTimeout(() => {
+      try {
+        socket.terminate?.();
+      } finally {
+        finish();
+      }
+    }, timeoutMs);
+
+    socket.once?.('close', finish);
+    socket.once?.('error', finish);
+    try {
+      socket.close();
+    } catch {
+      finish();
+    }
+  });
+}
 
 export class RTMSMessageHandler {
   /**
@@ -31,7 +68,7 @@ export class RTMSMessageHandler {
     this.serverUrls = serverUrls;
     this.clientId = clientId;
     this.clientSecret = clientSecret;
-    this.emit = (eventName, ...args) => {
+    this._emitNow = (eventName, ...args) => {
       if (eventName === 'error') {
         try {
           return emit(eventName, ...args);
@@ -47,6 +84,13 @@ export class RTMSMessageHandler {
 
       return emit(eventName, ...args);
     };
+    this.mediaEventDispatcher = new MediaEventDispatcher({
+      emit: this._emitNow,
+      logger: FileLogger,
+      enabled: config.asyncMediaEvents !== false,
+      maxQueueSize: config.maxMediaEventQueueSize
+    });
+    this.emit = (eventName, ...args) => this.mediaEventDispatcher.dispatch(eventName, ...args);
     this.mediaTypesFlag = mediaTypesFlag;
     this.config = config;
     this.protocolDefinitions = getProtocolDefinitions(config);
@@ -59,6 +103,8 @@ export class RTMSMessageHandler {
     this._suppressNextSignalingCloseReconnect = null;
     this._duplicateSignalRetryCount = 0;
     this._duplicateSignalRetryTimer = null;
+    this._stopPromise = null;
+    this._manualReconnectToken = null;
     
     // Split mode only - each media type gets its own socket
     this.media = {};
@@ -177,10 +223,18 @@ export class RTMSMessageHandler {
     this.shouldReconnect = false;
     this._lastPacketTimestamp = Date.now();
     for (const media of Object.values(this.media || {})) {
+      if (media?.reconnectTimer) {
+        clearTimeout(media.reconnectTimer);
+        media.reconnectTimer = null;
+      }
       media?.socket?.close?.();
     }
 
+    const reconnectToken = Symbol('manual-reconnect');
+    this._manualReconnectToken = reconnectToken;
     const reconnectNow = () => {
+      if (this._manualReconnectToken !== reconnectToken) return;
+      this._manualReconnectToken = null;
       this.shouldReconnect = true;
       this.connect();
     };
@@ -201,6 +255,8 @@ export class RTMSMessageHandler {
   }
 
   stop() {
+    if (this._stopPromise) return this._stopPromise;
+
     FileLogger.log(`[Handler:${this.streamId.slice(-8)}] Stopping for ${this.rtmsType} ${this.rtmsId}`);
     this.shouldReconnect = false;
     this._lastPacketTimestamp = Date.now();
@@ -216,6 +272,8 @@ export class RTMSMessageHandler {
     this._signalingConnectLocked = false;
     this._signalingConnectSocket = null;
     this._suppressNextSignalingCloseReconnect = null;
+    this._manualReconnectToken = null;
+    this.mediaEventDispatcher.stop();
 
     if (this.audioFiller) {
       this.audioFiller.stop(this._lastPacketTimestamp);
@@ -224,16 +282,23 @@ export class RTMSMessageHandler {
       this.videoFiller.stop(this._lastPacketTimestamp);
     }
 
-    if (this.signaling.socket) {
-      this.signaling.socket.close();
-    }
+    const sockets = [];
+    if (this.signaling.socket) sockets.push(this.signaling.socket);
 
-    // Close all media sockets
     if (this.media && typeof this.media === 'object') {
-      Object.values(this.media).forEach(m => {
-        if (m && m.socket) m.socket.close();
+      Object.values(this.media).forEach((media) => {
+        if (media?.reconnectTimer) {
+          clearTimeout(media.reconnectTimer);
+          media.reconnectTimer = null;
+        }
+        if (media?.socket) sockets.push(media.socket);
       });
     }
+
+    this._stopPromise = Promise.allSettled(
+      [...new Set(sockets)].map((socket) => closeSocket(socket))
+    ).then(() => undefined);
+    return this._stopPromise;
   }
 
   getActiveConnections() {

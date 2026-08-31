@@ -472,12 +472,29 @@ function renderDashboardHtml() {
 </html>`;
 }
 
-async function shutdown() {
-  await store.close?.();
-  await logger.stop?.();
-  server.close(() => process.exit(0));
-  setTimeout(() => process.exit(0), 3000).unref();
+let shutdownPromise;
+function shutdown(signal) {
+  if (shutdownPromise) return shutdownPromise;
+  shutdownPromise = (async () => {
+    logger.info(`[06-realtime-cache] received ${signal}; shutting down`);
+    const timeout = setTimeout(() => process.exit(1), 5000);
+    timeout.unref();
+    try {
+      if (server.listening) {
+        await new Promise((resolve, reject) => server.close((error) => error ? reject(error) : resolve()));
+      }
+      await store.close?.();
+      await logger.stop?.();
+      process.exitCode = 0;
+    } catch (error) {
+      console.error('[06-realtime-cache] shutdown failed', error);
+      process.exitCode = 1;
+    } finally {
+      clearTimeout(timeout);
+    }
+  })();
+  return shutdownPromise;
 }
 
-process.on('SIGINT', shutdown);
-process.on('SIGTERM', shutdown);
+process.once('SIGINT', () => void shutdown('SIGINT'));
+process.once('SIGTERM', () => void shutdown('SIGTERM'));

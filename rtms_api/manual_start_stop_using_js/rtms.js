@@ -3,12 +3,14 @@ import WebSocket from 'ws';
 import crypto from 'crypto';
 import dotenv from 'dotenv';
 import axios from 'axios';
+import { closeHttpServer, closeWebSocket, installGracefulShutdown } from '../../library/javascript/commonHelpers/gracefulShutdown.js';
+import { authenticateZoomWebhook, captureRawBody } from './webhookSignature.js';
 
 // Load environment variables from .env
 dotenv.config();
 
 const app = express();
-app.use(express.json()); // Parse incoming JSON payloads
+app.use(express.json({ verify: captureRawBody }));
 const signalingLocksByStreamId = new Set();
 const activeSignalingSocketsByStreamId = new Map();
 const signalingRetryTimersByStreamId = new Map();
@@ -18,12 +20,21 @@ const INITIAL_DUPLICATE_SIGNAL_RETRY_DELAY_MS = Number(process.env.INITIAL_DUPLI
 
 // Webhook endpoint configuration
 const WEBHOOK_PATH = process.env.WEBHOOK_PATH || '/webhook';
+const ZOOM_SECRET_TOKEN = process.env.ZOOM_SECRET_TOKEN;
 
 // Step 1: Webhook Receiver - Listen for meeting events
-app.post(WEBHOOK_PATH, async (req, res) => {
+app.post(WEBHOOK_PATH, authenticateZoomWebhook(ZOOM_SECRET_TOKEN), async (req, res) => {
   const { event, payload } = req.body;
   console.log('Webhook received:', event);
   console.log('Payload:', JSON.stringify(payload, null, 2));
+
+  if (event === 'endpoint.url_validation' && payload?.plainToken) {
+    const encryptedToken = crypto
+      .createHmac('sha256', ZOOM_SECRET_TOKEN)
+      .update(payload.plainToken)
+      .digest('hex');
+    return res.json({ plainToken: payload.plainToken, encryptedToken });
+  }
 
   // Step 2a: Listen to meeting started event
   if (event === 'meeting.started') {
@@ -332,4 +343,12 @@ function scheduleRTMSStop(meetingId, accessToken) {
 }
 
 // Step 7: Start Express server on port 3000
-app.listen(3000, () => console.log('Server running on port 3000'));
+const server = app.listen(3000, () => console.log('Server running on port 3000'));
+
+installGracefulShutdown({ name: 'Manual RTMS', cleanup: async () => {
+  for (const timer of signalingRetryTimersByStreamId.values()) clearTimeout(timer);
+  signalingRetryTimersByStreamId.clear();
+  await Promise.allSettled([...activeSignalingSocketsByStreamId.values()].map(closeWebSocket));
+  activeSignalingSocketsByStreamId.clear();
+  await closeHttpServer(server);
+} });

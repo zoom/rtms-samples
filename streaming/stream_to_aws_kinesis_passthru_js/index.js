@@ -5,6 +5,7 @@ const dotenv = require('dotenv');
 const fs = require('fs');
 const { exec } = require('child_process');
 const { promisify } = require('util');
+const { authenticateZoomWebhook, captureRawBody } = require('./webhookSignature');
 
 
 // choose either GStreamer or PutMedia producer 
@@ -27,7 +28,7 @@ const CLIENT_SECRET = process.env.ZOOM_CLIENT_SECRET;
 const WEBHOOK_PATH = process.env.WEBHOOK_PATH || '/webhook';
 
 // Middleware to parse JSON bodies in incoming requests
-app.use(express.json());
+app.use(express.json({ verify: captureRawBody }));
 
 const activeConnections = new Map();
 const RECONNECT_DELAY = 3000;
@@ -76,9 +77,7 @@ function closeSocketQuietly(socket) {
 }
 
 // Handle POST requests to the webhook endpoint
-app.post(WEBHOOK_PATH, (req, res) => {
-    // Respond with HTTP 200 status
-    res.sendStatus(200);
+app.post(WEBHOOK_PATH, authenticateZoomWebhook(ZOOM_SECRET_TOKEN), (req, res) => {
     console.log('RTMS Webhook received:', JSON.stringify(req.body, null, 2));
     const { event, payload } = req.body;
 
@@ -95,6 +94,8 @@ app.post(WEBHOOK_PATH, (req, res) => {
             encryptedToken: hash,
         });
     }
+
+    res.sendStatus(200);
 
     if (event === 'meeting.rtms_started') {
         console.log('RTMS Started event received');
@@ -424,10 +425,26 @@ function stopStreaming(streamId) {
 }
 
 // Start the server and listen on the specified port
-app.listen(port, () => {
+const server = app.listen(port, () => {
     console.log(`Server running at http://localhost:${port}`);
     console.log(`Webhook endpoint available at http://localhost:${port}${WEBHOOK_PATH}`);
 
     //this is for putmedia producer
     //startStream();
 });
+
+let shuttingDown = false;
+async function shutdown(signal) {
+    if (shuttingDown) return;
+    shuttingDown = true;
+    console.log(`[Kinesis Streamer] ${signal} received; shutting down`);
+    const deadline = setTimeout(() => process.exit(1), 10000);
+    deadline.unref();
+    for (const streamId of [...activeConnections.keys()]) stopStreaming(streamId);
+    await new Promise((resolve) => server.close(resolve));
+    clearTimeout(deadline);
+    process.exitCode = 0;
+}
+
+process.once('SIGINT', () => void shutdown('SIGINT'));
+process.once('SIGTERM', () => void shutdown('SIGTERM'));

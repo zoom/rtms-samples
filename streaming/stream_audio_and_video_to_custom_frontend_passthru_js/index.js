@@ -1,5 +1,6 @@
 // Import necessary libraries
 import express from 'express';
+import { closeHttpServer, installGracefulShutdown } from '../../library/javascript/commonHelpers/gracefulShutdown.js';
 import crypto from 'crypto';
 import WebSocket from 'ws';
 import dotenv from 'dotenv';
@@ -8,6 +9,7 @@ import { exec } from 'child_process';
 import { promisify } from 'util';
 
 import { startLocalTranscoding } from './localTranscodedStreamer.js';
+import { authenticateZoomWebhook, captureRawBody } from './webhookSignature.js';
 
 // Load environment variables from a .env file
 dotenv.config();
@@ -22,7 +24,7 @@ const CLIENT_SECRET = process.env.ZOOM_CLIENT_SECRET;
 const WEBHOOK_PATH = process.env.WEBHOOK_PATH || '/webhook';
 
 // Middleware to parse JSON bodies in incoming requests
-app.use(express.json());
+app.use(express.json({ verify: captureRawBody }));
 
 // 🆕 Serve the static files from the /public folder
 app.use(express.static('public'));
@@ -84,9 +86,7 @@ function closeSocketQuietly(socket) {
 
 
 // Handle POST requests to the webhook endpoint
-app.post(WEBHOOK_PATH, (req, res) => {
-    // Respond with HTTP 200 status
-    res.sendStatus(200);
+app.post(WEBHOOK_PATH, authenticateZoomWebhook(ZOOM_SECRET_TOKEN), (req, res) => {
     console.log('RTMS Webhook received:', JSON.stringify(req.body, null, 2));
     const { event, payload } = req.body;
 
@@ -103,6 +103,8 @@ app.post(WEBHOOK_PATH, (req, res) => {
             encryptedToken: hash,
         });
     }
+
+    res.sendStatus(200);
 
     // Handle RTMS started event
     if (event === 'meeting.rtms_started') {
@@ -467,8 +469,13 @@ function stopStreaming(streamId) {
 }
 
 // Start the server and listen on the specified port
-app.listen(port, () => {
+const server = app.listen(port, () => {
     console.log(`Server running at http://localhost:${port}`);
     console.log(`Webhook endpoint available at http://localhost:${port}${WEBHOOK_PATH}`);
     console.log(`Player available at http://localhost:${port}/player`);
 });
+
+installGracefulShutdown({ name: 'Frontend Passthrough', cleanup: async () => {
+    for (const streamId of [...activeConnections.keys()]) stopStreaming(streamId);
+    await closeHttpServer(server);
+} });

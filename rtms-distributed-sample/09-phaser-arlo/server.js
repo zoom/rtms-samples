@@ -1,4 +1,5 @@
 import dotenv from 'dotenv';
+import { installGracefulShutdown } from '../shared/gracefulShutdown.js';
 import express from 'express';
 import path from 'path';
 import { fileURLToPath } from 'url';
@@ -63,9 +64,11 @@ app.use(express.static(publicRoot, {
   maxAge: '0'
 }));
 
-app.listen(port, () => {
+const server = app.listen(port, () => {
   console.log(`[09-phaser-arlo] listening on http://127.0.0.1:${port} realtimeCache=${realtimeCacheUrl}`);
 });
+
+installGracefulShutdown({ name: 'phaser-arlo', server });
 
 async function proxyJson(route, fallbackBody) {
   const controller = new AbortController();

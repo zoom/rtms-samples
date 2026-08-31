@@ -92,3 +92,24 @@ such as `11`; sending that combined value directly to a media socket is rejected
 
 - Never commit your `.env` file or secrets to version control.
 - Use HTTPS in production and validate incoming webhook requests for authenticity.
+
+## Docker
+
+The project runs the ASP.NET Core RTMS webhook and media receiver. Its multi-stage Dockerfile keeps build tooling out of the final runtime image and does not hard-code a CPU architecture.
+
+Build and run it from the `rtms-samples` repository root:
+
+```bash
+docker build -f boilerplate/working_dotnetcore/Dockerfile -t rtms-boilerplate-working_dotnetcore .
+docker run --rm --env-file boilerplate/working_dotnetcore/.env -p 3000:3000 rtms-boilerplate-working_dotnetcore
+```
+
+Run the build from the repository root because the Dockerfile uses repository-relative paths. Runtime secrets are supplied with `--env-file` and are excluded from the image build context.
+
+## Webhook Delivery Authentication
+
+Normal Zoom webhook deliveries are verified against the exact raw request body using
+`x-zm-signature` and `x-zm-request-timestamp`. Configure `ZOOM_SECRET_TOKEN` with the
+Marketplace app's webhook Secret Token. Requests with missing, invalid, or stale
+signatures are rejected; the default replay window is 300 seconds and can be changed
+with `WEBHOOK_TIMESTAMP_TOLERANCE_SECONDS`.

@@ -4,6 +4,7 @@ import com.zoom.rtms.vsdkworkingjava.config.AppConfig;
 import com.zoom.rtms.vsdkworkingjava.config.ZoomConfig;
 import com.zoom.rtms.vsdkworkingjava.model.WebhookEvent;
 import com.zoom.rtms.vsdkworkingjava.service.RtmsService;
+import com.fasterxml.jackson.databind.ObjectMapper;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.beans.factory.annotation.Value;
@@ -13,7 +14,10 @@ import org.springframework.web.bind.annotation.*;
 
 import javax.crypto.Mac;
 import javax.crypto.spec.SecretKeySpec;
-import java.util.Base64;
+import java.nio.charset.StandardCharsets;
+import java.security.MessageDigest;
+import java.time.Instant;
+import java.util.HexFormat;
 import java.util.Map;
 
 @RestController
@@ -25,9 +29,14 @@ public class WebhookController {
     private final RtmsService rtmsService;
     private final ZoomConfig zoomConfig;
     private final AppConfig appConfig;
+    private final ObjectMapper objectMapper;
 
     @PostMapping
-    public ResponseEntity<Map<String, String>> handleWebhook(@RequestBody WebhookEvent webhookEvent) {
+    public ResponseEntity<Map<String, String>> handleWebhook(
+            @RequestBody byte[] rawBody,
+            @RequestHeader(value = "x-zm-signature", required = false) String signature,
+            @RequestHeader(value = "x-zm-request-timestamp", required = false) String timestamp) throws Exception {
+        WebhookEvent webhookEvent = objectMapper.readValue(rawBody, WebhookEvent.class);
         log.info("Received webhook request");
         log.debug("Request body: {}", webhookEvent);
 
@@ -43,6 +52,10 @@ public class WebhookController {
             return ResponseEntity.ok(Map.of(
                     "plainToken", plainToken,
                     "encryptedToken", encryptedToken));
+        }
+
+        if (!verifyWebhook(rawBody, signature, timestamp)) {
+            return ResponseEntity.status(401).body(Map.of("error", "invalid_zoom_webhook"));
         }
 
         // For all other webhooks (rtms_started, rtms_stopped, etc.), respond
@@ -76,9 +89,30 @@ public class WebhookController {
                     "HmacSHA256");
             mac.init(secretKey);
             byte[] hash = mac.doFinal(plainToken.getBytes());
-            return Base64.getEncoder().encodeToString(hash);
+            return HexFormat.of().formatHex(hash);
         } catch (Exception e) {
             throw new RuntimeException("Failed to generate validation token", e);
+        }
+    }
+
+    private boolean verifyWebhook(byte[] rawBody, String signature, String timestamp) {
+        try {
+            if (zoomConfig.getSecretToken() == null || signature == null || timestamp == null) return false;
+            long timestampSeconds = Long.parseLong(timestamp);
+            long tolerance = Long.parseLong(
+                    System.getenv().getOrDefault("WEBHOOK_TIMESTAMP_TOLERANCE_SECONDS", "300"));
+            if (tolerance > 0 && Math.abs(Instant.now().getEpochSecond() - timestampSeconds) > tolerance) {
+                return false;
+            }
+            Mac mac = Mac.getInstance("HmacSHA256");
+            mac.init(new SecretKeySpec(zoomConfig.getSecretToken().getBytes(StandardCharsets.UTF_8), "HmacSHA256"));
+            String message = "v0:" + timestamp + ":" + new String(rawBody, StandardCharsets.UTF_8);
+            String expected = "v0=" + HexFormat.of().formatHex(mac.doFinal(message.getBytes(StandardCharsets.UTF_8)));
+            return MessageDigest.isEqual(
+                    expected.getBytes(StandardCharsets.UTF_8),
+                    signature.getBytes(StandardCharsets.UTF_8));
+        } catch (Exception error) {
+            return false;
         }
     }
 }

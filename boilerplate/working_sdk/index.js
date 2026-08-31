@@ -4,6 +4,8 @@ import dotenv from 'dotenv';
 dotenv.config();
 // Import the RTMS SDK
 import rtms from "@zoom/rtms";
+import { startAuthenticatedWebhookServer } from './authenticatedWebhookServer.js';
+import { closeHttpServer, installGracefulShutdown } from '../../library/javascript/commonHelpers/gracefulShutdown.js';
 
 function setAudioParamsCompat(client, params) {
   if (typeof client.setAudioParams === "function") return client.setAudioParams(params);
@@ -26,7 +28,7 @@ function setDeskshareParamsCompat(client, params) {
 let clients = new Map();
 
 // Set up webhook event handler to receive RTMS events from Zoom
-rtms.onWebhookEvent(({ event, payload }) => {
+const webhookServer = startAuthenticatedWebhookServer(({ event, payload }) => {
   const streamId = payload?.rtms_stream_id;
 
   if (event == "meeting.rtms_stopped") {
@@ -109,3 +111,9 @@ rtms.onWebhookEvent(({ event, payload }) => {
   // Join the meeting using the webhook payload directly
   client.join(payload);
 });
+
+installGracefulShutdown({ name: 'RTMS SDK', cleanup: async () => {
+  await closeHttpServer(webhookServer);
+  await Promise.allSettled([...clients.values()].map((client) => Promise.resolve(client.leave())));
+  clients.clear();
+} });

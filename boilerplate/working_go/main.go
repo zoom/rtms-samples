@@ -1,6 +1,7 @@
 package main
 
 import (
+	"context"
 	"crypto/hmac"
 	"crypto/sha256"
 	"encoding/hex"
@@ -11,9 +12,12 @@ import (
 	"math/rand"
 	"net/http"
 	"os"
+	"os/signal"
 	"strconv"
 	"strings"
 	"sync"
+	"syscall"
+	"time"
 
 	"github.com/gorilla/websocket"
 	"github.com/joho/godotenv"
@@ -303,6 +307,15 @@ func webhookHandler(clientID, clientSecret, zoomToken string) http.HandlerFunc {
 		event := payload.Event
 		data := payload.Payload
 
+		if event != "endpoint.url_validation" && !verifyZoomWebhook(r, body, zoomToken) {
+			status := http.StatusUnauthorized
+			if zoomToken == "" {
+				status = http.StatusInternalServerError
+			}
+			http.Error(w, "invalid Zoom webhook", status)
+			return
+		}
+
 		if event == "endpoint.url_validation" {
 			plainToken := data["plainToken"].(string)
 			hash := hmac.New(sha256.New, []byte(zoomToken))
@@ -348,6 +361,39 @@ func webhookHandler(clientID, clientSecret, zoomToken string) http.HandlerFunc {
 	}
 }
 
+func verifyZoomWebhook(r *http.Request, body []byte, secretToken string) bool {
+	if secretToken == "" {
+		return false
+	}
+	signature := r.Header.Get("x-zm-signature")
+	timestamp := r.Header.Get("x-zm-request-timestamp")
+	timestampSeconds, err := strconv.ParseInt(timestamp, 10, 64)
+	if signature == "" || err != nil {
+		return false
+	}
+	toleranceSeconds := int64(300)
+	if configured := os.Getenv("WEBHOOK_TIMESTAMP_TOLERANCE_SECONDS"); configured != "" {
+		if parsed, parseErr := strconv.ParseInt(configured, 10, 64); parseErr == nil {
+			toleranceSeconds = parsed
+		}
+	}
+	if toleranceSeconds > 0 && absInt64(time.Now().Unix()-timestampSeconds) > toleranceSeconds {
+		return false
+	}
+	mac := hmac.New(sha256.New, []byte(secretToken))
+	mac.Write([]byte("v0:" + timestamp + ":"))
+	mac.Write(body)
+	expected := []byte("v0=" + hex.EncodeToString(mac.Sum(nil)))
+	return hmac.Equal([]byte(signature), expected)
+}
+
+func absInt64(value int64) int64 {
+	if value < 0 {
+		return -value
+	}
+	return value
+}
+
 func main() {
 	godotenv.Load()
 
@@ -386,8 +432,41 @@ func main() {
 
 	http.HandleFunc(webhookPath, webhookHandler(clientID, clientSecret, zoomToken))
 
-	log.Printf("Listening on :%s, webhook path: %s, media mode: %s, media types: %d", port, webhookPath, mediaSocketConnectionMode, mediaTypesFlag)
-	if err := http.ListenAndServe(":"+port, nil); err != nil {
-		log.Fatal(err)
+	server := &http.Server{Addr: ":" + port}
+	serverErrors := make(chan error, 1)
+	go func() {
+		log.Printf("Listening on :%s, webhook path: %s, media mode: %s, media types: %d", port, webhookPath, mediaSocketConnectionMode, mediaTypesFlag)
+		serverErrors <- server.ListenAndServe()
+	}()
+
+	signals := make(chan os.Signal, 1)
+	signal.Notify(signals, os.Interrupt, syscall.SIGTERM)
+	select {
+	case receivedSignal := <-signals:
+		log.Printf("Received %s; shutting down", receivedSignal)
+	case err := <-serverErrors:
+		if err != nil && err != http.ErrServerClosed {
+			log.Fatalf("HTTP server failed: %v", err)
+		}
+		return
+	}
+
+	activeConnectionsMu.Lock()
+	connections := activeConnections
+	activeConnections = make(map[string]map[string]*websocket.Conn)
+	activeConnectionsMu.Unlock()
+	for _, streamConnections := range connections {
+		for _, connection := range streamConnections {
+			_ = connection.WriteControl(websocket.CloseMessage,
+				websocket.FormatCloseMessage(websocket.CloseNormalClosure, "Server shutdown"),
+				time.Now().Add(time.Second))
+			_ = connection.Close()
+		}
+	}
+
+	shutdownContext, cancel := context.WithTimeout(context.Background(), 10*time.Second)
+	defer cancel()
+	if err := server.Shutdown(shutdownContext); err != nil {
+		log.Printf("HTTP shutdown failed: %v", err)
 	}
 }

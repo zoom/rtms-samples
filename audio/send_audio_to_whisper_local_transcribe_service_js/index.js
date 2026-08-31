@@ -5,6 +5,7 @@ import dotenv from 'dotenv';
 import path from 'path';
 import { fileURLToPath } from 'url';
 import express from 'express';
+import { closeHttpServer, installGracefulShutdown } from '../../library/javascript/commonHelpers/gracefulShutdown.js';
 import http from 'http';
 
 import { sendAudioChunk, initWhisperTranscription, closeWhisperTranscription } from './whisper.js';
@@ -61,7 +62,7 @@ await initWhisperTranscription();
 const app = express();
 const server = http.createServer(app);
 
-app.use(express.json());
+app.use(express.json({ verify: (req, _res, buffer) => { req.rawBody = Buffer.from(buffer); } }));
 
 await RTMSManager.init(rtmsConfig);
 
@@ -116,13 +117,11 @@ server.listen(appConfig.port, () => {
   console.log(`[Whisper] Server listening on port ${appConfig.port}`);
 });
 
-process.on('SIGINT', async () => {
-  console.log('[Whisper] Shutting down...');
+installGracefulShutdown({ name: 'Whisper', cleanup: async () => {
   await closeWhisperTranscription();
-  server.close();
+  await closeHttpServer(server);
   await RTMSManager.stop();
-  process.exit(0);
-});
+} });
 
 process.on('uncaughtException', (err) => {
   console.error('[Whisper] Uncaught exception:', err);

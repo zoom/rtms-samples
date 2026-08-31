@@ -5,6 +5,7 @@ import dotenv from 'dotenv';
 import path from 'path';
 import { fileURLToPath } from 'url';
 import express from 'express';
+import { closeHttpServer, installGracefulShutdown } from '../../library/javascript/commonHelpers/gracefulShutdown.js';
 import http from 'http';
 
 // Import the transcription function
@@ -61,7 +62,7 @@ console.log('[Consumer] RTMS Configuration:', RTMSManager.redactSecrets(rtmsConf
 const app = express();
 const server = http.createServer(app);
 
-app.use(express.json());
+app.use(express.json({ verify: (req, _res, buffer) => { req.rawBody = Buffer.from(buffer); } }));
 
 // 2. Initialize RTMS Manager (Core Logic)
 await RTMSManager.init(rtmsConfig);
@@ -118,12 +119,10 @@ server.listen(appConfig.port, () => {
   console.log(`[AWS Transcribe] Server listening on port ${appConfig.port}`);
 });
 
-process.on('SIGINT', async () => {
-  console.log('[AWS Transcribe] Shutting down...');
-  server.close();
+installGracefulShutdown({ name: 'AWS Transcribe', cleanup: async () => {
+  await closeHttpServer(server);
   await RTMSManager.stop();
-  process.exit(0);
-});
+} });
 
 process.on('uncaughtException', (err) => {
   if (err.code === 'ERR_STREAM_PREMATURE_CLOSE') {

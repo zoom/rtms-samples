@@ -26,6 +26,10 @@ export class RTMSConfigHelper {
       // Media socket mode: true = single socket for all media (better sync), false = separate sockets
       useUnifiedMediaSocket: false,
 
+      // Dispatch high-volume media events outside the WebSocket parser.
+      asyncMediaEvents: true,
+      maxMediaEventQueueSize: 500,
+
       // July 2026 protocol extensions. These values remain overrideable
       // because Zoom's public changelog documented the names before publishing
       // an authoritative numeric enum table.

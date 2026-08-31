@@ -5,6 +5,7 @@ import dotenv from 'dotenv';
 import path from 'path';
 import { fileURLToPath } from 'url';
 import express from 'express';
+import { closeHttpServer, installGracefulShutdown } from '../../library/javascript/commonHelpers/gracefulShutdown.js';
 import http from 'http';
 
 import { azureSpeechToTextStream } from "./azureSpeechToText.js";
@@ -60,7 +61,7 @@ console.log('[Consumer] RTMS Configuration:', RTMSManager.redactSecrets(rtmsConf
 const app = express();
 const server = http.createServer(app);
 
-app.use(express.json());
+app.use(express.json({ verify: (req, _res, buffer) => { req.rawBody = Buffer.from(buffer); } }));
 
 // 2. Initialize RTMS Manager (Core Logic)
 await RTMSManager.init(rtmsConfig);
@@ -117,9 +118,7 @@ server.listen(appConfig.port, () => {
   console.log(`[Azure Speech] Server listening on port ${appConfig.port}`);
 });
 
-process.on('SIGINT', async () => {
-  console.log('[Azure Speech] Shutting down...');
-  server.close();
+installGracefulShutdown({ name: 'Azure Speech', cleanup: async () => {
+  await closeHttpServer(server);
   await RTMSManager.stop();
-  process.exit(0);
-});
+} });

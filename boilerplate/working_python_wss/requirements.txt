@@ -1,2 +1,5 @@
 websocket-client
 gunicorn
+flask
+python-dotenv
+requests

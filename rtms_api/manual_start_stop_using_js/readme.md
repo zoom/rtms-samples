@@ -120,3 +120,11 @@ The server will start on port 3000 and listen for webhook events.
 - RTMS is automatically stopped after 10 seconds to demo the stop action of the API
 - All WebSocket connections are properly closed when meetings end
 - Transcript data is logged to console for debugging
+
+## Webhook Delivery Authentication
+
+Normal Zoom webhook deliveries are verified against the exact raw request body using
+`x-zm-signature` and `x-zm-request-timestamp`. Configure `ZOOM_SECRET_TOKEN` with the
+Marketplace app's webhook Secret Token. Requests with missing, invalid, or stale
+signatures are rejected; the default replay window is 300 seconds and can be changed
+with `WEBHOOK_TIMESTAMP_TOLERANCE_SECONDS`.
