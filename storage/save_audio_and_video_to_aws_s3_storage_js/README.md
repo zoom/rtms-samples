@@ -23,6 +23,8 @@ There is no fixed post-meeting delay. Different meetings have independent write 
 
 The Docker image installs a pinned Debian FFmpeg package, so a separate FFmpeg installation is not required in the container.
 
+Import [`manifest.json`](manifest.json) to create the user-managed Zoom General App. Replace the development and production domain placeholders first. The manifest requests `meeting:read:meeting_audio` and `meeting:read:meeting_video` and subscribes to the RTMS started and stopped events.
+
 ## Setup
 
 ```bash

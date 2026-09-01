@@ -1,0 +1,68 @@
+{
+  "display_information": {
+    "display_name": "OpenAI Meeting Voice Agent",
+    "description": "Send live Zoom Meeting audio to an OpenAI Realtime agent with selected Zoom MCP tools.",
+    "long_description": "A user-managed Zoom app that streams live meeting audio through RTMS to the OpenAI Realtime API and exposes selected Zoom MCP search, retrieval, and document tools."
+  },
+  "oauth_information": {
+    "usage": "USER_OPERATION",
+    "development_redirect_uri": "https://your-development-domain.example.com/oauth/callback",
+    "production_redirect_uri": "https://your-production-domain.example.com/oauth/callback",
+    "oauth_allow_list": [
+      "https://your-development-domain.example.com",
+      "https://your-production-domain.example.com"
+    ],
+    "strict_mode": true,
+    "subdomain_strict_mode": false,
+    "scopes": [
+      {
+        "scope": "meeting:read:meeting_audio",
+        "optional": false
+      },
+      {
+        "scope": "meeting:read:search",
+        "optional": false
+      },
+      {
+        "scope": "meeting:read:assets",
+        "optional": false
+      },
+      {
+        "scope": "cloud_recording:read:list_user_recordings",
+        "optional": false
+      },
+      {
+        "scope": "cloud_recording:read:content",
+        "optional": false
+      },
+      {
+        "scope": "docs:read:export",
+        "optional": false
+      },
+      {
+        "scope": "docs:write:import",
+        "optional": false
+      }
+    ],
+    "scope_description": "Receive live meeting audio and let the configured Zoom MCP tools search meetings, retrieve permitted assets and recordings, read document content, and create Zoom Docs."
+  },
+  "features": {
+    "products": [
+      "ZOOM_MEETING"
+    ],
+    "event_subscription": {
+      "enable": true,
+      "events": [
+        {
+          "subscription_name": "Meeting RTMS Events",
+          "event_types": [
+            "meeting.rtms_started",
+            "meeting.rtms_stopped"
+          ],
+          "development_webhook_url": "https://your-development-domain.example.com/",
+          "production_webhook_url": "https://your-production-domain.example.com/"
+        }
+      ]
+    }
+  }
+}

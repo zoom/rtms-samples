@@ -4,6 +4,8 @@ This sample demonstrates a Zoom App that controls Zoom RTMS from inside a Zoom M
 
 The sample is intentionally meeting-only.
 
+Import [`manifest.json`](manifest.json) to create the user-managed in-meeting Zoom App. Replace the development and production domain placeholders first. The manifest declares the Zoom Apps SDK APIs used by the frontend, the audio and video RTMS scopes, and the RTMS started and stopped events.
+
 ## Architecture
 
 ```text

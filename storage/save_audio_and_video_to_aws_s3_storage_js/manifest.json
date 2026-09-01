@@ -1,0 +1,48 @@
+{
+  "display_information": {
+    "display_name": "Archive Meeting Media to S3",
+    "description": "Archive live Zoom Meeting audio and video in a customer-controlled S3 bucket.",
+    "long_description": "A user-managed Zoom app that receives live meeting audio and video through RTMS, writes stream artifacts, and uploads finalized media to Amazon S3."
+  },
+  "oauth_information": {
+    "usage": "USER_OPERATION",
+    "development_redirect_uri": "https://your-development-domain.example.com/oauth/callback",
+    "production_redirect_uri": "https://your-production-domain.example.com/oauth/callback",
+    "oauth_allow_list": [
+      "https://your-development-domain.example.com",
+      "https://your-production-domain.example.com"
+    ],
+    "strict_mode": true,
+    "subdomain_strict_mode": false,
+    "scopes": [
+      {
+        "scope": "meeting:read:meeting_audio",
+        "optional": false
+      },
+      {
+        "scope": "meeting:read:meeting_video",
+        "optional": false
+      }
+    ],
+    "scope_description": "Receive live Zoom Meeting audio and video through RTMS for archival in customer-controlled storage."
+  },
+  "features": {
+    "products": [
+      "ZOOM_MEETING"
+    ],
+    "event_subscription": {
+      "enable": true,
+      "events": [
+        {
+          "subscription_name": "Meeting RTMS Events",
+          "event_types": [
+            "meeting.rtms_started",
+            "meeting.rtms_stopped"
+          ],
+          "development_webhook_url": "https://your-development-domain.example.com/webhook",
+          "production_webhook_url": "https://your-production-domain.example.com/webhook"
+        }
+      ]
+    }
+  }
+}

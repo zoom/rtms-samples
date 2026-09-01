@@ -47,6 +47,8 @@ Forward the JSON audit output to durable centralized logging in production and a
 - An Anthropic API key
 - A Zoom user OAuth access token authorized for the official MCP server and its requested granular scopes
 
+Import [`manifest.json`](manifest.json) to create the user-managed Zoom General App and declare the RTMS plus default read-only MCP scopes. Replace the development and production domain placeholders first. The sample does not yet implement the user OAuth authorization-code and refresh flow; it expects `ZOOM_MCP_ACCESS_TOKEN` to be supplied securely.
+
 Zoom's hosted MCP servers use OAuth 2.1. The default endpoint is the official Meeting Streamable HTTP server:
 
 ```text

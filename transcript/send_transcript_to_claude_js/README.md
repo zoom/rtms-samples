@@ -9,6 +9,8 @@ This sample receives Zoom meeting transcript events through RTMS and sends them 
 - An Anthropic API key with access to the configured model
 - A public HTTPS webhook URL for local development
 
+Import [`manifest.json`](manifest.json) to create the user-managed Zoom General App. Replace the development and production domain placeholders first. The manifest requests only `meeting:read:meeting_transcript` and subscribes to the RTMS started and stopped events.
+
 ## Setup
 
 ```bash

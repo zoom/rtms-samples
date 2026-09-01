@@ -4,6 +4,8 @@ Stream Zoom RTMS meeting audio to the OpenAI Realtime API and give the realtime 
 
 This sample is based on the existing audio forwarding samples in this repository. It keeps the RTMS webhook/media flow, replaces the downstream transcription service with OpenAI Realtime, and configures a remote Zoom MCP tool instead of the Kanban function tools from `openai/openai-realtime-meeting-assistant`.
 
+Import [`manifest.json`](manifest.json) to create the user-managed Zoom General App. Replace the development and production domain placeholders first. The manifest declares the audio RTMS scope and the known granular scopes used by the default Zoom MCP tools. `search_zoom` can require additional entity-specific scopes, so add only the scopes needed for the entity types you enable or remove that tool from `ZOOM_MCP_ALLOWED_TOOLS`.
+
 ## Quick Start
 
 ```bash

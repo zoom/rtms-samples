@@ -11,6 +11,8 @@ This sample receives live Zoom meeting transcripts through RTMS and persists eac
 
 See [Zoom App Setup](../../ZOOM_APP_SETUP.md) and the [RTMSManager documentation](../../library/README.md) for the shared Marketplace and RTMS configuration.
 
+Import [`manifest.json`](manifest.json) to create the user-managed Zoom General App. Replace the development and production domain placeholders first. The manifest requests only `meeting:read:meeting_transcript` and subscribes to the RTMS started and stopped events.
+
 ## Setup
 
 ```bash

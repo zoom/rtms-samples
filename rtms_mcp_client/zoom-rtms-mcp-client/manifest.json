@@ -1,0 +1,64 @@
+{
+  "display_information": {
+    "display_name": "Send Meeting Transcripts to MCP Servers",
+    "description": "Route live Zoom Meeting transcripts to a guarded MCP tool pipeline.",
+    "long_description": "A user-managed Zoom app that batches live RTMS transcript data, sends it to an isolated LLM router, and permits a reviewed set of read-only Zoom MCP tools."
+  },
+  "oauth_information": {
+    "usage": "USER_OPERATION",
+    "development_redirect_uri": "https://your-development-domain.example.com/oauth/callback",
+    "production_redirect_uri": "https://your-production-domain.example.com/oauth/callback",
+    "oauth_allow_list": [
+      "https://your-development-domain.example.com",
+      "https://your-production-domain.example.com"
+    ],
+    "strict_mode": true,
+    "subdomain_strict_mode": false,
+    "scopes": [
+      {
+        "scope": "meeting:read:meeting_transcript",
+        "optional": false
+      },
+      {
+        "scope": "meeting:read:search",
+        "optional": false
+      },
+      {
+        "scope": "meeting:read:assets",
+        "optional": false
+      },
+      {
+        "scope": "cloud_recording:read:list_user_recordings",
+        "optional": false
+      },
+      {
+        "scope": "cloud_recording:read:content",
+        "optional": false
+      },
+      {
+        "scope": "docs:read:export",
+        "optional": false
+      }
+    ],
+    "scope_description": "Receive live meeting transcripts and let the configured read-only Zoom MCP tools search meetings and retrieve permitted assets, recordings, and document content."
+  },
+  "features": {
+    "products": [
+      "ZOOM_MEETING"
+    ],
+    "event_subscription": {
+      "enable": true,
+      "events": [
+        {
+          "subscription_name": "Meeting RTMS Events",
+          "event_types": [
+            "meeting.rtms_started",
+            "meeting.rtms_stopped"
+          ],
+          "development_webhook_url": "https://your-development-domain.example.com/webhook",
+          "production_webhook_url": "https://your-production-domain.example.com/webhook"
+        }
+      ]
+    }
+  }
+}
