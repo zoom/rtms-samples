@@ -1,6 +1,6 @@
 # Send Zoom Meeting Transcripts to MCP Servers
 
-This sample streams Zoom meeting transcripts through RTMS, sends bounded transcript batches to Claude, and lets Claude use an explicitly authorized subset of tools discovered from Zoom's official hosted Meeting MCP server.
+This sample streams Zoom meeting transcripts through RTMS, sends bounded transcript batches to Claude, and lets Claude use explicitly authorized tools discovered from MCP servers configured through the environment.
 
 ## Architecture
 
@@ -9,9 +9,9 @@ The project contains two services:
 | Service | Default port | Purpose |
 |---|---:|---|
 | `mcp_client` | `3000` | Authenticates Zoom webhooks, connects to RTMS transcript media, and batches transcript text per stream. |
-| `llm-router-server` | `3100` | Calls Claude and an allowlisted subset of tools discovered from Zoom's hosted MCP server. |
+| `llm-router-server` | `3100` | Calls Claude and allowlisted tools discovered from the configured MCP servers. |
 
-The router calls `tools/list` against the configured official Zoom MCP endpoint and rejects every discovered tool not present in `ZOOM_MCP_ALLOWED_TOOLS`.
+The router reads `MCP_SERVERS_JSON`, connects to every configured server, and calls `tools/list` at startup. It rejects every discovered tool not present in that server's `allowedTools` list. Tools are exposed to Claude as `<server-id>__<tool-name>` so two servers can publish the same upstream tool name safely.
 
 ```text
 Zoom webhook
@@ -20,7 +20,7 @@ Zoom webhook
     -> authenticated private MCP request
     -> llm-router-server
     -> Claude
-    -> official Zoom hosted MCP server
+    -> configured MCP server
 ```
 
 ## Security Model
@@ -28,10 +28,10 @@ Zoom webhook
 - Zoom webhook signatures are verified against the exact raw body with a replay window.
 - `ZOOM_ACCOUNT_ID` restricts the sample to one Zoom account. Run separate isolated deployments and OAuth tokens for multiple tenants.
 - `LLM_ROUTER_AUTH_TOKEN` authenticates every RTMS-client request to the private router.
-- TLS certificate validation remains enabled for all RTMS and Zoom MCP connections.
+- TLS certificate validation remains enabled for all RTMS and MCP connections.
 - Plain HTTP to the router is accepted only on loopback unless explicitly enabled for a trusted private network.
 - CORS is not enabled because neither service is a browser API.
-- Zoom MCP tools are denied unless they are allowlisted. The default list is read-only.
+- MCP tools are denied unless they are allowlisted for their configured server. The included Zoom Meeting server list is read-only.
 - Audit logs contain request IDs, tool names, outcomes, durations, and error codes. They do not contain transcript text, tool arguments, tool results, meeting IDs, stream IDs, account IDs, or credentials.
 - Transcript text is untrusted model input. The system prompt instructs Claude not to treat transcript text or tool results as policy-changing instructions.
 
@@ -45,9 +45,9 @@ Forward the JSON audit output to durable centralized logging in production and a
 - A Zoom app with RTMS enabled and the `meeting.rtms_started` and `meeting.rtms_stopped` webhook events
 - Zoom app Client ID, Client Secret, webhook Secret Token, and Account ID
 - An Anthropic API key
-- A Zoom user OAuth access token authorized for the official MCP server and its requested granular scopes
+- An access token for each configured MCP server, including a Zoom user OAuth access token for the included Zoom Meeting server
 
-Import [`manifest.json`](manifest.json) to create the user-managed Zoom General App and declare the RTMS plus default read-only MCP scopes. Replace the development and production domain placeholders first. The sample does not yet implement the user OAuth authorization-code and refresh flow; it expects `ZOOM_MCP_ACCESS_TOKEN` to be supplied securely.
+Import [`manifest.json`](manifest.json) to create the user-managed Zoom General App and declare the RTMS plus default read-only Zoom MCP scopes. Replace the development and production domain placeholders first. The sample does not yet implement OAuth authorization-code and refresh flows; it expects each configured token environment variable to be supplied securely.
 
 Zoom's hosted MCP servers use OAuth 2.1. The default endpoint is the official Meeting Streamable HTTP server:
 
@@ -72,9 +72,26 @@ Use the same random `LLM_ROUTER_AUTH_TOKEN` and `ZOOM_ACCOUNT_ID` in both files.
 openssl rand -hex 32
 ```
 
-The default `ZOOM_MCP_ALLOWED_TOOLS` contains only read-oriented tools. Compare it with the router's discovered tool count and update it only after reviewing each tool's scopes and side effects. Do not add document creation or other write tools merely because discovery returns them.
+`MCP_SERVERS_JSON` is a JSON array. Each entry declares a stable server ID, an HTTPS Streamable HTTP endpoint, the name of the environment variable holding its bearer token, and an explicit tool allowlist. Keep credentials outside the JSON value:
+
+```dotenv
+MCP_SERVERS_JSON='[{"id":"zoom_meeting","url":"https://zoom.us/mcp/meeting/streamable","bearerTokenEnv":"ZOOM_MEETING_MCP_ACCESS_TOKEN","allowedTools":["search_meetings","get_meeting_assets","get_recording_resource","get_file_content","recordings_list"]}]'
+ZOOM_MEETING_MCP_ACCESS_TOKEN="YOUR_ZOOM_USER_OAUTH_ACCESS_TOKEN_HERE"
+```
+
+Add another object to the array and its token as a separate environment variable to connect another server. The router rejects duplicate IDs, non-HTTPS URLs, missing tokens, empty allowlists, and invalid tool names. It loads the configuration and discovers tools at startup, so restart the service after changing the server list.
+
+The included Zoom Meeting allowlist contains only read-oriented tools. Compare every server's allowlist with its discovered tools and add a tool only after reviewing its permissions and side effects. Do not add write tools merely because discovery returns them.
 
 `ANTHROPIC_MODEL` is required and is passed directly to the Anthropic Messages API. The example currently uses `claude-sonnet-5`; verify model availability for your account against [Anthropic's model documentation](https://platform.claude.com/docs/en/about-claude/models/overview).
+
+Set the optional `ANTHROPIC_TASK_PROMPT` to describe the purpose of the deployment:
+
+```dotenv
+ANTHROPIC_TASK_PROMPT="Find relevant past meetings and return concise answers with source details."
+```
+
+The router appends this value to fixed security rules that treat transcripts and tool output as untrusted, restrict Claude to the filtered MCP tools, and prohibit credential disclosure. The task prompt is limited to 4,000 characters and cannot expand the router's tool allowlists or call limits.
 
 ## Run Locally
 
@@ -124,4 +141,4 @@ npm run build
 npm audit --omit=dev
 ```
 
-Tests cover internal bearer authentication, tenant matching, sanitized errors, Zoom webhook signature/replay verification, and per-stream transcript isolation.
+Tests cover MCP server configuration, tool namespacing, prompt composition, internal bearer authentication, tenant matching, sanitized errors, Zoom webhook signature/replay verification, and per-stream transcript isolation.
