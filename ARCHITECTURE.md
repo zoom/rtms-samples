@@ -191,7 +191,7 @@ RTMSManager.on('transcript', handleTranscript);
 await RTMSManager.start();
 ```
 
-→ See [`library/javascript/README.md`](./library/javascript/README.md) for full API documentation.
+→ See [`library/javascript/readme.md`](./library/javascript/readme.md) for full API documentation.
 
 ### 2. SDK-Based
 

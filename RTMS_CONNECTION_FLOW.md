@@ -1214,4 +1214,4 @@ app.listen(3000, () => console.log('Listening on port 3000'));
 - [ARCHITECTURE.md](./ARCHITECTURE.md) - High-level overview & implementation approaches
 - [MEDIA_PARAMETERS.md](./MEDIA_PARAMETERS.md) - Audio/video configuration options
 - [PRODUCTION.md](./PRODUCTION.md) - Distributed architecture & scaling guide
-- [library/javascript/README.md](./library/javascript/README.md) - RTMSManager library documentation
+- [library/javascript/readme.md](./library/javascript/readme.md) - RTMSManager library documentation

@@ -1,91 +1,166 @@
-# Zoom RTMS realtime speech-to-text service with audio stream
+# Send Audio to Azure Speech-to-Text Service
 
-This project demonstrates the use of 3rd party speech-to-text service which accepts audio buffer as an input. The sample here utilize Microsoft Azure's speech-to-text service (Azure Speech service). Utilizing RTMS, it sends the audio buffer to Azure's API in realtime, and prints out the transcribed text in the console log.
+Stream Zoom meeting audio to Azure Cognitive Services for real-time speech-to-text transcription.
+
+> **Built with [RTMSManager](../../library/readme.md)** - Zoom's JavaScript library for real-time media streaming.
+
+## Quick Start
+
+```bash
+npm install
+cp .env.example .env   # Fill in your credentials
+node index.js
+```
+
+Expose with ngrok: `ngrok http 3000`
+
+## What This Sample Does
+
+This sample captures live audio from Zoom meetings and streams it to Azure Cognitive Services Speech-to-Text. It uses the Microsoft Speech SDK with continuous recognition, providing both partial (interim) and final transcription results. The sample uses a push stream to feed audio data to the recognizer.
 
 ## Prerequisites
 
-Before running the application, ensure you have the following environment variables set in a `.env` file:
-- `ZOOM_SECRET_TOKEN`: Secret token for URL validation
-- `ZOOM_CLIENT_ID`: Zoom client ID
-- `ZOOM_CLIENT_SECRET`: Zoom client secret
-- `PORT`: 3000
-- `WEBHOOK_PATH`: "/webhook"
-- `AZURE_SPEECH_KEY`: Azure Speech Service key
-- `AZURE_REGION`: Region the Azure Speech Service is in
+- Node.js v18+
+- Zoom account with RTMS enabled
+- Azure account with Speech Services resource
+- Azure Speech subscription key and region
+- ngrok for local development
 
+## Environment Variables
 
-## Implementation Details
+| Variable | Required | Description |
+|----------|----------|-------------|
+| `ZOOM_SECRET_TOKEN` | Yes | Your Zoom app's secret token for webhook validation |
+| `ZOOM_CLIENT_ID` | Yes | Your Zoom app's client ID |
+| `ZOOM_CLIENT_SECRET` | Yes | Your Zoom app's client secret |
+| `PORT` | No | Server port (default: 3000) |
+| `WEBHOOK_PATH` | No | Webhook endpoint path (default: /webhook) |
+| `AZURE_SPEECH_KEY` | Yes | Your Azure Speech subscription key |
+| `AZURE_REGION` | Yes | Azure region (e.g., southeastasia, eastus) |
 
-The application follows this sequence:
+## Code Walkthrough
 
-1. Starts an Express server on port 3000
-2. Listens for webhook events at `/webhook` endpoint
-3. Handles URL validation challenges from Zoom
-4. When a meeting starts:
-   - Receives `meeting.rtms_started` event
-   - Establishes WebSocket connection to signaling server
-   - Sends handshake with authentication signature
-   - Receives media server URL from signaling server
-   - Establishes WebSocket connection to media server
-   - Sends media handshake with authentication
-   - Begins receiving audio data
-   - Sends audio data (as buffer) to Azure's Speech-to-Text Service
-   - Prints out the transribed text on the console
-5. During the meeting:  
-   - Maintains WebSocket connections with keep-alive messages
-   - Receives and stores raw audio data chunks
-   - Handles any connection errors
-6. When a meeting ends:  
-   - Receives `meeting.rtms_stopped` event
-   - Closes all active WebSocket connections
+### 1. Initialize RTMSManager
 
-## Running the Application
+```javascript
+const rtmsConfig = {
+  mediaSocketConnectionMode: process.env.MEDIA_SOCKET_CONNECTION_MODE || 'split',
+  mediaTypesFlag: 1, // Audio only
+  credentials: {
+    meeting: {
+      clientId: process.env.ZOOM_CLIENT_ID,
+      clientSecret: process.env.ZOOM_CLIENT_SECRET,
+      zoomSecretToken: process.env.ZOOM_SECRET_TOKEN,
+    },
+    // ...
+  },
+  mediaParams: {
+    audio: {
+      contentType: MEDIA_PARAMS.MEDIA_CONTENT_TYPE_RAW_AUDIO,
+      sampleRate: MEDIA_PARAMS.AUDIO_SAMPLE_RATE_SR_16K,
+      channel: MEDIA_PARAMS.AUDIO_CHANNEL_MONO,
+      codec: MEDIA_PARAMS.MEDIA_PAYLOAD_TYPE_L16,
+      dataOpt: MEDIA_PARAMS.MEDIA_DATA_OPTION_AUDIO_MIXED_STREAM,
+      sendRate: 100,
+    }
+  }
+};
 
-1. Start the server:
-   ```bash
-   node index.js 
-   ```
+await RTMSManager.init(rtmsConfig);
+```
 
-2. Start a Zoom meeting. The application will: 
-   - Receive the `meeting.rtms_started` event
-   - Establish WebSocket connections
-   - Begin capturing audio data
-   - Continuously send audio buffer to Azure Speech to Text Service, and prints out transribed text in console
+### 2. Set Up Webhook Handler
 
-## Project-Specific Features
+```javascript
+const webhookManager = new WebhookManager({
+  config: {
+    webhookPath: process.env.WEBHOOK_PATH || '/',
+    zoomSecretToken: rtmsConfig.credentials.meeting.zoomSecretToken,
+  },
+  app: app
+});
 
-- Realtime audio data capture (16kHz, mono)
-- WebSocket connection management for both signaling and media servers
-- Keep-alive message handling
-- Error handling for WebSocket connections
-- URL validation handling
+webhookManager.on('event', (event, payload) => {
+  console.log('[Azure Speech] Webhook Event:', event);
+  RTMSManager.handleEvent(event, payload);
+});
 
-## Project-Specific Notes 
+webhookManager.setup();
+```
 
-- The application processes audio data at 16kHz sample rate, mono channel
-- API used is from Microsoft Azure
-- Server runs on port 3000
-- Webhook endpoint is available at `http://localhost:3000/webhook`
+### 3. Handle Audio Events
 
-## Additional Setup Requirements 
+```javascript
+import { azureSpeechToTextStream } from "./azureSpeechToText.js";
 
-1. **Node.js** (v14 or higher recommended)
-2. **ngrok** for exposing your local server to the internet
-3. **Zoom App** configuration with RTMS scopes enabled
+RTMSManager.on('audio', (event) => {
+  azureSpeechToTextStream(event.buffer);
+});
+```
 
-## Troubleshooting  
+### 4. Start the Server
 
-1. **No transcribed logs printed out**:
-   - Check that you have a valid subscription service from Microsoft Azure Speech services.
-   - Check that the Zoom app has the correct RTMS scopes
-   - Check that you are requesting for the correct audio media_type and audio codec
-   - Ensure the webhook URL is correctly configured in the Zoom app
+```javascript
+await RTMSManager.start();
 
-2. **Connection Issues**:
-   - Verify ngrok is running and the tunnel is active
-   - Check that the Zoom app credentials in `.env` are correct
-   - Ensure the webhook endpoint is accessible from the internet
+server.listen(appConfig.port, () => {
+  console.log(`[Azure Speech] Server listening on port ${appConfig.port}`);
+});
+```
 
-3. **Audio Quality Issues**:
-   - The application captures audio at 16kHz sample rate, mono channel
-   - If audio quality is poor, check your network connection and Zoom meeting settings
+## Key Files
+
+| File | Purpose |
+|------|---------|
+| `index.js` | Main application entry point, sets up RTMSManager and webhook handling |
+| `azureSpeechToText.js` | Azure Cognitive Services Speech SDK integration |
+| `.env.example` | Template for environment variables |
+| `package.json` | Node.js dependencies |
+
+## How It Works
+
+1. On startup, the sample initializes Azure Speech SDK with a push stream and starts continuous recognition
+2. When a Zoom meeting starts RTMS, the webhook receives the event and triggers RTMSManager
+3. RTMSManager connects to the Zoom media stream and receives audio packets
+4. Each audio chunk is written to the Azure push stream
+5. The Speech recognizer processes audio and emits events:
+   - `recognizing`: Partial results as speech is being recognized
+   - `recognized`: Final results when speech segment completes
+6. Both partial and final transcriptions are logged to the console
+
+## Troubleshooting
+
+| Issue | Solution |
+|-------|----------|
+| "AZURE_SPEECH_KEY and AZURE_REGION are required" | Ensure both environment variables are set |
+| Recognition canceled with error | Check your subscription key and region are valid |
+| No speech recognized | Verify audio is being received; check microphone permissions in Zoom |
+| Session stopped unexpectedly | Check Azure service quotas and network connectivity |
+| Webhook not received | Verify ngrok URL is configured in your Zoom app settings |
+
+## See Also
+
+- [RTMSManager Library Docs](../../library/readme.md) - Full API reference
+- [Zoom App Setup Guide](../../ZOOM_APP_SETUP.md) - Configure your Zoom app
+- [Troubleshooting Guide](../../TROUBLESHOOTING.md) - Common issues
+
+## Docker
+
+The project forwards RTMS audio to Azure Speech to Text. Its multi-stage Dockerfile keeps build tooling out of the final runtime image and does not hard-code a CPU architecture.
+
+Build and run it from the `rtms-samples` repository root:
+
+```bash
+docker build -f audio/send_audio_to_azure_speech_to_text_service_js/Dockerfile -t rtms-audio-send_audio_to_azure_speech_to_text_service_js .
+docker run --rm --env-file audio/send_audio_to_azure_speech_to_text_service_js/.env -p 3000:3000 rtms-audio-send_audio_to_azure_speech_to_text_service_js
+```
+
+Run the build from the repository root because the Dockerfile uses repository-relative paths. Runtime secrets are supplied with `--env-file` and are excluded from the image build context.
+
+## Webhook Delivery Authentication
+
+Normal Zoom webhook deliveries are verified against the exact raw request body using
+`x-zm-signature` and `x-zm-request-timestamp`. Configure `ZOOM_SECRET_TOKEN` with the
+Marketplace app's webhook Secret Token. Requests with missing, invalid, or stale
+signatures are rejected; the default replay window is 300 seconds and can be changed
+with `WEBHOOK_TIMESTAMP_TOLERANCE_SECONDS`.

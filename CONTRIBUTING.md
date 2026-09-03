@@ -20,7 +20,7 @@ Thank you for your interest in contributing! This document provides guidelines f
 
 ### README Format
 
-Each sample should include a `README.md` with:
+Each sample should include a `readme.md` with:
 1. Title and description
 2. Prerequisites (environment variables)
 3. Implementation details / flow
@@ -79,10 +79,10 @@ Examples:
 ## Adding a New Sample
 
 1. Create folder in appropriate category with correct naming
-2. Include `README.md` following the standard format
+2. Include `readme.md` following the standard format
 3. Include `.env.example` with required variables
 4. Add `package.json` (JS) or `requirements.txt` (Python)
-5. Update the main `README.md` if adding a new category
+5. Update the main `readme.md` if adding a new category
 
 ## Questions?
 

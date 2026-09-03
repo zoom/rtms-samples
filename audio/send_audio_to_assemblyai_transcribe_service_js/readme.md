@@ -1,94 +1,180 @@
-# Zoom RTMS real time speech-to-text service with audio stream
+# Send Audio to AssemblyAI Transcription Service
 
-This project demonstrates the use of a 3rd party speech-to-text service that accepts audio buffers as input. The sample here utilizes Assembly AI streaming speech-to-text service. Utilizing RTMS, it sends the audio buffer to Assembly AI streaming speech-to-text API in real-time and prints out the transcribed text in the console log.
+Stream Zoom meeting audio to AssemblyAI for real-time speech-to-text transcription.
+
+> **Built with [RTMSManager](../../library/readme.md)** - Zoom's JavaScript library for real-time media streaming.
+
+## Quick Start
+
+```bash
+npm install
+cp .env.example .env   # Fill in your credentials
+node index.js
+```
+
+Expose with ngrok: `ngrok http 5050`
+
+## What This Sample Does
+
+This sample captures live audio from Zoom meetings and streams it to AssemblyAI's real-time transcription API. It supports both mixed audio (all participants combined) and individual participant streams. The sample manages per-meeting audio collection and handles WebSocket connections to AssemblyAI with automatic reconnection on errors.
 
 ## Prerequisites
 
-Before running the application, ensure you have the following environment variables set in a `.env` file:
-- `ZOOM_SECRET_TOKEN`: Secret token for URL validation
-- `ZOOM_CLIENT_ID`: Zoom client ID
-- `ZOOM_CLIENT_SECRET`: Zoom client secret
-- `PORT`: default is 3000
-- `WEBHOOK_PATH`: default is /webhook
-- `ASSEMBLYAI_API_KEY`: assemblyai apikey
+- Node.js v18+
+- Zoom account with RTMS enabled
+- AssemblyAI account with API key
+- ngrok for local development
 
+## Environment Variables
 
-## Implementation Details
+| Variable | Required | Description |
+|----------|----------|-------------|
+| `ZOOM_SECRET_TOKEN` | Yes | Your Zoom app's secret token for webhook validation |
+| `ZOOM_CLIENT_ID` | Yes | Your Zoom app's client ID |
+| `ZOOM_CLIENT_SECRET` | Yes | Your Zoom app's client secret |
+| `PORT` | No | Server port. `.env.example` uses `5050`; the code falls back to `3000` when unset |
+| `WEBHOOK_PATH` | No | Webhook endpoint path (default: /) |
+| `ASSEMBLYAI_API_KEY` | Yes | Your AssemblyAI API key |
+| `REALTIME_ENABLED` | No | Enable real-time transcription (default: true) |
+| `REALTIME_MODE` | No | 'mixed' for combined audio or 'individual' for per-participant (default: mixed) |
+| `AUDIO_SAMPLE_RATE` | No | Audio sample rate in Hz (default: 16000) |
+| `TARGET_CHUNK_DURATION_MS` | No | Audio chunk duration in milliseconds (default: 100) |
 
-The application follows this sequence:
+## Code Walkthrough
 
-1. Starts an Express server on port 3000
-2. Listens for webhook events at `/webhook` endpoint
-3. Handles URL validation challenges from Zoom
-4. When a meeting starts:
-   - Receives `meeting.rtms_started` event
-   - Establishes WebSocket connection to signaling server
-   - Sends handshake with authentication signature
-   - Receives media server URL from signaling server
-   - Establishes WebSocket connection to media server
-   - Sends media handshake with authentication
-   - Begins receiving audio data
-   - Sends audio data (as buffer) to Assembly AI streaming speech-to-text
-   - Prints out the transribed text on the console
-5. During the meeting:  
-   - Maintains WebSocket connections with keep-alive messages
-   - Receives and stores raw audio data chunks
-   - Continuously feeds audio buffer to Assembly AI streaming speech-to-text
-   - Handles any connection errors
-6. When a meeting ends:  
-   - Receives `meeting.rtms_stopped` event
-   - Closes all active WebSocket connections
+### 1. Initialize RTMSManager
 
-## Running the Application
+```javascript
+const rtmsConfig = {
+  mediaSocketConnectionMode: process.env.MEDIA_SOCKET_CONNECTION_MODE || 'split',
+  mediaTypesFlag: 1, // Audio only
+  credentials: {
+    meeting: {
+      clientId: process.env.ZOOM_CLIENT_ID,
+      clientSecret: process.env.ZOOM_CLIENT_SECRET,
+      zoomSecretToken: process.env.ZOOM_SECRET_TOKEN,
+    },
+    // ...
+  },
+  mediaParams: {
+    audio: {
+      contentType: MEDIA_PARAMS.MEDIA_CONTENT_TYPE_RAW_AUDIO,
+      sampleRate: MEDIA_PARAMS.AUDIO_SAMPLE_RATE_SR_16K,
+      channel: MEDIA_PARAMS.AUDIO_CHANNEL_MONO,
+      codec: MEDIA_PARAMS.MEDIA_PAYLOAD_TYPE_L16,
+      dataOpt: MEDIA_PARAMS.MEDIA_DATA_OPTION_AUDIO_MIXED_STREAM,
+      sendRate: 100,
+    }
+  }
+};
 
-1. Start the server:
-   ```bash
-   node index.js 
-   ```
+await RTMSManager.init(rtmsConfig);
+```
 
-2. Start a Zoom meeting. The application will: 
-   - Receive the `meeting.rtms_started` event
-   - Establish WebSocket connections
-   - Begin capturing audio data
-   - Continuously send audio buffer to Assembly AI streaming speech-to-text, and print out the transcribed text in the console
+### 2. Set Up Webhook Handler with Meeting Lifecycle
 
-## Project-Specific Features
+```javascript
+import { initializeAudioCollection, cleanupMeeting, sendAudioChunk } from './assemblyai.js';
 
-- Real-time audio data capture (16kHz, mono)
-- WebSocket connection management for both signaling and media servers
-- Keep-alive message handling
-- Error handling for WebSocket connections
-- URL validation handling
-- Real-time streaming transcription using Assembly AI streaming speech-to-text
+const webhookManager = new WebhookManager({
+  config: {
+    webhookPath: process.env.WEBHOOK_PATH || '/',
+    zoomSecretToken: rtmsConfig.credentials.meeting.zoomSecretToken,
+  },
+  app: app
+});
 
-## Project-Specific Notes 
+webhookManager.on('event', (event, payload) => {
+  console.log('[AssemblyAI] Webhook Event:', event);
 
-- The application processes audio data at 16kHz sample rate, mono channel
-- API used is from Assembly AI
-- Server runs on port 3000
-- Webhook endpoint is available at `http://localhost:3000/webhook`
+  if (event === 'meeting.rtms_started' && payload?.meeting_uuid) {
+    initializeAudioCollection(payload.meeting_uuid);
+  }
 
-## Additional Setup Requirements 
+  if (event === 'meeting.rtms_stopped' && payload?.meeting_uuid) {
+    cleanupMeeting(payload.meeting_uuid);
+  }
 
-1. **Node.js** (v14 or higher recommended)
-2. **ngrok** for exposing your local server to the internet
-3. **Zoom App** configuration with RTMS scopes enabled
+  RTMSManager.handleEvent(event, payload);
+});
 
-## Troubleshooting  
+webhookManager.setup();
+```
 
-1. **No transcribed logs printed out**:
-   - Check that you have a valid subscription with Assembly AI
-   - Check that the Zoom app has the correct RTMS scopes
-   - Check that you are requesting for the correct audio media_type and audio codec
-   - Ensure the webhook URL is correctly configured in the Zoom app
-   - Verify that the Assembly AI credentials in the .env file are correctly set.
+### 3. Handle Audio Events
 
-2. **Connection Issues**:
-   - Verify ngrok is running and the tunnel is active
-   - Check that the Zoom app credentials in `.env` are correct
-   - Ensure the webhook endpoint is accessible from the internet
+```javascript
+RTMSManager.on('audio', (event) => {
+  sendAudioChunk(event.buffer, event.meetingId, event.userId);
+});
+```
 
-3. **Audio Quality Issues**:
-   - The application captures audio at 16kHz sample rate, mono channel
-   - If audio quality is poor, check your network connection and Zoom meeting settings
+### 4. Start the Server
 
+```javascript
+await RTMSManager.start();
+
+server.listen(appConfig.port, () => {
+  console.log(`[AssemblyAI] Server listening on port ${appConfig.port}`);
+});
+```
+
+## Key Files
+
+| File | Purpose |
+|------|---------|
+| `index.js` | Main application entry point, sets up RTMSManager and webhook handling |
+| `assemblyai.js` | AssemblyAI WebSocket streaming integration with mixed/individual modes |
+| `.env.example` | Template for environment variables |
+| `package.json` | Node.js dependencies |
+| `recordings/` | Directory for audio recordings (if enabled) |
+| `views/` | View templates (if web UI is enabled) |
+
+## How It Works
+
+1. When `meeting.rtms_started` webhook is received, audio collection is initialized for that meeting
+2. A WebSocket connection is established to AssemblyAI's streaming endpoint
+3. RTMSManager connects to the Zoom media stream and receives audio packets
+4. Audio chunks are buffered and sent to AssemblyAI when they reach the target size
+5. AssemblyAI returns transcription events:
+   - `Begin`: Session started
+   - `Turn`: Partial or final transcription (based on `turn_is_formatted`)
+   - `Termination`: Session ended
+6. When `meeting.rtms_stopped` is received, resources are cleaned up and connections closed
+
+## Troubleshooting
+
+| Issue | Solution |
+|-------|----------|
+| WebSocket close code 1008 | Your AssemblyAI API key is invalid or disabled |
+| No transcription output | Verify `REALTIME_ENABLED=true` and API key is valid |
+| Connection drops with code 1006 | Network issue; the sample auto-reconnects after 2 seconds |
+| Individual mode not working | Set `REALTIME_MODE=individual` in .env |
+| Webhook not received | Verify ngrok URL is configured in your Zoom app settings |
+
+## See Also
+
+- [RTMSManager Library Docs](../../library/readme.md) - Full API reference
+- [Zoom App Setup Guide](../../ZOOM_APP_SETUP.md) - Configure your Zoom app
+- [Troubleshooting Guide](../../TROUBLESHOOTING.md) - Common issues
+
+## Docker
+
+The project forwards RTMS audio to AssemblyAI for live transcription. Its multi-stage Dockerfile keeps build tooling out of the final runtime image and does not hard-code a CPU architecture.
+
+Build and run it from the `rtms-samples` repository root:
+
+```bash
+docker build -f audio/send_audio_to_assemblyai_transcribe_service_js/Dockerfile -t rtms-audio-send_audio_to_assemblyai_transcribe_service_js .
+docker run --rm --env-file audio/send_audio_to_assemblyai_transcribe_service_js/.env -p 5050:5050 rtms-audio-send_audio_to_assemblyai_transcribe_service_js
+```
+
+Run the build from the repository root because the Dockerfile uses repository-relative paths. Runtime secrets are supplied with `--env-file` and are excluded from the image build context.
+
+## Webhook Delivery Authentication
+
+Normal Zoom webhook deliveries are verified against the exact raw request body using
+`x-zm-signature` and `x-zm-request-timestamp`. Configure `ZOOM_SECRET_TOKEN` with the
+Marketplace app's webhook Secret Token. Requests with missing, invalid, or stale
+signatures are rejected; the default replay window is 300 seconds and can be changed
+with `WEBHOOK_TIMESTAMP_TOLERANCE_SECONDS`.

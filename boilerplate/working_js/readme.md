@@ -1,265 +1,328 @@
-# Zoom RTMS Media Receiver (Node.js)
+# RTMS JavaScript Boilerplate
 
-This Node.js example demonstrates how to receive real-time audio, video, screen share, transcript, and chat data from a Zoom meeting using the RTMS (Real-Time Media Streaming) service.
-The nodejs server side code connects to Zoom’s RTMS infrastructure via WebSocket, handles webhook events
+A production-ready reference implementation for receiving real-time audio, video, screen share, transcript, and chat data from Zoom meetings.
 
-## Prerequisites
+> **Built with [RTMSManager](../../library/readme.md)** - Zoom's JavaScript library for real-time media streaming.
 
-- Node.js v18 or higher
-- A Zoom account with RTMS enabled
-- Zoom App credentials (Client ID and Client Secret) 
-- Zoom Secret Token for webhook validation
-- Optional: Zoom Server to Server OAuth credentials for S2S Api calls
+## Quick Start
 
-## Setup
-
-1. Install dependencies:
 ```bash
 npm install
-```
-
-2. Create a `.env` file in the root directory with the following content:
-Refer to .env.example for reference
-```
-ZOOM_SECRET_TOKEN=your_secret_token
-ZOOM_CLIENT_ID=your_client_id
-ZOOM_CLIENT_SECRET=your_client_secret
-PORT=3000
-WEBHOOK_PATH=/webhook
-RTMSTRIGGERMANAGERTYPE=webhook
-
-S2S_CLIENT_ID=your_s2s_client_id            # optional for S2S auth
-S2S_CLIENT_SECRET=your_s2s_client_secret    # optional for S2S auth
-ZOOM_ACCOUNT_ID=your_accountid                # optional for S2S auth
-```
-
-`RTMSTRIGGERMANAGERTYPE` selects how RTMS start and stop events reach the
-sample. Use `webhook` for the HTTP webhook endpoint or `websocket` for a Zoom
-WebSocket event subscription. When omitted, the sample defaults to `webhook`.
-
-## Running the Example
-
-1. Start the server:
-```bash
+cp .env.example .env   # Fill in your credentials
 node index.js
 ```
 
-2. Expose your local server using a tool like ngrok:
+Expose with ngrok: `ngrok http 3000`
+
+## What This Sample Does
+
+This is the main reference implementation for RTMS in JavaScript. It demonstrates the complete RTMSManager setup with all event handlers for processing real-time media streams. The sample supports both webhook and WebSocket event sources, includes a frontend WebSocket server for broadcasting data to browser clients, and provides a web interface for monitoring live transcripts and chat.
+
+## Prerequisites
+
+- Node.js v18+
+- Zoom account with RTMS enabled
+- Zoom App credentials (Client ID, Client Secret, Secret Token)
+- Optional: Server-to-Server OAuth credentials for API calls
+- Optional: Video SDK credentials (if using Video SDK)
+- ngrok for local development
+
+## Environment Variables
+
+| Variable | Required | Description |
+|----------|----------|-------------|
+| `ZOOM_SECRET_TOKEN` | Yes | Webhook validation token from Zoom Marketplace |
+| `ZOOM_CLIENT_ID` | Yes | OAuth Client ID for your Zoom app |
+| `ZOOM_CLIENT_SECRET` | Yes | OAuth Client Secret for your Zoom app |
+| `PORT` | No | Server port (default: 3000) |
+| `WEBHOOK_PATH` | No | Webhook endpoint path (default: `/webhook`) |
+| `FRONTEND_WSS_URL_TO_CONNECT_TO` | No | WebSocket URL for frontend clients |
+| `zoomWSURLForEvents` | No | Zoom WebSocket URL for event subscription |
+| `ZOOM_S2S_CLIENT_ID` | No | Server-to-Server OAuth Client ID |
+| `ZOOM_S2S_CLIENT_SECRET` | No | Server-to-Server OAuth Client Secret |
+| `ZOOM_ACCOUNT_ID` | No | Zoom Account ID for S2S OAuth |
+| `MEDIA_TYPES_FLAG` | No | Media mask: audio `1`, video `2`, screen share `4`, transcript `8`, chat `16`, or `32` for all |
+| `VIDEO_CLIENT_ID` | No | Video SDK Client ID |
+| `VIDEO_CLIENT_SECRET` | No | Video SDK Client Secret |
+| `VIDEO_SECRET_TOKEN` | No | Video SDK webhook secret token |
+| `MEDIA_SOCKET_CONNECTION_MODE` | No | `split` expands selected bits into separate sockets; `unified` uses one `all` socket and should use media flag `32` |
+| `AUDIO_STREAM_MODE` | No | Audio mode: `mixed` or `multi` |
+| `VIDEO_STREAM_MODE` | No | Video mode: `active`, `individual`, or `speaker` |
+| `DEFAULT_VIDEO_SUBSCRIPTION_USER_ID` | No | Auto-subscribe this user ID when `VIDEO_STREAM_MODE=individual` and that participant's camera is on |
+| `RTMSTRIGGERMANAGERTYPE` | No | Event source: `webhook` (default) or `websocket` |
+| `SERVE_STATIC_ENABLED` | No | Enable static file serving (default: true) |
+| `FRONTEND_WSS_PATH` | No | WebSocket path for frontend (default: `/ws`) |
+
+## Code Walkthrough
+
+### 1. Initialize RTMS Configuration
+
+```javascript
+import { RTMSManager } from '../../library/javascript/rtmsManager/RTMSManager.js';
+
+const { MEDIA_PARAMS } = RTMSManager;
+
+const rtmsConfig = {
+  logging: {
+    enabled: true,
+    logDir: path.join(__dirname, 'logs'),
+    console: true
+  },
+  mediaSocketConnectionMode,
+  mediaTypesFlag,
+  credentials: {
+    meeting: {
+      clientId: process.env.ZOOM_CLIENT_ID,
+      clientSecret: process.env.ZOOM_CLIENT_SECRET,
+      zoomSecretToken: process.env.ZOOM_SECRET_TOKEN,
+    },
+    video: {
+      videoClientId: process.env.VIDEO_CLIENT_ID,
+      videoClientSecret: process.env.VIDEO_CLIENT_SECRET,
+      videoSecretToken: process.env.VIDEO_SECRET_TOKEN,
+    },
+    s2s: s2sCredentials,
+    websocket: websocketCredentials
+  },
+  mediaParams: {
+    audio: {
+      contentType: MEDIA_PARAMS.MEDIA_CONTENT_TYPE_RAW_AUDIO,
+      sampleRate: MEDIA_PARAMS.AUDIO_SAMPLE_RATE_SR_16K,
+      channel: MEDIA_PARAMS.AUDIO_CHANNEL_MONO,
+      codec: MEDIA_PARAMS.MEDIA_PAYLOAD_TYPE_L16,
+      dataOpt: getAudioDataOptFromEnv(),
+      sendRate: 100,
+    },
+    video: {
+      contentType: MEDIA_PARAMS.MEDIA_CONTENT_TYPE_RAW_VIDEO,
+      codec: MEDIA_PARAMS.MEDIA_PAYLOAD_TYPE_H264,
+      dataOpt: getVideoDataOptFromEnv(),
+      resolution: MEDIA_PARAMS.MEDIA_RESOLUTION_HD,
+      fps: 25,
+    },
+    transcript: {
+      contentType: MEDIA_PARAMS.MEDIA_CONTENT_TYPE_TEXT,
+      language: MEDIA_PARAMS.LANGUAGE_ID_ENGLISH,
+    }
+  }
+};
+```
+
+### Video Mode From `.env`
+
+You can now switch media subscription style without editing code:
+
+```env
+MEDIA_TYPES_FLAG=32
+AUDIO_STREAM_MODE=mixed
+VIDEO_STREAM_MODE=active
+```
+
+Supported values:
+
+- `AUDIO_STREAM_MODE=mixed`
+- `AUDIO_STREAM_MODE=multi`
+- `VIDEO_STREAM_MODE=active`
+- `VIDEO_STREAM_MODE=individual`
+- `VIDEO_STREAM_MODE=speaker`
+
+For individual participant video, use:
+
+```env
+MEDIA_TYPES_FLAG=2
+VIDEO_STREAM_MODE=individual
+MEDIA_SOCKET_CONNECTION_MODE=split
+DEFAULT_VIDEO_SUBSCRIPTION_USER_ID=16778240
+```
+
+For audio, video, and transcript over separate media sockets, use:
+
+```env
+MEDIA_TYPES_FLAG=11
+MEDIA_SOCKET_CONNECTION_MODE=split
+```
+
+In split mode, RTMSManager expands `11` into independent handshakes with
+`media_type` values `1`, `2`, and `8`; it does not send `11` to a media socket.
+
+For one unified socket, use:
+
+```env
+MEDIA_TYPES_FLAG=32
+MEDIA_SOCKET_CONNECTION_MODE=unified
+```
+
+Do not use a combined mask such as `11` in unified mode because it is sent as one
+media handshake value; use split mode to expand that mask instead.
+
+Then the sample will automatically subscribe to that user when they appear in `participant_video_on` / `video_on_participants_changed`.
+
+If you want to do it manually instead, call:
+
+```javascript
+RTMSManager.subscribeToIndividualVideo(streamId, userId);
+```
+
+### 2. Initialize Managers
+
+```javascript
+// Create Express App and HTTP Server
+const app = express();
+const server = http.createServer(app);
+
+// Initialize RTMS Manager (Core Logic)
+await RTMSManager.init(rtmsConfig);
+
+// Initialize Frontend Manager (Static Files & Views)
+const frontendManager = new FrontendManager({
+  config: {
+    port: appConfig.port,
+    serveStaticEnabled: process.env.SERVE_STATIC_ENABLED !== 'false',
+    viewsPath: path.join(__dirname, '../../library/javascript/rtmsManager/public/views'),
+    frontendWssUrl: process.env.FRONTEND_WSS_URL_TO_CONNECT_TO || ''
+  },
+  app: app
+});
+frontendManager.setup();
+
+// Initialize Frontend WSS Manager (Real-time Frontend Communication)
+const frontendWssManager = new FrontendWssManager({
+  config: {
+    frontendWssEnabled: true,
+    frontendWssPath: process.env.FRONTEND_WSS_PATH || '/ws'
+  },
+  server: server
+});
+frontendWssManager.setup();
+```
+
+### 3. Set Up Webhook Handler
+
+```javascript
+if (appConfig.managerType === 'webhook') {
+  const webhookManager = new WebhookManager({
+    config: {
+      webhookPath: process.env.WEBHOOK_PATH || '/',
+      zoomSecretToken: rtmsConfig.credentials.meeting.zoomSecretToken,
+      videoSecretToken: rtmsConfig.credentials.video.videoSecretToken
+    },
+    app: app
+  });
+
+  webhookManager.on('event', (event, payload) => {
+    console.log('[Consumer] Webhook Event:', event, payload);
+    RTMSManager.handleEvent(event, payload);
+  });
+
+  webhookManager.setup();
+}
+```
+
+### 4. Register Media Event Handlers
+
+```javascript
+RTMSManager.on('audio', ({ buffer, userId, userName, timestamp, meetingId, streamId, productType }) => {
+  // Process audio data here
+});
+
+RTMSManager.on('video', ({ buffer, userId, userName, timestamp, meetingId, streamId, productType }) => {
+  // Process video data here
+});
+
+RTMSManager.on('transcript', ({ text, userId, userName, timestamp, meetingId, streamId, productType, startTime, endTime, language, attribute }) => {
+  console.log('[Consumer] Transcript:', { text, userName, language });
+
+  // Broadcast to frontend clients
+  frontendWssManager.broadcastToMeeting(meetingId, {
+    type: 'transcript',
+    text,
+    userName,
+    timestamp,
+    language
+  });
+});
+
+RTMSManager.on('chat', ({ text, userId, userName, sender, timestamp, meetingId, streamId, productType }) => {
+  const displayName = userName ?? sender?.userName ?? sender?.user_name ?? `user ${userId ?? 'unknown'}`;
+  console.log(`[Consumer] Chat from ${displayName}: ${text}`);
+
+  frontendWssManager.broadcastToMeeting(meetingId, {
+    type: 'chat',
+    text,
+    userName: displayName,
+    timestamp
+  });
+});
+```
+
+### 5. Start the Server
+
+```javascript
+// RTMSManager.init() already started the manager.
+server.listen(appConfig.port, () => {
+  console.log(`[Consumer] Server listening on port ${appConfig.port}`);
+});
+
+process.on('SIGINT', async () => {
+  console.log('[Consumer] Shutting down...');
+  server.close();
+  await RTMSManager.stop();
+  process.exit(0);
+});
+```
+
+## Key Files
+
+| File | Purpose |
+|------|---------|
+| `index.js` | Main entry point with complete RTMSManager setup, event handlers, and server configuration |
+| `package.json` | Dependencies including rtms-manager library reference |
+| `.env.example` | Template for all supported environment variables |
+
+## How It Works
+
+1. **Server starts** and initializes RTMSManager with media configuration
+2. **WebhookManager** listens for Zoom webhook events at the configured endpoint
+3. **Zoom sends `meeting.rtms_started`** webhook when RTMS begins in a meeting
+4. **RTMSManager** automatically connects to signaling and media WebSockets
+5. **Media events fire** as data arrives (audio, video, transcript, chat)
+6. **FrontendWssManager** broadcasts data to connected browser clients
+7. **Zoom sends `meeting.rtms_stopped`** webhook when streaming ends
+8. **RTMSManager** cleans up connections and archives stream metadata
+
+## Troubleshooting
+
+| Issue | Solution |
+|-------|----------|
+| Webhook not received | Verify ngrok URL is set in Zoom Marketplace, check webhook path matches |
+| "Invalid signature" error | Ensure `ZOOM_CLIENT_ID` and `ZOOM_CLIENT_SECRET` match your Zoom app |
+| No media data | Check `MEDIA_TYPES_FLAG` includes desired media types (32 = all) |
+| Frontend not receiving data | Verify `FRONTEND_WSS_URL_TO_CONNECT_TO` points to your server's WebSocket |
+| Connection drops | Check network stability; RTMSManager auto-reconnects after 3 seconds |
+
+## See Also
+
+- [RTMSManager Library Docs](../../library/readme.md) - Full API reference
+- [Zoom App Setup Guide](../../ZOOM_APP_SETUP.md) - Configure your Zoom app
+- [Troubleshooting Guide](../../TROUBLESHOOTING.md) - Common issues
+
+## Docker
+
+The project runs the JavaScript RTMS Manager boilerplate. Its multi-stage Dockerfile keeps build tooling out of the final runtime image and does not hard-code a CPU architecture.
+
+Build and run it from the `rtms-samples` repository root:
+
 ```bash
-ngrok http 3000
+docker build -f boilerplate/working_js/Dockerfile -t rtms-boilerplate-working_js .
+docker run --rm --env-file boilerplate/working_js/.env -p 3000:3000 rtms-boilerplate-working_js
 ```
 
-3. Set your Zoom App's Event Notification URL to point to your ngrok endpoint, e.g.:
-```
-https://<your-ngrok-subdomain>.ngrok.io/webhook
-```
+Run the build from the repository root because the Dockerfile uses repository-relative paths. Runtime secrets are supplied with `--env-file` and are excluded from the image build context.
 
-4. Start a Zoom meeting and initiate RTMS streaming.
+## Webhook Delivery Authentication
 
-## Folder Structure
-
-```
-.
-├── index.js                  # Main entry point, handles webhook, RTMS start/stop, sets up HTTP+WS
-├── config.js                 # Loads and exports environment variables from .env
-├── signalingSocket.js        # Handles signaling logic
-├── mediaSocket.js            # Handles media logic
-├── mediaMessageHandler.js    # Processes RTMS media messages (audio, video, screen, etc.)
-├── s2sZoomApiClient.js       # Optional Zoom API client with Server-to-Server OAuth flow
-├── frontendWss.js            # WebSocket server for frontend clients (Zoom Apps)
-├── public/
-│   └── index.ejs             # Zoom App context display
-├── recordings/               # Folder to store saved media files (auto-created)
-├── .env                      # Secrets and config variables
-└── package.json
-```
-
-## Flow Diagram
-
-        ┌──────────────┐
-        │  index.js    │◄────────────────────────────────────────────┐
-        └─────┬────────┘                                             │
-              │                                                      │
-              ▼                                                      │
-    ┌──────────────────────┐                                         │
-    │   config.js          │   Loads env vars                        │
-    └──────────────────────┘                                         │
-              │                                                      │
-              ▼                                                      │
-    ┌──────────────────────┐                                         │
-    │ signalingSocket.js   │◄────┐  Manages signaling WS             │
-    └──────┬───────────────┘     │                                   │
-           │                     │                                   │
-           ▼                     │                                   │
-    ┌──────────────────────┐     │                                   │
-    │  mediaSocket.js      │◄────┘  Called after signaling success   │
-    └──────┬───────────────┘                                         │
-           ▼                                                         |
-    ┌────────────────────────────┐                                   |
-    │ mediaMessageHandler.js     │  Handles RTMS msg and media       |
-    └────────────────────────────┘                                   |
-                                                                     |
-        ┌──────────────────────┐                                     |
-        │ s2sZoomApiClient.js  │◄──────────── Optional API calls     |
-        └──────────────────────┘                                     |
-                                                                     |
-        ┌──────────────────────┐                                     |
-        │ frontendWss.js       │◄────────────── setup frontend WS   ─┘
-        └──────────────────────┘                for Zoom App   
-
-
-## Web Interface
-
-- Visit `http://localhost:3000/` for the Zoom App context viewer. 
-Note: This is meant to be viewed from Zoom Client. It is normal to encounter permission error if loaded from your local browser direclty.
-
-### 🧠 How Zoom Apps Provide Context with `sdk.js`
-
-In this sample, we have provided a simple implementation in `/views/index.ejs`
-
-Zoom Apps run inside the Zoom desktop embedded as a web view. To securely access meeting and user context, Zoom provides a JavaScript SDK:
-
-👉 [`https://appssdk.zoom.us/sdk.js`](https://appssdk.zoom.us/sdk.js)
-
-#### 🔧 How It Works
-
-1. **Zoom loads your app inside an web view**  
-   Your Zoom App frontend (e.g. `/views/index.ejs`) is hosted on your server and embedded by Zoom into an web view.
-
-2. **`sdk.js` enables communication with Zoom**  
-   The sample `/views/index.ejs`) loads the SDK :
-   ```html
-   <script src="https://appssdk.zoom.us/sdk.js"></script>
-   ```
-
-3. **Initialize the SDK**
-   ```js
-   await zoomSdk.config({
-     capabilities: [
-       'getAppContext',
-       'getUserContext',
-       'getMeetingContext',
-       'getMeetingUUID',
-       'getSupportedJsApis'
-     ],
-     version: '0.16.0'
-   });
-   ```
-
-4. **Retrieve Contextual Data**
-   You can then call SDK methods to get live Zoom context:
-
-   ```js
-   const userContext = await zoomSdk.getUserContext();
-   const meetingContext = await zoomSdk.getMeetingContext();
-   const appContext = await zoomSdk.getAppContext();
-   const meetingUUID = await zoomSdk.getMeetingUUID();
-   ```
-
-   These return info such as:
-   - Display name, user ID
-   - Meeting number, role
-   - Zoom App instance details
-   - Unique meeting UUID (used for matching RTMS sessions)
-
-5. **Web socket connection**
-  
-   You can make a connection the websocket created by `frontendWss.js` by creating a websocket client in `views/index.ejs` and connecting to websocket server endpoint. This allows your frontend Zoom App to receive realtime streaming information.
-
-### 🔒 Security Considerations
-
-- All SDK access is scoped to the current Zoom client session.
-- You **must** whitelist the SDK domain in your Zoom App config:
-  ```
-  https://appssdk.zoom.us/sdk.js
-  ```
-
-### 🧪 Demo Page
-
-This project includes a Zoom App demo page hosted here:
-
-```
-http://localhost:3000/
-```
-
-Use this to:
-- Display Zoom session info
-- Test SDK availability
-- Validate your App's Zoom SDK integration
-
----
-
-
-## WebSocket
-
-
-Frontend apps can connect to:
-```
-ws://localhost:3000/ws
-```
-to receive real-time transcript or chat events via `broadcastToFrontendClients()`.
-
-## Notes
-
-- This example focuses on processing RTMS events and saving data based on message types.
-- Handshakes and keep-alive messages are handled automatically for both signaling and media connections.
-- Ensure your Zoom App is configured to send the appropriate webhook events.
-- RTMS must be enabled for your Zoom account and meeting.
-
-## Security
-
-- Keep the `.env` file secret and do not commit to version control.
-- In production, run behind HTTPS and validate webhook signatures.
-
-
-## How it Works
-
-1. The server listens for RTMS webhook events from Zoom (`/webhook` endpoint).
-2. On receiving a `meeting.rtms_started` event, it connects to Zoom's signaling server via WebSocket.
-3. Upon successful handshake, it connects to the media WebSocket server.
-4. The server listens for and processes incoming media messages in `mediaMessageHandler.js`:
-   - **msg_type 14**: Audio
-   - **msg_type 15**: Video
-   - **msg_type 16**: Screen Share (Image/Video formats)
-   - **msg_type 17**: Transcript
-   - **msg_type 18**: Chat
-
-
-## index.ejs (Zoom App Context Viewer)
-
-The `views/index.ejs` file is a lightweight frontend page intended to be used within a Zoom App. It uses the Zoom App SDK to retrieve and display contextual information about the current Zoom session.
-
-### Key Features:
-
-- Loads and initializes the Zoom SDK
-- Retrieves contextual information using the following capabilities:
-  - `getSupportedJsApis`
-  - `getRunningContext`
-  - `getMeetingContext`
-  - `getUserContext`
-  - `getMeetingUUID`
-  - `getAppContext`
-- Displays this information in a formatted and readable way
-- Includes a canvas area for optional visual output (placeholder)
-
-### Usage:
-
-This page is served at the root (`/`) of the server and can be accessed via:
-```
-http://localhost:3000/
-```
-
-You can also integrate it into your Zoom App via an iframe, as long as `https://appssdk.zoom.us/sdk.js` is properly whitelisted in your app's "Domain Allow List" on the Zoom App Marketplace.
-
-## Notes
-
-- This example focuses on processing RTMS events and saving data based on message types.
-- Handshakes and keep-alive messages are handled automatically for both signaling and media connections.
-- Ensure your Zoom App is configured to send the appropriate webhook events.
-- RTMS must be enabled for your Zoom account and meeting.
-
-
-## Security
-
-- The `.env` file must be kept secret. Never commit it to version control.
-- Consider using HTTPS in production and validating Zoom webhook signatures for enhanced security.
+Normal Zoom webhook deliveries are verified against the exact raw request body using
+`x-zm-signature` and `x-zm-request-timestamp`. Configure `ZOOM_SECRET_TOKEN` with the
+Marketplace app's webhook Secret Token. Requests with missing, invalid, or stale
+signatures are rejected; the default replay window is 300 seconds and can be changed
+with `WEBHOOK_TIMESTAMP_TOLERANCE_SECONDS`.

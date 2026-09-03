@@ -1,6 +1,6 @@
 # Zoom RTMS Media Stream to Amazon KVS (Node.js)
 
-This Node.js example demonstrates how to receive real-time audio and video from a Zoom meeting using the RTMS (Real-Time Media Streaming) service and stream them to **Amazon Kinesis Video Streams (KVS)** using GStreamer and the AWS C++ KVS SDK.
+This Node.js example receives real-time audio and video from a Zoom meeting through RTMS, muxes both inputs with FFmpeg, and publishes the resulting Matroska stream to **Amazon Kinesis Video Streams (KVS)**. The active implementation uses the KVS PutMedia endpoint directly; an optional module supports the AWS KVS GStreamer plugin.
 
 ## Prerequisites
 
@@ -8,10 +8,11 @@ This Node.js example demonstrates how to receive real-time audio and video from 
 - A Zoom account with RTMS enabled
 - Zoom App credentials (Client ID and Client Secret)
 - Zoom Secret Token for webhook validation
-- AWS KVS stream names and credentials configured
-- Ubuntu Linux recommended for GStreamer + AWS SDK compatibility
+- An existing AWS KVS stream and AWS credentials available through the standard AWS credential-provider chain
+- FFmpeg
+- Optional: Linux, GStreamer, and the AWS KVS plugin when using the alternate GStreamer module
 
-### Required Environment Variables
+### Configuration
 
 - `PORT`: Port for the Express server (default: 3000)
 - `ZOOM_SECRET_TOKEN`: Zoom webhook secret token
@@ -19,10 +20,9 @@ This Node.js example demonstrates how to receive real-time audio and video from 
 - `ZOOM_CLIENT_SECRET`: Zoom client secret
 - `WEBHOOK_PATH`: Webhook route path (default: /webhook)
 - `AWS_REGION`: AWS region for KVS
-- `AWS_ACCESS_KEY_ID`: AWS access key
-- `AWS_SECRET_ACCESS_KEY`: AWS secret key
-- `STREAM_NAME`: KVS stream name for video/audio (shared)
-- `STREAM_NAME2`: KVS stream name for second media type (audio or video)
+- `AWS_ACCESS_KEY_ID`: Optional AWS access key when not using another credential-provider source
+- `AWS_SECRET_ACCESS_KEY`: Optional AWS secret key when not using another credential-provider source
+- `STREAM_NAME`: KVS stream that receives the muxed audio and video
 
 ## Setup
 
@@ -42,10 +42,11 @@ AWS_REGION=us-west-2
 AWS_ACCESS_KEY_ID=your_aws_access_key
 AWS_SECRET_ACCESS_KEY=your_aws_secret_key
 STREAM_NAME=zoom-video-stream
-STREAM_NAME2=zoom-audio-stream
 ```
 
-### 3. Install GStreamer and Dependencies (Ubuntu)
+The AWS key variables can be omitted when credentials are supplied by another standard provider, such as an IAM role or shared AWS profile.
+
+### 3. Optional: Install GStreamer and Dependencies (Ubuntu)
 ```bash
 sudo apt update
 sudo apt install -y \
@@ -78,12 +79,10 @@ Add to `~/.bashrc` if desired.
 gst-inspect-1.0 kvssink
 ```
 
-## Streaming Options
+## Streaming Implementations
 
-### ✅ Combined Audio+Video to Single KVS Stream
-Uses FFmpeg to mux audio and video into MPEG-TS format, then sends it to KVS.
-- Module: `kvs_gstreamer_stream_audio_and_video_with_ffmpeg.js`
-- Buffers are muxed and sent together using FFmpeg.
+- `kvs_putmedia_producer_stream_audio_and_video_with_ffmpeg.js` is enabled by default. It muxes the RTMS inputs into Matroska and signs a streaming PutMedia request with the AWS SDK credential-provider chain.
+- `kvs_gstreamer_stream_audio_and_video_with_ffmpeg.js` is an optional alternative. It muxes the inputs into MPEG-TS and sends that stream through the separately installed `kvssink` plugin. Change the import in `index.js` to select it.
 
 
 ## How it Works
@@ -92,9 +91,10 @@ Uses FFmpeg to mux audio and video into MPEG-TS format, then sends it to KVS.
 2. On `meeting.rtms_started`, it connects to Zoom’s signaling server.
 3. After handshake, it connects to the media WebSocket server.
 4. Media messages are streamed:
-   - **Audio (msg_type 14)** → Audio buffer → GStreamer pipeline → KVS
-   - **Video (msg_type 15)** → Video buffer → GStreamer pipeline → KVS
-5. On `meeting.rtms_stopped`, all WebSocket connections are gracefully closed.
+   - **Audio (msg_type 14)** -> FFmpeg audio input
+   - **Video (msg_type 15)** -> FFmpeg video input
+5. The active producer muxes both tracks and streams them to one KVS stream through PutMedia.
+6. On `meeting.rtms_stopped`, the RTMS and producer resources are closed.
 
 ## Project Modules
 
@@ -103,14 +103,14 @@ Uses FFmpeg to mux audio and video into MPEG-TS format, then sends it to KVS.
    - `sendAudioBuffer(buffer, timestamp)`
    - `sendVideoBuffer(buffer, timestamp)`
 
-- `kvs_gstreamer_split_audio_and_video_to_kvs.js`:
+- `kvs_putmedia_producer_stream_audio_and_video_with_ffmpeg.js`:
    - `startStream()`
-   - `sendAudioBuffer(buffer)`
-   - `sendVideoBuffer(buffer)`
+   - `sendAudioBuffer(buffer, timestamp)`
+   - `sendVideoBuffer(buffer, timestamp)`
 
 ## Kinesis Stream Requirements
 
-- You must pre-create audio and video streams in KVS.
+- You must pre-create the target stream in KVS.
 - Ensure the IAM role has permissions for `kinesisvideo:PutMedia` and `kinesisvideo:GetDataEndpoint`.
 
 ## Example Directory Structure
@@ -118,17 +118,17 @@ Uses FFmpeg to mux audio and video into MPEG-TS format, then sends it to KVS.
 .
 ├── index.js
 ├── kvs_gstreamer_stream_audio_and_video_with_ffmpeg.js
-├── kvs_gstreamer_split_audio_and_video_to_kvs.js
-├── .env
+├── kvs_putmedia_producer_stream_audio_and_video_with_ffmpeg.js
+├── .env.example
 └── package.json
 ```
 
 ## System Requirements
 
 - Node.js v14 or later
-- GStreamer and its AWS plugin compiled and installed
-- Ubuntu (preferred)
-- AWS CLI or SDK credentials with access to KVS
+- FFmpeg
+- AWS credentials with KVS access
+- GStreamer and its AWS plugin only when selecting the optional GStreamer implementation
 
 ## Security Notes
 
@@ -151,9 +151,9 @@ gst-launch-1.0 -v \
 ## Notes
 
 - This sample streams directly to KVS instead of saving locally or uploading to S3.
-- Select the mode that fits your application architecture.
-- FFmpeg is required for muxed streaming
-- Audio and video are handled and sent as independent real-time buffers.
+- Select the producer module in `index.js` before starting the sample.
+- FFmpeg is required for muxed streaming.
+- Audio and video arrive as independent RTMS buffers, then are muxed into one KVS stream.
 
 ## Docker
 

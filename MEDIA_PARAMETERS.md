@@ -253,4 +253,4 @@ const config = {
 ## Related Documentation
 
 - [RTMS_CONNECTION_FLOW.md](./RTMS_CONNECTION_FLOW.md) - Complete protocol with code examples
-- [library/javascript/README.md](./library/javascript/README.md) - RTMSManager API reference
+- [library/javascript/readme.md](./library/javascript/readme.md) - RTMSManager API reference
