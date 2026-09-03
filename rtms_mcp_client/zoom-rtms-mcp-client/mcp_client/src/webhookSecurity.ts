@@ -26,14 +26,3 @@ export function safeErrorCode(error: unknown): string {
   }
   return 'operation_failed';
 }
-
-export function isWebhookTenantAuthorized(
-  event: string,
-  payload: Record<string, unknown>,
-  expectedAccountId: string,
-  knownStream: boolean
-): boolean {
-  if (typeof payload.account_id === 'string') return payload.account_id === expectedAccountId;
-  // RTMS stopped payloads omit account_id, so bind them to an authenticated start event.
-  return event === 'meeting.rtms_stopped' && knownStream;
-}

@@ -6,7 +6,7 @@ import express, { type Request } from 'express';
 import WebSocket from 'ws';
 import { installGracefulShutdown } from './gracefulShutdown.js';
 import { TranscriptBatcher } from './transcriptBatcher.js';
-import { isWebhookTenantAuthorized, safeErrorCode, verifyZoomWebhook } from './webhookSecurity.js';
+import { safeErrorCode, verifyZoomWebhook } from './webhookSecurity.js';
 
 dotenv.config({ quiet: true });
 
@@ -37,10 +37,10 @@ const config = {
   zoomSecretToken: required('ZOOM_SECRET_TOKEN'),
   zoomClientId: required('ZOOM_CLIENT_ID'),
   zoomClientSecret: required('ZOOM_CLIENT_SECRET'),
-  zoomAccountId: required('ZOOM_ACCOUNT_ID'),
   routerUrl: process.env.LLM_MCP_SERVER_URL?.trim() || 'http://127.0.0.1:3100/mcp',
   routerToken: required('LLM_ROUTER_AUTH_TOKEN'),
   allowInsecureRouterHttp: boolean('ALLOW_INSECURE_ROUTER_HTTP', false),
+  logContent: boolean('LOG_CONTENT', false),
   transcriptBatchWindowMs: integer('TRANSCRIPT_BATCH_WINDOW_MS', 5000, 100),
   transcriptBatchMaxCharacters: integer('TRANSCRIPT_BATCH_MAX_CHARACTERS', 12000, 1),
   maxDuplicateRetries: integer('MAX_DUPLICATE_SIGNAL_RETRIES', 3, 0),
@@ -55,7 +55,6 @@ if (routerUrl.protocol !== 'https:' && !isLoopback && !config.allowInsecureRoute
 
 type RawRequest = Request & { rawBody?: Buffer };
 type StreamState = {
-  accountId: string;
   meetingId: string;
   streamId: string;
   serverUrl: string;
@@ -85,8 +84,11 @@ async function sendTranscript(streamId: string, transcript: string): Promise<voi
   try {
     const result = await routerClient.callTool({
       name: 'ask-llm',
-      arguments: { message: transcript, tenantId: state.accountId }
+      arguments: { message: transcript }
     });
+    if (config.logContent) {
+      audit('router_response', { requestId, response: JSON.stringify(result.content) });
+    }
     audit('transcript_route', { requestId, outcome: result.isError ? 'error' : 'success' });
   } catch (error) {
     audit('transcript_route', { requestId, outcome: 'error', errorCode: safeErrorCode(error) });
@@ -153,6 +155,7 @@ function connectMedia(state: StreamState, mediaUrl: string): void {
       } else if (message.msg_type === 12) {
         ws.send(JSON.stringify({ msg_type: 13, timestamp: message.timestamp }));
       } else if (message.msg_type === 17 && typeof message.content?.data === 'string') {
+        if (config.logContent) audit('transcript_received', { transcript: message.content.data });
         transcriptBatcher.add(state.streamId, message.content.data);
       }
     } catch (error) {
@@ -229,7 +232,6 @@ function handleWebhookEvent(event: string, payload: Record<string, unknown>): vo
     if (!streamId || !meetingId || streams.has(streamId)) return;
     try {
       const state: StreamState = {
-        accountId: String(payload.account_id),
         meetingId,
         streamId,
         serverUrl: zoomSocketUrl(payload.server_urls),
@@ -271,13 +273,6 @@ app.post(config.webhookPath, (req: RawRequest, res) => {
     res.status(400).json({ error: 'invalid_webhook_payload' });
     return;
   }
-  const streamId = String(payload.rtms_stream_id || '');
-  if (!isWebhookTenantAuthorized(event, payload, config.zoomAccountId, streams.has(streamId))) {
-    audit('webhook', { outcome: 'tenant_denied' });
-    res.status(403).json({ error: 'tenant_not_authorized' });
-    return;
-  }
-
   res.sendStatus(200);
   setImmediate(() => handleWebhookEvent(event, payload));
 });

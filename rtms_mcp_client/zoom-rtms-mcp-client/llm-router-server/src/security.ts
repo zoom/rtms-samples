@@ -10,10 +10,6 @@ export function isBearerAuthorized(header: string | undefined, expectedToken: st
   return Boolean(header?.startsWith('Bearer ') && exactMatch(header.slice(7), expectedToken));
 }
 
-export function safeTenantMatch(receivedTenant: string, expectedTenant: string): boolean {
-  return exactMatch(receivedTenant, expectedTenant);
-}
-
 export function safeErrorCode(error: unknown): string {
   if (error && typeof error === 'object') {
     const candidate = error as { code?: unknown; status?: unknown; name?: unknown };

@@ -3,13 +3,23 @@
   "version": "2.0.0",
   "private": true,
   "type": "module",
-  "engines": { "node": ">=22" },
-  "scripts": { "build": "tsc", "start": "node dist/index.js", "dev": "tsx src/index.ts", "test": "tsx --test src/*.test.ts" },
+  "engines": {
+    "node": ">=22"
+  },
+  "scripts": {
+    "build": "tsc",
+    "prestart": "node check-node.mjs && npm run build",
+    "start": "node dist/index.js",
+    "predev": "node check-node.mjs",
+    "dev": "tsx src/index.ts",
+    "test": "tsx --test src/*.test.ts"
+  },
   "dependencies": {
     "@anthropic-ai/sdk": "0.121.0",
     "@modelcontextprotocol/sdk": "1.30.0",
     "dotenv": "17.4.2",
     "express": "5.2.1",
+    "openai": "^7.9.0",
     "zod": "4.4.3"
   },
   "devDependencies": {

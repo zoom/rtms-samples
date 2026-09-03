@@ -10,7 +10,7 @@ const SECURITY_RULES = [
 export function buildSystemPrompt(taskPrompt: string | undefined): string {
   const task = taskPrompt?.trim();
   if (task && task.length > MAX_TASK_PROMPT_CHARACTERS) {
-    throw new Error(`ANTHROPIC_TASK_PROMPT must not exceed ${MAX_TASK_PROMPT_CHARACTERS} characters`);
+    throw new Error(`AI_TASK_PROMPT must not exceed ${MAX_TASK_PROMPT_CHARACTERS} characters`);
   }
 
   return [

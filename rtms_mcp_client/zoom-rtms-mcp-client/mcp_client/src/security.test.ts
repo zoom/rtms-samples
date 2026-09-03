@@ -2,7 +2,7 @@ import assert from 'node:assert/strict';
 import crypto from 'node:crypto';
 import test from 'node:test';
 import { TranscriptBatcher } from './transcriptBatcher.js';
-import { isWebhookTenantAuthorized, verifyZoomWebhook } from './webhookSecurity.js';
+import { verifyZoomWebhook } from './webhookSecurity.js';
 
 test('authenticates the exact Zoom webhook body and rejects stale requests', () => {
   const body = Buffer.from('{"event":"meeting.rtms_started"}');
@@ -12,13 +12,6 @@ test('authenticates the exact Zoom webhook body and rejects stale requests', () 
   assert.equal(verifyZoomWebhook(headers, body, 'secret', 300, 1001), true);
   assert.equal(verifyZoomWebhook(headers, body, 'wrong', 300, 1001), false);
   assert.equal(verifyZoomWebhook(headers, body, 'secret', 300, 1400), false);
-});
-
-test('authorizes stop events only when an authorized stream is already known', () => {
-  assert.equal(isWebhookTenantAuthorized('meeting.rtms_started', { account_id: 'account-a' }, 'account-a', false), true);
-  assert.equal(isWebhookTenantAuthorized('meeting.rtms_started', { account_id: 'account-b' }, 'account-a', false), false);
-  assert.equal(isWebhookTenantAuthorized('meeting.rtms_stopped', {}, 'account-a', true), true);
-  assert.equal(isWebhookTenantAuthorized('meeting.rtms_stopped', {}, 'account-a', false), false);
 });
 
 test('isolates transcript batches by stream', async () => {

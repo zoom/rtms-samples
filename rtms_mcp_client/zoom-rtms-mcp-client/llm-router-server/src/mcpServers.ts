@@ -1,13 +1,15 @@
 export type McpServerConfig = {
   id: string;
   url: URL;
-  accessToken: string;
+  authType: 'bearer' | 'none';
+  accessToken?: string;
   allowedTools: Set<string>;
 };
 
 type RawMcpServerConfig = {
   id?: unknown;
   url?: unknown;
+  authType?: unknown;
   bearerTokenEnv?: unknown;
   allowedTools?: unknown;
 };
@@ -65,12 +67,22 @@ export function loadMcpServerConfigs(
       throw new Error(`MCP server ${id} must use HTTPS`);
     }
 
-    const bearerTokenEnv = nonEmptyString(raw.bearerTokenEnv, 'bearerTokenEnv', index);
-    if (!ENV_NAME_PATTERN.test(bearerTokenEnv)) {
-      throw new Error(`MCP server ${id} has an invalid bearerTokenEnv name`);
+    const authType = raw.authType === undefined ? 'bearer' : raw.authType;
+    if (authType !== 'bearer' && authType !== 'none') {
+      throw new Error(`MCP_SERVERS_JSON[${index}].authType must be bearer or none`);
     }
-    const accessToken = environment[bearerTokenEnv]?.trim();
-    if (!accessToken) throw new Error(`${bearerTokenEnv} is required for MCP server ${id}`);
+
+    let accessToken: string | undefined;
+    if (authType === 'bearer') {
+      const bearerTokenEnv = nonEmptyString(raw.bearerTokenEnv, 'bearerTokenEnv', index);
+      if (!ENV_NAME_PATTERN.test(bearerTokenEnv)) {
+        throw new Error(`MCP server ${id} has an invalid bearerTokenEnv name`);
+      }
+      accessToken = environment[bearerTokenEnv]?.trim();
+      if (!accessToken) throw new Error(`${bearerTokenEnv} is required for MCP server ${id}`);
+    } else if (raw.bearerTokenEnv !== undefined) {
+      throw new Error(`MCP server ${id} must not define bearerTokenEnv when authType is none`);
+    }
 
     if (!Array.isArray(raw.allowedTools) || raw.allowedTools.length === 0) {
       throw new Error(`MCP server ${id} must define a non-empty allowedTools array`);
@@ -84,6 +96,6 @@ export function loadMcpServerConfigs(
       return name;
     }));
 
-    return { id, url, accessToken, allowedTools };
+    return { id, url, authType, accessToken, allowedTools };
   });
 }

@@ -39,9 +39,7 @@ out/
 # Optional npm cache directory
 .npm/
 
-#
 .nvm/
-load_vector_into_chromadb/outputvector/
 
 .env
 package-lock.json

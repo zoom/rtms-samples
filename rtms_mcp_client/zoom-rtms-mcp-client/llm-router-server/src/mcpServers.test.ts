@@ -17,9 +17,23 @@ test('loads MCP servers and resolves access tokens from named environment variab
   assert.equal(servers.length, 1);
   assert.equal(servers[0].id, 'zoom_meeting');
   assert.equal(servers[0].url.toString(), 'https://zoom.us/mcp/meeting/streamable');
+  assert.equal(servers[0].authType, 'bearer');
   assert.equal(servers[0].accessToken, 'secret-token');
   assert.deepEqual([...servers[0].allowedTools], ['search_meetings', 'recordings_list']);
   assert.equal(routedToolName('zoom_meeting', 'search_meetings'), 'zoom_meeting__search_meetings');
+});
+
+test('loads an explicitly unauthenticated MCP server without a token', () => {
+  const servers = loadMcpServerConfigs(JSON.stringify([{
+    id: 'stocks',
+    url: 'https://stocks.example.com/mcp',
+    authType: 'none',
+    allowedTools: ['get_stock_info']
+  }]), {});
+
+  assert.equal(servers[0].authType, 'none');
+  assert.equal(servers[0].accessToken, undefined);
+  assert.deepEqual([...servers[0].allowedTools], ['get_stock_info']);
 });
 
 test('allows multiple servers to expose the same upstream tool without a collision', () => {
@@ -52,6 +66,16 @@ test('rejects insecure endpoints, missing tokens, duplicate IDs, and empty allow
     /must use HTTPS/
   );
   assert.throws(() => loadMcpServerConfigs(serverJson, {}), /ZOOM_MEETING_MCP_ACCESS_TOKEN is required/);
+  assert.throws(
+    () => loadMcpServerConfigs(JSON.stringify([{
+      id: 'stocks',
+      url: 'https://stocks.example.com/mcp',
+      authType: 'none',
+      bearerTokenEnv: 'UNUSED_TOKEN',
+      allowedTools: ['get_stock_info']
+    }]), {}),
+    /must not define bearerTokenEnv/
+  );
   assert.throws(
     () => loadMcpServerConfigs(JSON.stringify([
       JSON.parse(serverJson)[0],
