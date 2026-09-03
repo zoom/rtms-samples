@@ -99,3 +99,6 @@ htmlcov/
 demos/
 boilerplate/working_sdk_zoom_room_screenshot
 boilerplate/working_python_wss_zoom_room_screenshot
+
+# Work-in-progress samples kept locally
+storage/save_edited_audio_and_video_to_local_storage_js/
