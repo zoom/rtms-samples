@@ -85,6 +85,10 @@ app.get('/', (req, res) => {
   });
 });
 
+app.get('/health', (_req, res) => {
+  res.json({ status: 'ok' });
+});
+
 setRealtimeFrontendCallbacks({
   broadcast: broadcastToFrontendClients,
 });

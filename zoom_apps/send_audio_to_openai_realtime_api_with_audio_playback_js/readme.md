@@ -111,6 +111,12 @@ This is the same practical pattern used by realtime voice demos: stop local play
 | `public/audio-client.js` | Browser-side PCM playback queue and interruption/truncation reporting |
 | `public/index.ejs` | Zoom App UI |
 | `.env.example` | Environment variable template |
+| `manifest.json` | Candidate Zoom Marketplace configuration |
+| `render.yaml` | Render Blueprint definition |
+| `railway.json` | Railway service definition |
+
+See [DEPLOYMENT.md](DEPLOYMENT.md) for hosted deployment settings and the
+manual values that must be supplied after deployment.
 
 ## Docker
 
