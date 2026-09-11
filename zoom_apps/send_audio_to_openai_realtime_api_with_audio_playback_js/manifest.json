@@ -6,9 +6,9 @@
   },
   "oauth_information": {
     "usage": "USER_OPERATION",
-    "development_redirect_uri": "https://YOUR-NGROK-URL/oauth/callback",
-    "production_redirect_uri": "https://YOUR-PRODUCTION-URL/oauth/callback",
-    "oauth_allow_list": ["https://YOUR-NGROK-URL", "https://YOUR-PRODUCTION-URL"],
+    "development_redirect_uri": "https://example.ngrok.app/oauth/callback",
+    "production_redirect_uri": "https://blueprint.example.ngrok.app/oauth/callback",
+    "oauth_allow_list": ["https://example.ngrok.app", "https://blueprint.example.ngrok.app"],
     "strict_mode": true,
     "subdomain_strict_mode": false,
     "scopes": [
@@ -25,11 +25,11 @@
   },
   "features": {
     "products": ["ZOOM_MEETING"],
-    "development_home_uri": "https://YOUR-NGROK-URL",
-    "production_home_uri": "https://YOUR-PRODUCTION-URL",
+    "development_home_uri": "https://example.ngrok.app",
+    "production_home_uri": "https://blueprint.example.ngrok.app",
     "domain_allow_list": [
-      { "domain": "YOUR-NGROK-URL", "explanation": "Development server" },
-      { "domain": "YOUR-PRODUCTION-URL", "explanation": "Production server" },
+      { "domain": "example.ngrok.app", "explanation": "Development server" },
+      { "domain": "blueprint.example.ngrok.app", "explanation": "Production server" },
       { "domain": "appssdk.zoom.us", "explanation": "Required for Zoom Apps SDK" }
     ],
     "in_client_feature": {
@@ -62,8 +62,8 @@
         {
           "subscription_name": "Meeting RTMS Events",
           "event_types": ["meeting.rtms_started", "meeting.rtms_stopped"],
-          "development_webhook_url": "https://YOUR-NGROK-URL/webhook",
-          "production_webhook_url": "https://YOUR-PRODUCTION-URL/webhook"
+          "development_webhook_url": "https://example.ngrok.app/webhook",
+          "production_webhook_url": "https://blueprint.example.ngrok.app/webhook"
         }
       ]
     }
