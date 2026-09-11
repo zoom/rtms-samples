@@ -58,6 +58,10 @@ const server = http.createServer(app);
 
 await RTMSManager.init(rtmsConfig);
 
+app.get('/health', (_req, res) => {
+  res.json({ status: 'ok' });
+});
+
 app.use(appConfig.webhookPath, express.json({ verify: captureRawBody, limit: '1mb' }));
 app.post(appConfig.webhookPath, (req, res) => {
   const { event, payload } = req.body || {};
