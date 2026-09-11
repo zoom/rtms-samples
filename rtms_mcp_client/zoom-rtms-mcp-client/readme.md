@@ -159,6 +159,8 @@ docker build \
 
 Run the router only on a private network. If the RTMS client uses plain HTTP over that private Docker network, set `ALLOW_INSECURE_ROUTER_HTTP=true`; keep bearer authentication enabled and do not publish port `3100`.
 
+See [DEPLOYMENT.md](DEPLOYMENT.md) for Render and Railway service topology.
+
 ## Tests
 
 Run in each service:

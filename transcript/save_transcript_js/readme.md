@@ -89,6 +89,8 @@ docker run --rm \
 
 The volume is required if transcript files must survive container replacement. Runtime secrets are supplied through `--env-file` and are not copied into the image.
 
+See [DEPLOYMENT.md](DEPLOYMENT.md) for Render and Railway configuration.
+
 ## Key Files
 
 - `index.js`: HTTP server, signed webhook handling, and RTMS event wiring
