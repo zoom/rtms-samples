@@ -610,3 +610,7 @@ Standalone service files now live in:
 ```text
 /var/www/your-deepfake-service
 ```
+
+See [DEPLOYMENT.md](DEPLOYMENT.md) for Render and Railway configuration. The
+deployment files run this Zoom application; customers provide the video and
+audio inference services.

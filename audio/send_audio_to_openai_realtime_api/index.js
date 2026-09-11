@@ -65,6 +65,9 @@ const app = express();
 const server = http.createServer(app);
 
 app.use(express.json({ verify: (req, _res, buffer) => { req.rawBody = Buffer.from(buffer); } }));
+app.get('/health', (_req, res) => {
+  res.json({ status: 'ok' });
+});
 
 // 2. Initialize RTMS Manager (Core Logic)
 await RTMSManager.init(rtmsConfig);

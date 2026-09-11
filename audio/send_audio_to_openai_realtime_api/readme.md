@@ -147,6 +147,8 @@ docker run --rm \
 
 The image does not include `.env`; runtime secrets are supplied separately.
 
+See [DEPLOYMENT.md](DEPLOYMENT.md) for Render and Railway configuration.
+
 ## Files
 
 | File | Purpose |
