@@ -1,0 +1,43 @@
+services:
+  - type: web
+    name: zoom-meeting-media-s3-archive
+    runtime: docker
+    repo: https://github.com/zoom/rtms-samples
+    branch: tanchunsiong/deploy-meeting-media-s3
+    dockerContext: .
+    dockerfilePath: ./storage/save_audio_and_video_to_aws_s3_storage_js/Dockerfile
+    autoDeployTrigger: off
+    healthCheckPath: /health
+    disk:
+      name: media-upload-queue
+      mountPath: /workspace/rtms-samples/storage/save_audio_and_video_to_aws_s3_storage_js/recordings
+      sizeGB: 20
+    envVars:
+      - key: PORT
+        value: "3000"
+      - key: WEBHOOK_PATH
+        value: /webhook
+      - key: ZOOM_SECRET_TOKEN
+        sync: false
+      - key: ZOOM_CLIENT_ID
+        sync: false
+      - key: ZOOM_CLIENT_SECRET
+        sync: false
+      - key: AWS_ACCESS_KEY_ID
+        sync: false
+      - key: AWS_SECRET_ACCESS_KEY
+        sync: false
+      - key: AWS_REGION
+        value: us-east-1
+      - key: S3_BUCKET
+        sync: false
+      - key: S3_PREFIX
+        value: rtms
+      - key: S3_SERVER_SIDE_ENCRYPTION
+        value: AES256
+      - key: RECORDINGS_DIR
+        value: recordings
+      - key: MEDIA_SOCKET_CONNECTION_MODE
+        value: split
+      - key: MEDIA_TYPES_FLAG
+        value: "3"
