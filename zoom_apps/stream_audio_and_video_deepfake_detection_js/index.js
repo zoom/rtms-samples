@@ -689,6 +689,7 @@ const deepfakeClient = new DeepfakeClient({
   uploadUrl: deepfakeUploadUrl,
   apiKey: deepfakeApiKey,
   pythonBin: process.env.PYTHON_BIN || 'python3',
+  scriptPath: process.env.DEEPFAKE_SCRIPT_PATH || '',
   threshold: envNumber('DEEPFAKE_REAL_THRESHOLD', 0.75),
   vendorName: deepfakeVendorName
 });

@@ -28,7 +28,12 @@ const { MEDIA_PARAMS } = RTMSManager;
 const appConfig = {
   port: readNumber('PORT', 3000, { integer: true, minimum: 1 }),
   webhookPath: process.env.WEBHOOK_PATH || '/webhook',
-  outputDir: path.resolve(__dirname, process.env.TRANSCRIPT_OUTPUT_DIR || 'recordings'),
+  outputDir: path.resolve(
+    __dirname,
+    process.env.TRANSCRIPT_OUTPUT_DIR ||
+      process.env.RAILWAY_VOLUME_MOUNT_PATH ||
+      'recordings'
+  ),
   retentionDays: readNumber('TRANSCRIPT_RETENTION_DAYS', 30),
   cleanupIntervalMs: readNumber('TRANSCRIPT_CLEANUP_INTERVAL_HOURS', 6) * 60 * 60 * 1000,
   dedupWindowEvents: readNumber('TRANSCRIPT_DEDUP_WINDOW_EVENTS', 10_000, { integer: true, minimum: 1 })
@@ -71,6 +76,10 @@ await transcriptStore.start();
 const app = express();
 const server = http.createServer(app);
 await RTMSManager.init(rtmsConfig);
+
+app.get('/health', (_req, res) => {
+  res.json({ status: 'ok' });
+});
 
 app.use(appConfig.webhookPath, express.json({ verify: captureRawBody, limit: '1mb' }));
 app.post(appConfig.webhookPath, (req, res) => {

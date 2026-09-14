@@ -69,6 +69,8 @@ docker run --rm --env-file transcript/send_transcript_to_openai_js/.env -p 3000:
 
 Runtime secrets are supplied through `--env-file` and are not copied into the image.
 
+See [DEPLOYMENT.md](DEPLOYMENT.md) for Render and Railway configuration.
+
 ## Files
 
 - `index.js`: HTTP server, webhook verification, and RTMS event handling
