@@ -1,0 +1,59 @@
+envVarGroups:
+  - name: zoom-rtms-mcp-internal
+    envVars:
+      - key: LLM_ROUTER_AUTH_TOKEN
+        generateValue: true
+
+services:
+  - type: pserv
+    name: zoom-rtms-mcp-router
+    runtime: docker
+    repo: https://github.com/zoom/rtms-samples
+    branch: tanchunsiong/deploy-transcripts-to-mcp
+    dockerContext: .
+    dockerfilePath: ./rtms_mcp_client/zoom-rtms-mcp-client/llm-router-server/Dockerfile
+    autoDeployTrigger: off
+    envVars:
+      - fromGroup: zoom-rtms-mcp-internal
+      - key: PORT
+        value: "3100"
+      - key: AI_PROVIDER
+        value: anthropic
+      - key: ANTHROPIC_API_KEY
+        sync: false
+      - key: AI_TASK_PROMPT
+        value: Find relevant past meetings and return concise answers with source details.
+      - key: MCP_SERVERS_JSON
+        sync: false
+      - key: ZOOM_MEETING_MCP_ACCESS_TOKEN
+        sync: false
+      - key: LOG_CONTENT
+        value: "false"
+
+  - type: web
+    name: zoom-rtms-mcp-client
+    runtime: docker
+    repo: https://github.com/zoom/rtms-samples
+    branch: tanchunsiong/deploy-transcripts-to-mcp
+    dockerContext: .
+    dockerfilePath: ./rtms_mcp_client/zoom-rtms-mcp-client/mcp_client/Dockerfile
+    autoDeployTrigger: off
+    healthCheckPath: /health
+    envVars:
+      - fromGroup: zoom-rtms-mcp-internal
+      - key: PORT
+        value: "3000"
+      - key: WEBHOOK_PATH
+        value: /webhook
+      - key: ZOOM_SECRET_TOKEN
+        sync: false
+      - key: ZOOM_CLIENT_ID
+        sync: false
+      - key: ZOOM_CLIENT_SECRET
+        sync: false
+      - key: LLM_MCP_SERVER_URL
+        value: http://zoom-rtms-mcp-router:3100/mcp
+      - key: ALLOW_INSECURE_ROUTER_HTTP
+        value: "true"
+      - key: LOG_CONTENT
+        value: "false"
