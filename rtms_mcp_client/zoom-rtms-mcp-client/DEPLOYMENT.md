@@ -21,16 +21,36 @@ registry. Set the Zoom webhook to `https://YOUR_RENDER_HOST/webhook`.
 
 ## Railway
 
-Create two services from the repository root. Apply:
+Deploy the router before the client:
 
-- `rtms_mcp_client/zoom-rtms-mcp-client/railway.json` to the public client
-- `rtms_mcp_client/zoom-rtms-mcp-client/llm-router-server/railway.json` to the
-  private router
+1. Create a private service named `zoom-rtms-mcp-router` from the repository
+   root. Apply
+   `rtms_mcp_client/zoom-rtms-mcp-client/llm-router-server/railway.json`,
+   configure the model and MCP server variables, and deploy it without a public
+   domain. Wait for its `/health` endpoint to report the discovered MCP tools.
+2. Create the public `zoom-rtms-mcp-client` service from the repository root.
+   Apply `rtms_mcp_client/zoom-rtms-mcp-client/railway.json`, configure the
+   Zoom variables, and generate its public domain.
 
-Set `LLM_MCP_SERVER_URL` on the client to the router's Railway private URL plus
-`/mcp`. Set `ALLOW_INSECURE_ROUTER_HTTP=true` only for that trusted private
-connection. Generate one internal token and set it on both services.
+Create `LLM_ROUTER_AUTH_TOKEN` as a project shared secret and set this
+reference on both services:
 
-Railway's legacy JSON files configure each service independently. Create and
-publish a two-service Railway template after testing private networking and
-the shared token in the Zoom-owned Railway workspace.
+```text
+LLM_ROUTER_AUTH_TOKEN=${{ shared.LLM_ROUTER_AUTH_TOKEN }}
+```
+
+Set the client router URL through Railway's private service reference:
+
+```text
+LLM_MCP_SERVER_URL=http://${{zoom-rtms-mcp-router.RAILWAY_PRIVATE_DOMAIN}}:3100/mcp
+ALLOW_INSECURE_ROUTER_HTTP=true
+```
+
+The router-domain reference makes the client depend on the router during
+template deployments and staged multi-service changes. Railway waits for the
+router deployment before starting the client. GitHub-triggered service deploys
+remain independent, so keep the health checks and restart policies enabled.
+
+Create and publish a two-service Railway template after testing private
+networking, startup ordering, and the shared token in the Zoom-owned Railway
+workspace.
