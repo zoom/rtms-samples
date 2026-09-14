@@ -1,0 +1,33 @@
+services:
+  - type: web
+    name: zoom-meeting-transcript-knowledge-base
+    runtime: docker
+    repo: https://github.com/zoom/rtms-samples
+    branch: tanchunsiong/deploy-transcript-knowledge-base
+    dockerContext: .
+    dockerfilePath: ./transcript/save_transcript_js/Dockerfile
+    autoDeployTrigger: off
+    healthCheckPath: /health
+    disk:
+      name: transcripts
+      mountPath: /app/recordings
+      sizeGB: 10
+    envVars:
+      - key: PORT
+        value: "3000"
+      - key: WEBHOOK_PATH
+        value: /webhook
+      - key: ZOOM_SECRET_TOKEN
+        sync: false
+      - key: ZOOM_CLIENT_ID
+        sync: false
+      - key: ZOOM_CLIENT_SECRET
+        sync: false
+      - key: TRANSCRIPT_OUTPUT_DIR
+        value: /app/recordings
+      - key: TRANSCRIPT_RETENTION_DAYS
+        value: "30"
+      - key: WEBHOOK_TIMESTAMP_TOLERANCE_SECONDS
+        value: "300"
+      - key: MEDIA_SOCKET_CONNECTION_MODE
+        value: split
