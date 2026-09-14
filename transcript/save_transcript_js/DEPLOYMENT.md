@@ -18,9 +18,17 @@ After deployment, set the Zoom event-subscription endpoint to
 ## Railway
 
 Create a service from `zoom/rtms-samples`, keep the repository root as the
-build context, and apply `transcript/save_transcript_js/railway.json`. Attach a
-volume at `/app/recordings`, add the variables from `.env.example`, and
-generate a public domain.
+build context, and apply `transcript/save_transcript_js/railway.json`. Link the
+Railway CLI to this service and attach a persistent volume:
+
+```bash
+railway volume add --mount-path /app/recordings
+```
+
+The application uses Railway's `RAILWAY_VOLUME_MOUNT_PATH` automatically. You
+can also set `TRANSCRIPT_OUTPUT_DIR=/app/recordings` explicitly. Add the
+remaining variables from `.env.example`, generate a public domain, and deploy
+the service.
 
 Railway's legacy `railway.json` configuration is included for repository
 compatibility. Create and publish a Railway template after testing the service
