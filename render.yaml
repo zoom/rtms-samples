@@ -1,0 +1,33 @@
+services:
+  - type: web
+    name: zoom-openai-meeting-voice-agent
+    runtime: docker
+    repo: https://github.com/zoom/rtms-samples
+    branch: tanchunsiong/deploy-openai-meeting-voice-agent
+    dockerContext: .
+    dockerfilePath: ./zoom_apps/send_audio_to_openai_realtime_api_with_audio_playback_js/Dockerfile
+    autoDeployTrigger: off
+    healthCheckPath: /health
+    envVars:
+      - key: PORT
+        value: "5050"
+      - key: WEBHOOK_PATH
+        value: /webhook
+      - key: ZOOM_SECRET_TOKEN
+        sync: false
+      - key: ZOOM_CLIENT_ID
+        sync: false
+      - key: ZOOM_CLIENT_SECRET
+        sync: false
+      - key: OPENAI_API_KEY
+        sync: false
+      - key: OPENAI_REALTIME_ENABLED
+        value: "true"
+      - key: OPENAI_REALTIME_MODEL
+        value: gpt-realtime-2
+      - key: OPENAI_REALTIME_VOICE
+        value: marin
+      - key: ZOOM_MCP_ACCESS_TOKEN
+        sync: false
+      - key: MEDIA_SOCKET_CONNECTION_MODE
+        value: split
