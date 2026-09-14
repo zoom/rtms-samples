@@ -42,7 +42,7 @@ Forward the JSON audit output to durable centralized logging in production and a
 
 - Node.js 22 or Docker
 - A Zoom app with RTMS enabled and the `meeting.rtms_started` and `meeting.rtms_stopped` webhook events
-- Zoom app Client ID, Client Secret, webhook Secret Token, and Account ID
+- Zoom app Client ID, Client Secret, and webhook Secret Token
 - An API key for Anthropic, OpenAI, or OpenRouter
 - An access token for each configured MCP server, including a Zoom user OAuth access token for the included Zoom Meeting server
 
