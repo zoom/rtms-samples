@@ -26,7 +26,7 @@ services:
         value: gpt-realtime-2
       - key: OPENAI_REALTIME_VOICE
         value: marin
-      - key: ZOOM_MCP_ACCESS_TOKEN
+      - key: MCP_SERVERS_JSON
         sync: false
       - key: MEDIA_SOCKET_CONNECTION_MODE
         value: split

@@ -2,7 +2,7 @@
   "display_information": {
     "display_name": "OpenAI Meeting Voice Agent",
     "description": "Play OpenAI Realtime voice responses inside a Zoom Meeting app.",
-    "long_description": "A user-managed Zoom app that streams live meeting audio through RTMS, lets OpenAI Realtime call selected Zoom MCP tools, and plays spoken responses inside the Zoom App webview."
+    "long_description": "A user-managed Zoom app that streams live meeting audio through RTMS, lets OpenAI Realtime call tools from configured MCP servers, and plays spoken responses inside the Zoom App webview."
   },
   "oauth_information": {
     "usage": "USER_OPERATION",
@@ -13,15 +13,9 @@
     "subdomain_strict_mode": false,
     "scopes": [
       { "scope": "zoomapp:inmeeting", "optional": false },
-      { "scope": "meeting:read:meeting_audio", "optional": false },
-      { "scope": "meeting:read:search", "optional": false },
-      { "scope": "meeting:read:assets", "optional": false },
-      { "scope": "cloud_recording:read:list_user_recordings", "optional": false },
-      { "scope": "cloud_recording:read:content", "optional": false },
-      { "scope": "docs:read:export", "optional": false },
-      { "scope": "docs:write:import", "optional": false }
+      { "scope": "meeting:read:meeting_audio", "optional": false }
     ],
-    "scope_description": "Run an in-meeting Zoom App, receive live meeting audio, and let configured Zoom MCP tools search meetings, retrieve permitted assets and recordings, read document content, and create Zoom Docs."
+    "scope_description": "Run an in-meeting Zoom App and receive live meeting audio through RTMS. MCP server permissions are configured separately and do not add Zoom Marketplace scopes unless a selected server uses Zoom APIs."
   },
   "features": {
     "products": ["ZOOM_MEETING"],
