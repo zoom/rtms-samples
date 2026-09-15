@@ -2,7 +2,7 @@
 
 This Zoom App sample builds on [`audio/send_audio_to_openai_realtime_api`](../../audio/send_audio_to_openai_realtime_api) and selectively reuses the browser playback pattern from [`zoom_apps/ai_chat_with_audio_playback_js`](../ai_chat_with_audio_playback_js).
 
-It streams live Zoom RTMS meeting audio to the OpenAI Realtime API, enables Zoom MCP tools, receives OpenAI Realtime audio output, and plays that audio inside the Zoom App webview.
+It streams live Zoom RTMS meeting audio to the OpenAI Realtime API, enables configured MCP tools, receives OpenAI Realtime audio output, and plays that audio inside the Zoom App webview.
 
 ## What This Sample Does
 
@@ -57,31 +57,23 @@ Configure your Zoom App domain allowlist with the HTTPS ngrok or deployed domain
 | `OPENAI_RESPONSE_NO_OUTPUT_WARNING_MS` | No | Log and show a status if a response starts but produces no audio/text output after this delay. Default `8000` |
 | `OPENAI_MCP_LONG_RUNNING_WARNING_MS` | No | Log and show a status if an MCP call is still running after this delay. Default `10000` |
 | `OPENAI_IGNORE_INTERRUPTS_AFTER_ASSISTANT_AUDIO_START_MS` | No | Ignore very early `speech_started` after assistant audio begins to reduce self-interruption from speaker echo. Default `700` |
-| `ZOOM_MCP_SERVER_URL` | Yes | Zoom MCP server URL, default `https://mcp-us.zoom.us/mcp/zoom/streamable` |
-| `ZOOM_MCP_ACCESS_TOKEN` | Yes | Zoom user OAuth token for MCP. This token expires; refresh it when logs say MCP is disabled or tool listing fails |
-| `ZOOM_MCP_ALLOWED_TOOLS` | No | Comma-separated MCP tool allowlist |
-| `ZOOM_MCP_REQUIRE_APPROVAL` | No | MCP approval policy, default `never` |
+| `MCP_SERVERS_JSON` | No | JSON array of HTTPS MCP servers and explicit tool allowlists |
 | `AUDIO_SAMPLE_RATE` | No | RTMS input sample rate. Use `8000`, `16000`, `32000`, or `48000`; default `48000` |
 | `TARGET_CHUNK_DURATION_MS` | No | Audio chunk size sent to OpenAI, default `100` |
 
-Default Zoom MCP allowlist:
+MCP servers can be attached to the OpenAI Realtime session. This example enables only the stock server's `get_stock_info` tool and requires no server credential:
 
-```text
-search_meetings,search_zoom,get_meeting_assets,get_recording_resource,get_file_content,recordings_list,create_new_file_with_markdown
+```dotenv
+MCP_SERVERS_JSON='[{"id":"stocks","url":"https://mcp.stockmarketscan.com/mcp","authType":"none","allowedTools":["get_stock_info"]}]'
 ```
 
-`create_new_file_with_markdown` writes Zoom Docs. The assistant instructions restrict it to explicit requests to create, save, or write a Zoom Doc. For stricter production behavior, put write tools behind an approval flow or a backend function that validates the content before writing.
+Each entry requires a unique `id`, an HTTPS `url`, and a non-empty `allowedTools` array. Use `authType: "none"` only for a server that intentionally allows unauthenticated access. Transcript context and tool arguments handled by an external MCP server cross that provider's trust boundary, so keep the allowlist minimal and do not use untrusted servers for confidential meetings.
 
-When MCP is available, the backend logs:
+When MCP is available, the backend logs tool discovery events such as:
 
 ```text
-Zoom MCP: enabled - token expires at ...
-MCP tools ready on zoom: ...
+MCP tools ready on stocks: get_stock_info
 ```
-
-If the Zoom OAuth token has expired, the backend disables MCP for that session and sends a frontend error instead of silently letting the assistant claim tools are unavailable.
-
-Zoom MCP access tokens are short lived. After updating `.env`, restart the Node process; an already-running process will keep the old token in memory.
 
 ## Interruption Behavior
 

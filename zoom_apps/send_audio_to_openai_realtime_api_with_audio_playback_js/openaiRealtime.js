@@ -8,18 +8,7 @@ const __dirname = path.dirname(__filename);
 
 dotenv.config({ path: path.join(__dirname, '.env') });
 
-const DEFAULT_ZOOM_MCP_TOOLS = [
-  'search_meetings',
-  'search_zoom',
-  'get_meeting_assets',
-  'get_recording_resource',
-  'get_file_content',
-  'recordings_list',
-  'create_new_file_with_markdown',
-];
-
-const zoomMcpAccessToken = stripBearerPrefix(process.env.ZOOM_MCP_ACCESS_TOKEN || '');
-const zoomMcpTokenStatus = inspectJwtExpiration(zoomMcpAccessToken);
+const mcpServers = parseMcpServers(process.env.MCP_SERVERS_JSON || '');
 
 const CONFIG = {
   ENABLED: process.env.OPENAI_REALTIME_ENABLED !== 'false',
@@ -38,12 +27,7 @@ const CONFIG = {
   IGNORE_INTERRUPTS_AFTER_ASSISTANT_AUDIO_START_MS: Number.parseInt(process.env.OPENAI_IGNORE_INTERRUPTS_AFTER_ASSISTANT_AUDIO_START_MS || '700', 10),
   TRANSCRIPTION_ENABLED: process.env.OPENAI_REALTIME_TRANSCRIPTION_ENABLED !== 'false',
   TRANSCRIPTION_MODEL: process.env.OPENAI_REALTIME_TRANSCRIPTION_MODEL || 'gpt-4o-mini-transcribe',
-  ZOOM_MCP_SERVER_LABEL: process.env.ZOOM_MCP_SERVER_LABEL || 'zoom',
-  ZOOM_MCP_SERVER_URL: process.env.ZOOM_MCP_SERVER_URL || 'https://mcp-us.zoom.us/mcp/zoom/streamable',
-  ZOOM_MCP_ACCESS_TOKEN: zoomMcpAccessToken,
-  ZOOM_MCP_TOKEN_STATUS: zoomMcpTokenStatus,
-  ZOOM_MCP_ALLOWED_TOOLS: parseCsv(process.env.ZOOM_MCP_ALLOWED_TOOLS || DEFAULT_ZOOM_MCP_TOOLS.join(',')),
-  ZOOM_MCP_REQUIRE_APPROVAL: process.env.ZOOM_MCP_REQUIRE_APPROVAL || 'never',
+  MCP_SERVERS: mcpServers,
   LOG_RAW_MCP_OUTPUT: process.env.OPENAI_REALTIME_LOG_RAW_MCP_OUTPUT === 'true',
   MCP_OUTPUT_PREVIEW_CHARS: Number.parseInt(process.env.OPENAI_REALTIME_MCP_OUTPUT_PREVIEW_CHARS || '500', 10),
   COST_LOGGING_ENABLED: process.env.OPENAI_REALTIME_COST_LOGGING_ENABLED !== 'false',
@@ -82,11 +66,7 @@ console.log('[OpenAI Realtime] Bridge initialized');
 console.log(`[OpenAI Realtime] Model: ${CONFIG.MODEL}`);
 console.log(`[OpenAI Realtime] Voice: ${CONFIG.VOICE}`);
 console.log(`[OpenAI Realtime] Audio: ${CONFIG.SOURCE_SAMPLE_RATE}Hz RTMS -> ${CONFIG.TARGET_SAMPLE_RATE}Hz OpenAI, chunk ${CONFIG.TARGET_CHUNK_DURATION_MS}ms`);
-console.log(`[OpenAI Realtime] Zoom MCP: ${describeMcpStatus()}`);
-console.log(`[OpenAI Realtime] Zoom MCP allowed tools: ${CONFIG.ZOOM_MCP_ALLOWED_TOOLS.join(', ') || 'all server tools'}`);
-if (CONFIG.ZOOM_MCP_TOKEN_STATUS?.expired) {
-  console.warn(`[OpenAI Realtime] Zoom MCP access token expired at ${CONFIG.ZOOM_MCP_TOKEN_STATUS.expiresAtIso}; refresh ZOOM_MCP_ACCESS_TOKEN before expecting tool use.`);
-}
+console.log(`[OpenAI Realtime] MCP servers: ${CONFIG.MCP_SERVERS.map((server) => `${server.id} (${server.allowedTools.join(', ')})`).join('; ') || 'none'}`);
 if (CONFIG.COST_LOGGING_ENABLED) {
   console.log(`[OpenAI Realtime] Cost logging: enabled, pricing per 1M tokens textIn=$${CONFIG.PRICING.TEXT_INPUT_PER_1M} textOut=$${CONFIG.PRICING.TEXT_OUTPUT_PER_1M} audioIn=$${CONFIG.PRICING.AUDIO_INPUT_PER_1M} audioOut=$${CONFIG.PRICING.AUDIO_OUTPUT_PER_1M}`);
 }
@@ -138,12 +118,6 @@ export function initializeRealtimeSession(meetingUuid) {
 
   sessions.set(meetingUuid, session);
   console.log(`[OpenAI Realtime] Initializing session for meeting ${meetingUuid}`);
-  if (CONFIG.ZOOM_MCP_TOKEN_STATUS?.expired) {
-    broadcast({
-      type: 'error',
-      data: `Zoom MCP disabled: access token expired at ${CONFIG.ZOOM_MCP_TOKEN_STATUS.expiresAtIso}`,
-    });
-  }
   connectRealtime(session);
 }
 
@@ -389,54 +363,29 @@ function buildInstructions(meetingUuid) {
 }
 
 function buildMcpInstructionLines() {
-  if (!CONFIG.ZOOM_MCP_ACCESS_TOKEN) {
+  if (CONFIG.MCP_SERVERS.length === 0) {
     return [
-      'Zoom MCP tools are not configured in this session because ZOOM_MCP_ACCESS_TOKEN is not set.',
-      'If the speaker asks for Zoom data, say that the Zoom MCP token is missing and the backend must be configured.',
-    ];
-  }
-
-  if (CONFIG.ZOOM_MCP_TOKEN_STATUS?.expired) {
-    return [
-      `Zoom MCP tools are not available in this session because the configured access token expired at ${CONFIG.ZOOM_MCP_TOKEN_STATUS.expiresAtIso}.`,
-      'If the speaker asks for Zoom data, say that the Zoom MCP token is expired and the backend needs a fresh token and process restart.',
+      'MCP tools are not configured for this session.',
     ];
   }
 
   return [
-    'Zoom MCP tools are connected in this session. Use them only when the speaker asks for Zoom information or asks you to retrieve, search, summarize, create, or save Zoom-related content.',
-    'Use search_meetings when the user asks about past, recent, upcoming, or named meetings. Ask for a date range if the request is too broad.',
-    'Use get_meeting_assets after you have a specific meeting ID or UUID and the user asks for summaries, notes, participants, agenda docs, whiteboards, recordings, or meeting-linked docs.',
-    'Use recordings_list when the user asks to find cloud recordings by date, host, or meeting number. Use get_recording_resource when the user asks what was said in a recording, wants transcript details, next steps, summaries, or playback links.',
-    'Use search_zoom for broad searches across Zoom Docs, meeting notes, or Team Chat. Use get_file_content only after selecting a specific Zoom Doc file ID.',
-    'Use create_new_file_with_markdown only when the user explicitly asks you to create, save, or write a Zoom Doc. Use concise Markdown and choose a clear file name.',
-    'Summarize MCP results before responding. Do not read raw JSON, full transcripts, exhaustive participant lists, or complete search payloads aloud unless the user explicitly asks.',
-    'If multiple MCP results match, summarize the best matches in at most five concise bullets and ask the user to choose instead of guessing.',
-    'When the audio is ordinary conversation, greetings, filler, or unrelated meeting discussion, do not call tools.',
+    'Allowlisted MCP tools are connected. Use them only when the speaker explicitly asks for information they provide.',
+    'Summarize MCP results before responding and do not read raw tool output aloud.',
   ];
 }
 
 function buildTools() {
-  if (!CONFIG.ZOOM_MCP_ACCESS_TOKEN) {
-    return [];
-  }
-  if (CONFIG.ZOOM_MCP_TOKEN_STATUS?.expired) {
-    return [];
-  }
-
-  const tool = {
+  const tools = CONFIG.MCP_SERVERS.map((server) => ({
     type: 'mcp',
-    server_label: CONFIG.ZOOM_MCP_SERVER_LABEL,
-    server_url: CONFIG.ZOOM_MCP_SERVER_URL,
-    authorization: CONFIG.ZOOM_MCP_ACCESS_TOKEN,
-    require_approval: CONFIG.ZOOM_MCP_REQUIRE_APPROVAL,
-  };
+    server_label: server.id,
+    server_url: server.url,
+    require_approval: server.requireApproval,
+    allowed_tools: server.allowedTools,
+    ...(server.authorization ? { authorization: server.authorization } : {}),
+  }));
 
-  if (CONFIG.ZOOM_MCP_ALLOWED_TOOLS.length > 0) {
-    tool.allowed_tools = CONFIG.ZOOM_MCP_ALLOWED_TOOLS;
-  }
-
-  return [tool];
+  return tools;
 }
 
 function handleRealtimeEvent(session, rawMessage) {
@@ -747,7 +696,7 @@ function startMcpWatchdog(session, itemId) {
     session.mcpWatchdogTimer = null;
     if (!session.stopRequested) {
       console.warn(`[OpenAI Realtime] MCP call still running after ${CONFIG.MCP_LONG_RUNNING_WARNING_MS}ms item=${itemId || 'unknown'}`);
-      broadcast({ type: 'status', data: 'Still waiting for Zoom MCP results...' });
+      broadcast({ type: 'status', data: 'Still waiting for MCP results...' });
     }
   }, CONFIG.MCP_LONG_RUNNING_WARNING_MS);
 }
@@ -768,7 +717,7 @@ function clearSessionTimers(session) {
 function summarizeMcpFailure(event) {
   const error = event.error || event.item?.error;
   if (!error) {
-    return 'check ZOOM_MCP_ACCESS_TOKEN, scopes, and server URL';
+    return 'check the MCP server URL, authentication, and tool allowlist';
   }
 
   if (typeof error === 'string') {
@@ -992,57 +941,67 @@ function logUsageTotals(session, label) {
   console.log(`[OpenAI Realtime] ${label} responses=${total.responses} input=${total.inputTokens} output=${total.outputTokens} audioIn=${total.audioInputTokens} textIn=${total.textInputTokens} audioOut=${total.audioOutputTokens} textOut=${total.textOutputTokens} cachedIn=${total.cachedInputTokens} cumulativeEstimatedCost=$${formatUsd(total.estimatedModelCostUsd)}`);
 }
 
-function parseCsv(value) {
-  return String(value || '')
-    .split(',')
-    .map((item) => item.trim())
-    .filter(Boolean);
-}
-
-function describeMcpStatus() {
-  if (!CONFIG.ZOOM_MCP_ACCESS_TOKEN) {
-    return 'disabled - ZOOM_MCP_ACCESS_TOKEN not set';
-  }
-  if (CONFIG.ZOOM_MCP_TOKEN_STATUS?.expired) {
-    return `disabled - ZOOM_MCP_ACCESS_TOKEN expired at ${CONFIG.ZOOM_MCP_TOKEN_STATUS.expiresAtIso}`;
-  }
-  if (CONFIG.ZOOM_MCP_TOKEN_STATUS?.expiresAtIso) {
-    return `enabled - token expires at ${CONFIG.ZOOM_MCP_TOKEN_STATUS.expiresAtIso}`;
-  }
-  return 'enabled';
-}
-
-function inspectJwtExpiration(token) {
-  if (!token || token.split('.').length < 2) {
-    return null;
+function parseMcpServers(rawValue) {
+  if (!rawValue.trim()) {
+    return [];
   }
 
+  let servers;
   try {
-    const payload = JSON.parse(base64UrlDecode(token.split('.')[1]));
-    if (!payload.exp) {
-      return null;
+    servers = JSON.parse(rawValue);
+  } catch {
+    throw new Error('MCP_SERVERS_JSON must be valid JSON');
+  }
+  if (!Array.isArray(servers)) {
+    throw new Error('MCP_SERVERS_JSON must be a JSON array');
+  }
+
+  const ids = new Set();
+  return servers.map((server, index) => {
+    if (!server || typeof server !== 'object') {
+      throw new Error(`MCP_SERVERS_JSON[${index}] must be an object`);
+    }
+    const id = String(server.id || '').trim();
+    if (!/^[A-Za-z0-9_-]{1,64}$/.test(id) || ids.has(id)) {
+      throw new Error(`MCP_SERVERS_JSON[${index}].id must be unique and contain only letters, numbers, underscores, or hyphens`);
+    }
+    ids.add(id);
+
+    let url;
+    try {
+      url = new URL(server.url);
+    } catch {
+      throw new Error(`MCP_SERVERS_JSON[${index}].url is invalid`);
+    }
+    if (url.protocol !== 'https:') {
+      throw new Error(`MCP server ${id} must use HTTPS`);
     }
 
-    const nowSeconds = Math.floor(Date.now() / 1000);
+    const allowedTools = Array.isArray(server.allowedTools)
+      ? [...new Set(server.allowedTools.map((tool) => String(tool).trim()).filter(Boolean))]
+      : [];
+    if (allowedTools.length === 0) {
+      throw new Error(`MCP server ${id} requires at least one allowed tool`);
+    }
+
+    const authType = server.authType || 'none';
+    if (authType !== 'none' && authType !== 'bearer') {
+      throw new Error(`MCP server ${id} authType must be none or bearer`);
+    }
+    const tokenVariable = String(server.bearerTokenEnv || '').trim();
+    const authorization = authType === 'bearer' ? process.env[tokenVariable]?.trim() : '';
+    if (authType === 'bearer' && (!/^[A-Z_][A-Z0-9_]*$/.test(tokenVariable) || !authorization)) {
+      throw new Error(`MCP server ${id} requires a valid bearerTokenEnv and token`);
+    }
+
     return {
-      exp: payload.exp,
-      expired: payload.exp <= nowSeconds,
-      expiresAtIso: new Date(payload.exp * 1000).toISOString(),
+      id,
+      url: url.toString(),
+      allowedTools,
+      requireApproval: server.requireApproval || 'never',
+      authorization,
     };
-  } catch (error) {
-    console.warn(`[OpenAI Realtime] Could not inspect Zoom MCP token expiration: ${error.message}`);
-    return null;
-  }
-}
-
-function base64UrlDecode(value) {
-  const normalized = value.replace(/-/g, '+').replace(/_/g, '/');
-  const padded = normalized.padEnd(normalized.length + ((4 - normalized.length % 4) % 4), '=');
-  return Buffer.from(padded, 'base64').toString('utf8');
-}
-
-function stripBearerPrefix(value) {
-  return String(value || '').trim().replace(/^Bearer\s+/i, '');
+  });
 }
 
 function parseNumber(value, fallback) {

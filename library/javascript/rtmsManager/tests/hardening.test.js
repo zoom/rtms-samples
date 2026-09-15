@@ -5,6 +5,7 @@ import { RTMSManager } from '../RTMSManager.js';
 import { RTMSMessageHandler } from '../RTMSMessageHandler.js';
 import { mergeMediaConfig } from '../mediaSocket.js';
 import { MediaEventDispatcher } from '../utils/MediaEventDispatcher.js';
+import { RTMSConfigHelper } from '../utils/RTMSConfigHelper.js';
 
 const silentLogger = {
   debug() {},
@@ -72,6 +73,25 @@ test('split media configuration is merged instead of overwritten', () => {
   assert.deepEqual(combinedConfig, {
     audio: { sample_rate: 1 },
     video: { fps: 25 }
+  });
+});
+
+test('config normalization does not mutate legacy caller credentials', () => {
+  const input = {
+    credentials: {
+      meeting: { clientId: 'client', zoomSecretToken: 'secret' },
+      websocket: { zoomWSURLForEvents: 'wss://example.test' }
+    }
+  };
+
+  const normalized = RTMSConfigHelper.normalize(input);
+
+  assert.equal(normalized.credentials.meeting.secretToken, 'secret');
+  assert.equal(normalized.credentials.meeting.zoomSecretToken, undefined);
+  assert.equal(normalized.credentials.websocket, undefined);
+  assert.deepEqual(input.credentials, {
+    meeting: { clientId: 'client', zoomSecretToken: 'secret' },
+    websocket: { zoomWSURLForEvents: 'wss://example.test' }
   });
 });
 

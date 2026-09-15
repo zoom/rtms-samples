@@ -24,6 +24,12 @@ const appConfig = {
 
 const sourceAudioSampleRate = Number.parseInt(process.env.AUDIO_SAMPLE_RATE || '48000', 10);
 
+const eventSocketConfig = {
+  zoomWSURLForEvents: process.env.zoomWSURLForEvents || '',
+  clientId: process.env.ZOOM_CLIENT_ID,
+  clientSecret: process.env.ZOOM_CLIENT_SECRET,
+};
+
 const rtmsConfig = {
   mediaSocketConnectionMode: process.env.MEDIA_SOCKET_CONNECTION_MODE || 'split',
   mediaTypesFlag: 1, // Audio only
@@ -31,18 +37,13 @@ const rtmsConfig = {
     meeting: {
       clientId: process.env.ZOOM_CLIENT_ID,
       clientSecret: process.env.ZOOM_CLIENT_SECRET,
-      zoomSecretToken: process.env.ZOOM_SECRET_TOKEN,
+      secretToken: process.env.ZOOM_SECRET_TOKEN,
     },
     s2s: {
       clientId: process.env.ZOOM_S2S_CLIENT_ID || null,
       clientSecret: process.env.ZOOM_S2S_CLIENT_SECRET || null,
       accountId: process.env.ZOOM_ACCOUNT_ID || null,
     },
-    websocket: {
-      zoomWSURLForEvents: process.env.zoomWSURLForEvents || '',
-      clientId: process.env.ZOOM_CLIENT_ID,
-      clientSecret: process.env.ZOOM_CLIENT_SECRET,
-    }
   },
   mediaParams: {
     audio: {
@@ -73,7 +74,7 @@ if (appConfig.managerType === 'webhook') {
   const webhookManager = new WebhookManager({
     config: {
       webhookPath: process.env.WEBHOOK_PATH || '/',
-      zoomSecretToken: rtmsConfig.credentials.meeting.zoomSecretToken,
+      zoomSecretToken: rtmsConfig.credentials.meeting.secretToken,
     },
     app: app
   });
@@ -98,9 +99,9 @@ if (appConfig.managerType === 'webhook') {
 } else if (appConfig.managerType === 'websocket') {
   const websocketManager = new WebsocketManager({
     config: {
-      zoomWSURLForEvents: rtmsConfig.credentials.websocket.zoomWSURLForEvents,
-      clientId: rtmsConfig.credentials.websocket.clientId,
-      clientSecret: rtmsConfig.credentials.websocket.clientSecret
+      zoomWSURLForEvents: eventSocketConfig.zoomWSURLForEvents,
+      clientId: eventSocketConfig.clientId,
+      clientSecret: eventSocketConfig.clientSecret
     }
   });
 

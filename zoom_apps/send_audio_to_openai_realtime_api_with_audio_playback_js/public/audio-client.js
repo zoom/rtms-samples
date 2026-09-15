@@ -63,8 +63,12 @@ class RealtimeAudioClient {
 
       this.ws.onerror = (error) => {
         clearTimeout(timeout);
-        this.onError('Frontend WebSocket error');
-        reject(error);
+        const connectionError = new Error(`Frontend WebSocket connection failed: ${this.serverUrl}`);
+        if (this.isConnected) {
+          this.onError(connectionError.message);
+        } else {
+          reject(connectionError);
+        }
       };
 
       this.ws.onclose = (event) => {

@@ -140,7 +140,15 @@ export class RTMSConfigHelper {
    * @returns {Object}
    */
   static normalize(userConfig = {}) {
-    const normalized = { ...userConfig };
+    const normalized = {
+      ...userConfig,
+      credentials: userConfig.credentials
+        ? Object.fromEntries(Object.entries(userConfig.credentials).map(([product, credentials]) => [
+          product,
+          credentials && typeof credentials === 'object' ? { ...credentials } : credentials
+        ]))
+        : userConfig.credentials
+    };
     
     // Handle shorthand credentials (top-level clientId, clientSecret, secretToken)
     if (userConfig.clientId && !userConfig.credentials) {
