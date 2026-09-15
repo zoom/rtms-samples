@@ -69,6 +69,8 @@ MCP_SERVERS_JSON='[{"id":"stocks","url":"https://mcp.stockmarketscan.com/mcp","a
 
 Each entry requires a unique `id`, an HTTPS `url`, and a non-empty `allowedTools` array. Use `authType: "none"` only for a server that intentionally allows unauthenticated access. Transcript context and tool arguments handled by an external MCP server cross that provider's trust boundary, so keep the allowlist minimal and do not use untrusted servers for confidential meetings.
 
+OpenAI Realtime loads each allowlisted tool's name and description. The assistant instructions tell the model to compare those descriptions with the spoken request, call a matching tool only when needed, and use the result as evidence for its answer.
+
 When MCP is available, the backend logs tool discovery events such as:
 
 ```text
@@ -106,7 +108,7 @@ This is the same practical pattern used by realtime voice demos: stop local play
 | File | Purpose |
 |------|---------|
 | `index.js` | Express app, Zoom RTMS setup, webhook/websocket event handling |
-| `openaiRealtime.js` | OpenAI Realtime WebSocket client, audio input/output, Zoom MCP config, interruption handling |
+| `openaiRealtime.js` | OpenAI Realtime WebSocket client, audio input/output, MCP registry and tool-use instructions, interruption handling |
 | `frontendWss.js` | WebSocket bridge between backend and Zoom App frontend |
 | `public/audio-client.js` | Browser-side PCM playback queue and interruption/truncation reporting |
 | `public/index.ejs` | Zoom App UI |
