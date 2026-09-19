@@ -15,7 +15,15 @@ const LOG = '[ZoomScribeLive]';
 
 // Reconnect backoff, the pre-connect audio backlog cap, and how long to wait for
 // the final transcript after asking the server to close.
-const RECONNECT_DELAY_MS = 2000;
+//
+// A session reconnects on: an abnormal WS close, a handshake rejection (e.g.
+// capacity_exceeded/503), an in-band fatal capacity_exceeded error, or a
+// session.closed with reason=server_shutting_down. Each of these counts
+// against MAX_RECONNECT_ATTEMPTS with exponential backoff (base * 2^n); the
+// counter resets once a reconnect fully succeeds (session.updated). Exhausting
+// the attempts gives up on the session and logs a hard connection-failure error.
+const RECONNECT_BASE_DELAY_MS = 2000;
+const MAX_RECONNECT_ATTEMPTS = 3;
 const MAX_QUEUED_AUDIO_BYTES = 5 * 1024 * 1024;
 const FINALIZE_WAIT_MS = 3000;
 
@@ -108,6 +116,8 @@ export function initializeLiveScribeSession(meetingUuid) {
     chunks: 0,
     startedAt: Date.now(),
     reconnectTimer: null,
+    reconnectAttempts: 0,
+    pendingReconnectReason: null,
     sessionId: null,
     completed: [],
     closedWaiters: [],
@@ -215,15 +225,67 @@ function connect(session) {
     console.error(`${LOG} WebSocket error for meeting ${session.meetingUuid}: ${error.message}`);
   });
 
+  // A non-101 handshake response (e.g. 503 capacity_exceeded, 429 rate_limited)
+  // lands here instead of 'open'/'close': with this listener attached, `ws`
+  // does not tear itself down or emit 'close', so we must drain the response
+  // and drive reconnection ourselves.
+  ws.on('unexpected-response', (req, res) => {
+    res.resume(); // drain so the underlying socket can close cleanly
+    const statusCode = res.statusCode;
+    const reason = statusCode === 503 ? 'capacity_exceeded' : `http_${statusCode}`;
+    console.error(
+      `${LOG} Handshake rejected for meeting ${session.meetingUuid}: ${reason} (HTTP ${statusCode})`
+    );
+    scheduleReconnect(session, reason);
+  });
+
   ws.on('close', (code, reason) => {
     session.ready = false;
-    console.log(`${LOG} Closed for meeting ${session.meetingUuid}: ${code} ${reason?.toString() || ''}`);
+    const reasonText = reason?.toString() || '';
+    console.log(`${LOG} Closed for meeting ${session.meetingUuid}: ${code} ${reasonText}`);
     session.closedWaiters.splice(0).forEach((resolve) => resolve());
-    // Reconnect only on abnormal closes while the meeting is still active.
-    if (!session.stopRequested && code !== 1000) {
-      session.reconnectTimer = setTimeout(() => connect(session), RECONNECT_DELAY_MS);
-    }
+    if (session.stopRequested) return;
+    // A clean, unflagged close (code 1000, no server_shutting_down/capacity_exceeded
+    // reason recorded via handleServerEvent) is treated as intentional -- don't reconnect.
+    if (code === 1000 && !session.pendingReconnectReason) return;
+    const reconnectReason = session.pendingReconnectReason || reasonText || `close_code_${code}`;
+    session.pendingReconnectReason = null;
+    scheduleReconnect(session, reconnectReason);
   });
+}
+
+// Reconnect with exponential backoff (RECONNECT_BASE_DELAY_MS * 2^attempt), up to
+// MAX_RECONNECT_ATTEMPTS consecutive failures, then give up on the session for good.
+function scheduleReconnect(session, reason) {
+  if (session.stopRequested || session.reconnectTimer) return;
+  if (session.reconnectAttempts >= MAX_RECONNECT_ATTEMPTS) {
+    failSession(session, reason);
+    return;
+  }
+  session.reconnectAttempts += 1;
+  const delay = RECONNECT_BASE_DELAY_MS * 2 ** (session.reconnectAttempts - 1);
+  console.warn(
+    `${LOG} Reconnecting for meeting ${session.meetingUuid} in ${delay}ms ` +
+    `(attempt ${session.reconnectAttempts}/${MAX_RECONNECT_ATTEMPTS}, reason: ${reason})`
+  );
+  session.reconnectTimer = setTimeout(() => {
+    session.reconnectTimer = null;
+    connect(session);
+  }, delay);
+}
+
+// Give up on a session after exhausting reconnect attempts: stop retrying, tear
+// down the socket, and surface a hard, unmistakable failure in the logs (this
+// service has no interactive terminal to prompt in, so this IS the prompt).
+function failSession(session, reason) {
+  console.error(
+    `${LOG} CONNECTION FAILED for meeting ${session.meetingUuid}: gave up after ` +
+    `${MAX_RECONNECT_ATTEMPTS} reconnect attempt(s), last reason: ${reason}.`
+  );
+  session.stopRequested = true;
+  if (session.reconnectTimer) clearTimeout(session.reconnectTimer);
+  try { session.ws?.terminate(); } catch { /* ignore */ }
+  sessions.delete(session.meetingUuid);
 }
 
 function handleServerEvent(session, raw) {
@@ -247,6 +309,7 @@ function handleServerEvent(session, raw) {
       break;
     case 'session.updated':
       session.ready = true;
+      session.reconnectAttempts = 0; // fully re-established -- reset the retry budget
       console.log(
         `${LOG} ${tag} session.updated; streaming audio response=${JSON.stringify(event)}`
       );
@@ -295,14 +358,27 @@ function handleServerEvent(session, raw) {
       }
       break;
     }
-    case 'error':
-      console.error(
-        `${LOG} ${tag} server error code=${event.error?.code} ` +
-        `msg=${event.error?.message} fatal=${event.error?.fatal}`
-      );
+    case 'error': {
+      const code = event.error?.code;
+      const fatal = event.error?.fatal;
+      console.error(`${LOG} ${tag} server error code=${code} msg=${event.error?.message} fatal=${fatal}`);
+      if (code === 'capacity_exceeded' && fatal) {
+        // Fatal in-band error: the session is no longer usable. Flag the reason for
+        // the 'close' handler and proactively close rather than waiting on the server.
+        session.pendingReconnectReason = 'capacity_exceeded';
+        console.warn(`${LOG} ${tag} capacity_exceeded; closing and reconnecting`);
+        try { session.ws?.close(); } catch { /* ignore */ }
+      }
       break;
+    }
     case 'session.closed':
       console.log(`${LOG} ${tag} session.closed reason=${event.reason}`);
+      if (event.reason === 'server_shutting_down') {
+        // Rolling update evicted this pod, not a real failure -- flag for the
+        // 'close' handler so it reconnects even if the transport close code is 1000.
+        session.pendingReconnectReason = 'server_shutting_down';
+        console.warn(`${LOG} ${tag} server is shutting down this session; will reconnect`);
+      }
       session.closedWaiters.splice(0).forEach((resolve) => resolve());
       break;
     default:

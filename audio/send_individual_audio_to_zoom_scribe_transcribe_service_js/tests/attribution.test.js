@@ -242,6 +242,78 @@ test('server-initiated normal closure reconnects the pool slot', async () => {
   setWebSocketFactoryForTesting();
 });
 
+test('fatal capacity_exceeded error closes and reconnects the slot', async () => {
+  const sockets = [];
+  setWebSocketFactoryForTesting(() => {
+    const socket = new FakeWebSocket();
+    sockets.push(socket);
+    return socket;
+  });
+  const meetingUuid = 'capacity-exceeded-reconnect-test';
+  initializeLiveScribeSession(meetingUuid);
+  await new Promise((resolve) => setTimeout(resolve, 10));
+  assert.equal(sockets.length, 2);
+
+  sockets[0].emit('message', Buffer.from(JSON.stringify({
+    type: 'error',
+    error: { code: 'capacity_exceeded', fatal: true, message: 'no capacity' },
+  })), false);
+  await new Promise((resolve) => setTimeout(resolve, 30));
+
+  assert.equal(sockets.length, 3, 'a fatal capacity_exceeded error should trigger a reconnect');
+  assert.equal(sockets[0].readyState, 3, 'the slot should have proactively closed the old socket');
+
+  await cleanupMeeting(meetingUuid);
+  setWebSocketFactoryForTesting();
+});
+
+class AlwaysFailingFakeWebSocket extends EventEmitter {
+  constructor() {
+    super();
+    this.readyState = 0;
+    queueMicrotask(() => {
+      this.readyState = 3;
+      this.emit('close', 1006, Buffer.from('simulated failure'));
+    });
+  }
+
+  send() { /* never reaches session.updated */ }
+  close() { /* already closed */ }
+  terminate() { /* already closed */ }
+}
+
+test('a slot gives up after exhausting reconnect attempts', async () => {
+  let socketsCreated = 0;
+  setWebSocketFactoryForTesting(() => {
+    socketsCreated += 1;
+    return new AlwaysFailingFakeWebSocket();
+  });
+  const originalConsoleError = console.error;
+  const errorLines = [];
+  console.error = (...args) => errorLines.push(args.join(' '));
+
+  const meetingUuid = 'give-up-test';
+  initializeLiveScribeSession(meetingUuid);
+
+  // Each of the 2 eagerly-created slots: 1 initial attempt + 3 reconnects
+  // (10ms/20ms/40ms backoff, since SCRIBE_RECONNECT_DELAY_MS=10 in this suite)
+  // = 4 total connection attempts before giving up.
+  await new Promise((resolve) => setTimeout(resolve, 250));
+  console.error = originalConsoleError;
+
+  assert.equal(socketsCreated, 8, '2 slots x 4 attempts (1 initial + 3 reconnects) each');
+  const snapshot = getPoolSnapshot(meetingUuid);
+  assert.ok(snapshot.slots.every((slot) => slot.state === 'failed'));
+  assert.ok(errorLines.some((line) => line.includes('CONNECTION FAILED')));
+
+  // Confirm it actually gave up rather than merely pausing between attempts.
+  await new Promise((resolve) => setTimeout(resolve, 100));
+  assert.equal(socketsCreated, 8);
+
+  await cleanupMeeting(meetingUuid);
+  setWebSocketFactoryForTesting();
+});
+
 test('two sockets start eagerly, the third is lazy, and excess participants are excluded', async () => {
   let socketsCreated = 0;
   setWebSocketFactoryForTesting(() => {
