@@ -17,11 +17,14 @@ const LOG = '[ZoomScribeLive]';
 // the final transcript after asking the server to close.
 //
 // A session reconnects on: an abnormal WS close, a handshake rejection (e.g.
-// capacity_exceeded/503), an in-band fatal capacity_exceeded error, or a
-// session.closed with reason=server_shutting_down. Each of these counts
-// against MAX_RECONNECT_ATTEMPTS with exponential backoff (base * 2^n); the
-// counter resets once a reconnect fully succeeds (session.updated). Exhausting
-// the attempts gives up on the session and logs a hard connection-failure error.
+// capacity_exceeded/503, rate_limited/429), an in-band fatal capacity_exceeded
+// or rate_limited error, or a session.closed with reason=server_shutting_down.
+// Each of these counts against MAX_RECONNECT_ATTEMPTS with exponential backoff
+// (base * 2^n); the counter resets once a reconnect fully succeeds
+// (session.updated). Exhausting the attempts gives up on the session and logs
+// a hard connection-failure error. A 429's Retry-After header (delta-seconds or
+// an HTTP-date), when present, is honored as a floor under that backoff so we
+// never reconnect sooner than the server asked us to.
 const RECONNECT_BASE_DELAY_MS = 2000;
 const MAX_RECONNECT_ATTEMPTS = 3;
 const MAX_QUEUED_AUDIO_BYTES = 5 * 1024 * 1024;
@@ -37,6 +40,17 @@ function envBoolean(name, defaultValue) {
   if (value.toLowerCase() === 'true') return true;
   if (value.toLowerCase() === 'false') return false;
   throw new Error(`${name} must be true or false`);
+}
+
+// A 429's Retry-After header is either delta-seconds ("120") or an HTTP-date
+// ("Wed, 21 Oct 2026 07:28:00 GMT"). Returns null when absent/unparseable, so
+// the caller falls back to the normal exponential backoff.
+function parseRetryAfterMs(headerValue) {
+  if (!headerValue) return null;
+  const seconds = Number(headerValue);
+  if (Number.isFinite(seconds)) return Math.max(0, seconds * 1000);
+  const dateMs = Date.parse(headerValue);
+  return Number.isFinite(dateMs) ? Math.max(0, dateMs - Date.now()) : null;
 }
 
 // Zoom AI Services Scribe uses a Build-platform HS256 JWT: `iss` is ZOOM_API_KEY
@@ -232,11 +246,21 @@ function connect(session) {
   ws.on('unexpected-response', (req, res) => {
     res.resume(); // drain so the underlying socket can close cleanly
     const statusCode = res.statusCode;
-    const reason = statusCode === 503 ? 'capacity_exceeded' : `http_${statusCode}`;
+    let reason;
+    let minDelayMs = 0;
+    if (statusCode === 503) {
+      reason = 'capacity_exceeded';
+    } else if (statusCode === 429) {
+      reason = 'rate_limited';
+      minDelayMs = parseRetryAfterMs(res.headers['retry-after']) ?? 0;
+    } else {
+      reason = `http_${statusCode}`;
+    }
     console.error(
-      `${LOG} Handshake rejected for meeting ${session.meetingUuid}: ${reason} (HTTP ${statusCode})`
+      `${LOG} Handshake rejected for meeting ${session.meetingUuid}: ${reason} (HTTP ${statusCode})` +
+      (minDelayMs > 0 ? ` retry_after=${minDelayMs}ms` : '')
     );
-    scheduleReconnect(session, reason);
+    scheduleReconnect(session, reason, minDelayMs);
   });
 
   ws.on('close', (code, reason) => {
@@ -256,14 +280,17 @@ function connect(session) {
 
 // Reconnect with exponential backoff (RECONNECT_BASE_DELAY_MS * 2^attempt), up to
 // MAX_RECONNECT_ATTEMPTS consecutive failures, then give up on the session for good.
-function scheduleReconnect(session, reason) {
+// `minDelayMs` (e.g. a 429's Retry-After) raises the floor under that backoff
+// without resetting it, so we never reconnect sooner than the server asked.
+function scheduleReconnect(session, reason, minDelayMs = 0) {
   if (session.stopRequested || session.reconnectTimer) return;
   if (session.reconnectAttempts >= MAX_RECONNECT_ATTEMPTS) {
     failSession(session, reason);
     return;
   }
   session.reconnectAttempts += 1;
-  const delay = RECONNECT_BASE_DELAY_MS * 2 ** (session.reconnectAttempts - 1);
+  const backoffMs = RECONNECT_BASE_DELAY_MS * 2 ** (session.reconnectAttempts - 1);
+  const delay = Math.max(backoffMs, minDelayMs);
   console.warn(
     `${LOG} Reconnecting for meeting ${session.meetingUuid} in ${delay}ms ` +
     `(attempt ${session.reconnectAttempts}/${MAX_RECONNECT_ATTEMPTS}, reason: ${reason})`
@@ -362,11 +389,11 @@ function handleServerEvent(session, raw) {
       const code = event.error?.code;
       const fatal = event.error?.fatal;
       console.error(`${LOG} ${tag} server error code=${code} msg=${event.error?.message} fatal=${fatal}`);
-      if (code === 'capacity_exceeded' && fatal) {
+      if ((code === 'capacity_exceeded' || code === 'rate_limited') && fatal) {
         // Fatal in-band error: the session is no longer usable. Flag the reason for
         // the 'close' handler and proactively close rather than waiting on the server.
-        session.pendingReconnectReason = 'capacity_exceeded';
-        console.warn(`${LOG} ${tag} capacity_exceeded; closing and reconnecting`);
+        session.pendingReconnectReason = code;
+        console.warn(`${LOG} ${tag} ${code}; closing and reconnecting`);
         try { session.ws?.close(); } catch { /* ignore */ }
       }
       break;

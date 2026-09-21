@@ -19,12 +19,15 @@ const MAX_SPANS_PER_SLOT = 10000;
 // A slot always tries to reconnect on any non-deliberate close (pool.stopping/
 // slot.stopRequested are the only things that suppress it -- see connectSlot),
 // but a run of consecutive failures -- an abnormal close, a handshake rejection
-// (e.g. capacity_exceeded/503), an in-band fatal capacity_exceeded error, or a
-// session.closed with reason=server_shutting_down -- now counts against
-// MAX_RECONNECT_ATTEMPTS with exponential backoff off CONFIG.reconnectDelayMs
-// (base * 2^n). The counter resets once a reconnect fully succeeds
-// (session.updated). Exhausting the attempts gives up on the slot for good and
-// logs a hard connection-failure error.
+// (e.g. capacity_exceeded/503, rate_limited/429), an in-band fatal
+// capacity_exceeded or rate_limited error, or a session.closed with
+// reason=server_shutting_down -- now counts against MAX_RECONNECT_ATTEMPTS with
+// exponential backoff off CONFIG.reconnectDelayMs (base * 2^n). The counter
+// resets once a reconnect fully succeeds (session.updated). Exhausting the
+// attempts gives up on the slot for good and logs a hard connection-failure
+// error. A 429's Retry-After header (delta-seconds or an HTTP-date), when
+// present, is honored as a floor under that backoff so we never reconnect
+// sooner than the server asked us to.
 const MAX_RECONNECT_ATTEMPTS = 3;
 
 function requireValue(value, name) {
@@ -43,6 +46,17 @@ function envPositiveNumber(name, defaultValue) {
   const value = Number(process.env[name] ?? defaultValue);
   if (!Number.isFinite(value) || value <= 0) throw new Error(`${name} must be a positive number`);
   return value;
+}
+
+// A 429's Retry-After header is either delta-seconds ("120") or an HTTP-date
+// ("Wed, 21 Oct 2026 07:28:00 GMT"). Returns null when absent/unparseable, so
+// the caller falls back to the normal exponential backoff.
+function parseRetryAfterMs(headerValue) {
+  if (!headerValue) return null;
+  const seconds = Number(headerValue);
+  if (Number.isFinite(seconds)) return Math.max(0, seconds * 1000);
+  const dateMs = Date.parse(headerValue);
+  return Number.isFinite(dateMs) ? Math.max(0, dateMs - Date.now()) : null;
 }
 
 export function parseVocabulary(value) {
@@ -627,9 +641,21 @@ function connectSlot(pool, slot) {
     if (slot.ws !== ws) return;
     res.resume(); // drain so the underlying socket can close cleanly
     const statusCode = res.statusCode;
-    const reason = statusCode === 503 ? 'capacity_exceeded' : `http_${statusCode}`;
-    console.error(`${LOG} [${slot.slotId}] handshake rejected: ${reason} (HTTP ${statusCode})`);
-    scheduleReconnect(pool, slot, reason);
+    let reason;
+    let minDelayMs = 0;
+    if (statusCode === 503) {
+      reason = 'capacity_exceeded';
+    } else if (statusCode === 429) {
+      reason = 'rate_limited';
+      minDelayMs = parseRetryAfterMs(res.headers['retry-after']) ?? 0;
+    } else {
+      reason = `http_${statusCode}`;
+    }
+    console.error(
+      `${LOG} [${slot.slotId}] handshake rejected: ${reason} (HTTP ${statusCode})` +
+      (minDelayMs > 0 ? ` retry_after=${minDelayMs}ms` : '')
+    );
+    scheduleReconnect(pool, slot, reason, minDelayMs);
   });
 
   ws.on('close', (code, reason) => {
@@ -656,14 +682,17 @@ function connectSlot(pool, slot) {
 
 // Reconnect with exponential backoff (CONFIG.reconnectDelayMs * 2^attempt), up to
 // MAX_RECONNECT_ATTEMPTS consecutive failures, then give up on the slot for good.
-function scheduleReconnect(pool, slot, reason) {
+// `minDelayMs` (e.g. a 429's Retry-After) raises the floor under that backoff
+// without resetting it, so we never reconnect sooner than the server asked.
+function scheduleReconnect(pool, slot, reason, minDelayMs = 0) {
   if (pool.stopping || slot.stopRequested || slot.reconnectTimer) return;
   if (slot.reconnectAttempts >= MAX_RECONNECT_ATTEMPTS) {
     failSlot(pool, slot, reason);
     return;
   }
   slot.reconnectAttempts += 1;
-  const delay = CONFIG.reconnectDelayMs * 2 ** (slot.reconnectAttempts - 1);
+  const backoffMs = CONFIG.reconnectDelayMs * 2 ** (slot.reconnectAttempts - 1);
+  const delay = Math.max(backoffMs, minDelayMs);
   console.warn(
     `${LOG} [${slot.slotId}] reconnecting in ${delay}ms ` +
     `(attempt ${slot.reconnectAttempts}/${MAX_RECONNECT_ATTEMPTS}, reason: ${reason})`
@@ -756,11 +785,11 @@ function handleServerEvent(pool, slot, raw) {
       const code = event.error?.code;
       const fatal = event.error?.fatal;
       console.error(`${LOG} [${slot.slotId}] server error code=${code} msg=${event.error?.message} fatal=${fatal}`);
-      if (code === 'capacity_exceeded' && fatal) {
+      if ((code === 'capacity_exceeded' || code === 'rate_limited') && fatal) {
         // Fatal in-band error: the session is no longer usable. Flag the reason for
         // the 'close' handler and proactively close rather than waiting on the server.
-        slot.pendingReconnectReason = 'capacity_exceeded';
-        console.warn(`${LOG} [${slot.slotId}] capacity_exceeded; closing and reconnecting`);
+        slot.pendingReconnectReason = code;
+        console.warn(`${LOG} [${slot.slotId}] ${code}; closing and reconnecting`);
         try { slot.ws?.close(); } catch { /* ignore */ }
       }
       break;

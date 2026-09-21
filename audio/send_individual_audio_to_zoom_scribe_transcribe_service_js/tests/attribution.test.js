@@ -267,6 +267,80 @@ test('fatal capacity_exceeded error closes and reconnects the slot', async () =>
   setWebSocketFactoryForTesting();
 });
 
+test('fatal rate_limited error closes and reconnects the slot', async () => {
+  const sockets = [];
+  setWebSocketFactoryForTesting(() => {
+    const socket = new FakeWebSocket();
+    sockets.push(socket);
+    return socket;
+  });
+  const meetingUuid = 'rate-limited-reconnect-test';
+  initializeLiveScribeSession(meetingUuid);
+  await new Promise((resolve) => setTimeout(resolve, 10));
+  assert.equal(sockets.length, 2);
+
+  sockets[0].emit('message', Buffer.from(JSON.stringify({
+    type: 'error',
+    error: { code: 'rate_limited', fatal: true, message: 'too many requests' },
+  })), false);
+  await new Promise((resolve) => setTimeout(resolve, 30));
+
+  assert.equal(sockets.length, 3, 'a fatal rate_limited error should trigger a reconnect');
+  assert.equal(sockets[0].readyState, 3, 'the slot should have proactively closed the old socket');
+
+  await cleanupMeeting(meetingUuid);
+  setWebSocketFactoryForTesting();
+});
+
+class HandshakeRejectedFakeWebSocket extends EventEmitter {
+  constructor({ statusCode = 429, headers = {} } = {}) {
+    super();
+    this.readyState = 0;
+    queueMicrotask(() => {
+      this.readyState = 3;
+      this.emit('unexpected-response', {}, { statusCode, headers, resume() {} });
+    });
+  }
+
+  send() { /* rejected before session.update could be sent */ }
+  close() { /* already closed */ }
+  terminate() { /* already closed */ }
+}
+
+test('a 429 handshake rejection is labeled rate_limited and honors Retry-After as a reconnect floor', async () => {
+  let socketsCreated = 0;
+  setWebSocketFactoryForTesting(() => {
+    socketsCreated += 1;
+    // Both eagerly-created slots hit the 429 on their first connect, then succeed on reconnect.
+    if (socketsCreated <= 2) {
+      return new HandshakeRejectedFakeWebSocket({ statusCode: 429, headers: { 'retry-after': '0.08' } });
+    }
+    return new FakeWebSocket();
+  });
+  const originalConsoleError = console.error;
+  const errorLines = [];
+  console.error = (...args) => errorLines.push(args.join(' '));
+
+  const meetingUuid = 'rate-limited-handshake-test';
+  initializeLiveScribeSession(meetingUuid);
+
+  // SCRIBE_RECONNECT_DELAY_MS=10 in this suite, so the default backoff alone
+  // would have reconnected by ~10ms; the 80ms Retry-After should still be
+  // holding both slots back at 25ms.
+  await new Promise((resolve) => setTimeout(resolve, 25));
+  assert.equal(socketsCreated, 2, 'reconnect should not fire before the Retry-After floor elapses');
+
+  await new Promise((resolve) => setTimeout(resolve, 100));
+  console.error = originalConsoleError;
+
+  assert.equal(socketsCreated, 4, 'both slots should reconnect once the Retry-After floor elapses');
+  assert.ok(errorLines.some((line) => line.includes('rate_limited') && line.includes('HTTP 429')));
+  assert.ok(!errorLines.some((line) => line.includes('http_429')), 'a 429 should not fall into the generic http_<code> bucket');
+
+  await cleanupMeeting(meetingUuid);
+  setWebSocketFactoryForTesting();
+});
+
 class AlwaysFailingFakeWebSocket extends EventEmitter {
   constructor() {
     super();
