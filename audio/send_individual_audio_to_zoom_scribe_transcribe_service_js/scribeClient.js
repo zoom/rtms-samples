@@ -16,6 +16,16 @@ const BYTES_PER_SECOND = SAMPLE_RATE * BYTES_PER_SAMPLE;
 const INITIAL_POOL_SIZE = 2;
 const FINALIZE_WAIT_MS = 3000;
 const MAX_SPANS_PER_SLOT = 10000;
+// A slot always tries to reconnect on any non-deliberate close (pool.stopping/
+// slot.stopRequested are the only things that suppress it -- see connectSlot),
+// but a run of consecutive failures -- an abnormal close, a handshake rejection
+// (e.g. capacity_exceeded/503), an in-band fatal capacity_exceeded error, or a
+// session.closed with reason=server_shutting_down -- now counts against
+// MAX_RECONNECT_ATTEMPTS with exponential backoff off CONFIG.reconnectDelayMs
+// (base * 2^n). The counter resets once a reconnect fully succeeds
+// (session.updated). Exhausting the attempts gives up on the slot for good and
+// logs a hard connection-failure error.
+const MAX_RECONNECT_ATTEMPTS = 3;
 
 function requireValue(value, name) {
   if (!value || String(value).trim() === '') throw new Error(`${name} is required`);
@@ -251,6 +261,8 @@ function createSlot(pool, number) {
     spans: [],
     sessionId: null,
     reconnectTimer: null,
+    reconnectAttempts: 0,
+    pendingReconnectReason: null,
     heartbeatTimer: null,
     lastAudioSentAt: 0,
     connectedAt: 0,
@@ -607,6 +619,19 @@ function connectSlot(pool, slot) {
     console.error(`${LOG} [${slot.slotId}] WebSocket error: ${error.message}`);
   });
 
+  // A non-101 handshake response (e.g. 503 capacity_exceeded, 429 rate_limited)
+  // lands here instead of 'open'/'close': with this listener attached, `ws`
+  // does not tear itself down or emit 'close', so we must drain the response
+  // and drive reconnection ourselves.
+  ws.on('unexpected-response', (req, res) => {
+    if (slot.ws !== ws) return;
+    res.resume(); // drain so the underlying socket can close cleanly
+    const statusCode = res.statusCode;
+    const reason = statusCode === 503 ? 'capacity_exceeded' : `http_${statusCode}`;
+    console.error(`${LOG} [${slot.slotId}] handshake rejected: ${reason} (HTTP ${statusCode})`);
+    scheduleReconnect(pool, slot, reason);
+  });
+
   ws.on('close', (code, reason) => {
     if (slot.ws !== ws) return;
     if (slot.heartbeatTimer) {
@@ -615,19 +640,56 @@ function connectSlot(pool, slot) {
     }
     slot.ready = false;
     slot.closedWaiters.splice(0).forEach((resolve) => resolve());
+    const reasonText = reason?.toString() || '';
     console.log(
-      `${LOG} [${slot.slotId}] closed: ${code} ${reason?.toString() || ''} ` +
+      `${LOG} [${slot.slotId}] closed: ${code} ${reasonText} ` +
       `connectedForMs=${slot.connectedAt ? Date.now() - slot.connectedAt : 'unknown'} ` +
       `audioIdleMs=${slot.lastAudioSentAt ? Date.now() - slot.lastAudioSentAt : 'unknown'} ` +
       `heartbeats=${slot.heartbeatCount}`
     );
-    if (!pool.stopping && !slot.stopRequested) {
-      slot.reconnectTimer = setTimeout(() => {
-        slot.reconnectTimer = null;
-        connectSlot(pool, slot);
-      }, CONFIG.reconnectDelayMs);
-    }
+    if (pool.stopping || slot.stopRequested) return;
+    const reconnectReason = slot.pendingReconnectReason || reasonText || `close_code_${code}`;
+    slot.pendingReconnectReason = null;
+    scheduleReconnect(pool, slot, reconnectReason);
   });
+}
+
+// Reconnect with exponential backoff (CONFIG.reconnectDelayMs * 2^attempt), up to
+// MAX_RECONNECT_ATTEMPTS consecutive failures, then give up on the slot for good.
+function scheduleReconnect(pool, slot, reason) {
+  if (pool.stopping || slot.stopRequested || slot.reconnectTimer) return;
+  if (slot.reconnectAttempts >= MAX_RECONNECT_ATTEMPTS) {
+    failSlot(pool, slot, reason);
+    return;
+  }
+  slot.reconnectAttempts += 1;
+  const delay = CONFIG.reconnectDelayMs * 2 ** (slot.reconnectAttempts - 1);
+  console.warn(
+    `${LOG} [${slot.slotId}] reconnecting in ${delay}ms ` +
+    `(attempt ${slot.reconnectAttempts}/${MAX_RECONNECT_ATTEMPTS}, reason: ${reason})`
+  );
+  slot.reconnectTimer = setTimeout(() => {
+    slot.reconnectTimer = null;
+    connectSlot(pool, slot);
+  }, delay);
+}
+
+// Give up on a slot after exhausting reconnect attempts: stop retrying, tear
+// down the socket, and surface a hard, unmistakable failure in the logs (this
+// service has no interactive terminal to prompt in, so this IS the prompt).
+// The slot's state falls out of 'free'/'assigned', so it's never handed to a
+// new participant; a participant already assigned to it silently stops being
+// transcribed -- rebalancing them onto another slot is not handled here.
+function failSlot(pool, slot, reason) {
+  console.error(
+    `${LOG} [${slot.slotId}] CONNECTION FAILED: gave up after ${MAX_RECONNECT_ATTEMPTS} ` +
+    `reconnect attempt(s), last reason: ${reason}.`
+  );
+  slot.stopRequested = true;
+  slot.state = 'failed';
+  if (slot.reconnectTimer) clearTimeout(slot.reconnectTimer);
+  if (slot.heartbeatTimer) clearTimeout(slot.heartbeatTimer);
+  try { slot.ws?.terminate(); } catch { /* ignore */ }
 }
 
 function handleServerEvent(pool, slot, raw) {
@@ -645,6 +707,7 @@ function handleServerEvent(pool, slot, raw) {
       break;
     case 'session.updated':
       slot.ready = true;
+      slot.reconnectAttempts = 0; // fully re-established -- reset the retry budget
       slot.lastAudioSentAt = Date.now();
       console.log(`${LOG} [${slot.slotId}] session.updated; ready`);
       flushSlotQueue(slot);
@@ -689,14 +752,27 @@ function handleServerEvent(pool, slot, raw) {
       }
       break;
     }
-    case 'error':
-      console.error(
-        `${LOG} [${slot.slotId}] server error code=${event.error?.code} ` +
-        `msg=${event.error?.message} fatal=${event.error?.fatal}`
-      );
+    case 'error': {
+      const code = event.error?.code;
+      const fatal = event.error?.fatal;
+      console.error(`${LOG} [${slot.slotId}] server error code=${code} msg=${event.error?.message} fatal=${fatal}`);
+      if (code === 'capacity_exceeded' && fatal) {
+        // Fatal in-band error: the session is no longer usable. Flag the reason for
+        // the 'close' handler and proactively close rather than waiting on the server.
+        slot.pendingReconnectReason = 'capacity_exceeded';
+        console.warn(`${LOG} [${slot.slotId}] capacity_exceeded; closing and reconnecting`);
+        try { slot.ws?.close(); } catch { /* ignore */ }
+      }
       break;
+    }
     case 'session.closed':
       console.log(`${LOG} [${slot.slotId}] session.closed reason=${event.reason}`);
+      if (event.reason === 'server_shutting_down') {
+        // Rolling update evicted this pod, not a real failure -- flag for the
+        // 'close' handler so the reconnect log carries the real reason.
+        slot.pendingReconnectReason = 'server_shutting_down';
+        console.warn(`${LOG} [${slot.slotId}] server is shutting down this session; will reconnect`);
+      }
       slot.closedWaiters.splice(0).forEach((resolve) => resolve());
       break;
     default:
