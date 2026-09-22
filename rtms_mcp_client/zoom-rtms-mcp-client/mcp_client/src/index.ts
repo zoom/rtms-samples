@@ -113,7 +113,7 @@ function zoomSocketUrl(value: unknown): string {
 function generateSignature(meetingId: string, streamId: string): string {
   return crypto
     .createHmac('sha256', config.zoomClientSecret)
-    .update(`${config.zoomClientId},${meetingId},${streamId}`)
+    .update([config.zoomClientId, meetingId, streamId].join(','))
     .digest('hex');
 }
 
@@ -259,8 +259,14 @@ app.use(express.json({
 app.post(config.webhookPath, (req: RawRequest, res) => {
   const { event, payload } = req.body || {};
   if (event === 'endpoint.url_validation' && payload?.plainToken) {
-    const encryptedToken = crypto.createHmac('sha256', config.zoomSecretToken).update(payload.plainToken).digest('hex');
-    res.json({ plainToken: payload.plainToken, encryptedToken });
+    const plainToken = payload.plainToken;
+    if (typeof plainToken !== 'string' || plainToken.length > 128 || !/^[a-zA-Z0-9]+$/.test(plainToken)) {
+      audit('webhook', { outcome: 'invalid_plain_token' });
+      res.status(400).json({ error: 'invalid_plain_token' });
+      return;
+    }
+    const encryptedToken = crypto.createHmac('sha256', config.zoomSecretToken).update(plainToken).digest('hex');
+    res.json({ plainToken, encryptedToken });
     return;
   }
 
