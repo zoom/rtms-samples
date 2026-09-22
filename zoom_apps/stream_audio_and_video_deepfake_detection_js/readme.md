@@ -23,7 +23,7 @@ Video deepfake inference
   |  raw video classify URL: https://your-deepfake-service.example.com/video/classify
   |  multipart upload URL: https://your-deepfake-service.example.com/video/upload
   |  same config also accepts: http://127.0.0.1:8012
-  |  example service folder: /var/www/your-deepfake-service
+  |  example service folder: ${DEEPFAKE_SERVICE_DIR}
 
 Audio verification inference
   |  raw PCM classify URL: https://your-deepfake-service.example.com/audio/classify
@@ -256,8 +256,8 @@ AUDIO_DEEPFAKE_HEALTHCHECK_ENABLED=false
 
 In `service` mode, point the sample at a standalone inference service. Example service folder:
 
-```text
-/var/www/your-deepfake-service
+```bash
+export DEEPFAKE_SERVICE_DIR=/path/to/your-deepfake-service
 ```
 
 If you need to work on the service itself, keep its README beside that service folder.
@@ -269,20 +269,20 @@ Use this when you want the Hugging Face deepfake model to run as its own HTTP se
 1. Prepare the service folder:
 
 ```bash
-cd /var/www/your-deepfake-service
+cd "$DEEPFAKE_SERVICE_DIR"
 cp .env.example .env
 ```
 
 2. Create the virtualenv only if it does not already exist. If your service host already has a runtime, skip the first command and just activate it:
 
 ```bash
-cd /var/www/your-deepfake-service
+cd "$DEEPFAKE_SERVICE_DIR"
 python3 -m venv .venv
 source .venv/bin/activate
 pip install -r requirements.txt
 ```
 
-3. Edit `/var/www/your-deepfake-service/.env` and set:
+3. Edit `${DEEPFAKE_SERVICE_DIR}/.env` and set:
 
 ```env
 PUBLIC_BASE_URL=https://your-deepfake-service.example.com
@@ -305,7 +305,7 @@ curl -i \
 5. Start the service locally:
 
 ```bash
-cd /var/www/your-deepfake-service
+cd ${DEEPFAKE_SERVICE_DIR}
 source .venv/bin/activate
 .venv/bin/python -m uvicorn app:app --host 127.0.0.1 --port 8012
 ```
@@ -334,7 +334,7 @@ DEEPFAKE_SERVICE_URL=http://127.0.0.1:8012
 8. If you want the service to survive reboots, create a PM2 entry and nginx proxy. Example:
 
 ```bash
-pm2 start /var/www/ecosystem.config.js --only your-deepfake-service
+pm2 start "$DEEPFAKE_SERVICE_DIR/ecosystem.config.js" --only your-deepfake-service
 pm2 save
 sudo systemctl reload nginx
 ```
@@ -342,15 +342,16 @@ sudo systemctl reload nginx
 The PM2 entry runs:
 
 ```text
-/var/www/your-deepfake-service/.venv/bin/python -m uvicorn app:app --host 127.0.0.1 --port 8012
+${DEEPFAKE_SERVICE_DIR}/.venv/bin/python -m uvicorn app:app --host 127.0.0.1 --port 8012
 ```
 
 and the sample then talks to the web service over `DEEPFAKE_SERVICE_URL`.
 
-You can still start the standalone service from this sample folder via the helper script:
+Start the standalone service from its own directory:
 
 ```bash
-npm run start:deepfake-service
+cd "$DEEPFAKE_SERVICE_DIR"
+./.venv/bin/python -m uvicorn app:app --host 127.0.0.1 --port 8012
 ```
 
 That launches:
@@ -381,9 +382,9 @@ Open the Zoom App URL in a Zoom meeting.
 
 Recommended terminal layout:
 
-- Terminal 1: `npm run start:deepfake-service`
+- Terminal 1: start the customer-owned inference service from `$DEEPFAKE_SERVICE_DIR`
 - Terminal 2: `npm start`
-- Terminal 3: optional `tail -f /var/www/your-deepfake-service/logs/deepfake-service.log`
+- Terminal 3: optional `tail -f ${DEEPFAKE_SERVICE_DIR}/logs/deepfake-service.log`
 
 ## Environment Variables
 
@@ -469,7 +470,7 @@ If you provide only the base URL, the sample automatically expands it to `/video
 The service code and runtime now live in:
 
 ```text
-/var/www/your-deepfake-service
+${DEEPFAKE_SERVICE_DIR}
 ```
 
 See that folder's README for takeover, PM2, nginx, and HF token setup.
@@ -551,7 +552,7 @@ DEEPFAKE_MODEL_NAME=Naman712/Deep-fake-detection
 CLI path:
 
 ```text
-/var/www/your-deepfake-service/classify_clip.py
+${DEEPFAKE_SERVICE_DIR}/classify_clip.py
 ```
 
 Off:
@@ -608,5 +609,9 @@ blog.md                          ignored local blog draft
 Standalone service files now live in:
 
 ```text
-/var/www/your-deepfake-service
+${DEEPFAKE_SERVICE_DIR}
 ```
+
+See [DEPLOYMENT.md](DEPLOYMENT.md) for Render and Railway configuration. The
+deployment files run this Zoom application; customers provide the video and
+audio inference services.

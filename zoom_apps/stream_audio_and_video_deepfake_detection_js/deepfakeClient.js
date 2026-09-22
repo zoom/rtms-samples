@@ -229,7 +229,7 @@ export class DeepfakeClient {
     this.pythonBin = options.pythonBin || 'python3';
     this.threshold = Number(options.threshold || 0.75);
     this.vendorName = options.vendorName || this.modelName;
-    this.scriptPath = '/var/www/your-deepfake-service/classify_clip.py';
+    this.scriptPath = options.scriptPath || process.env.DEEPFAKE_SCRIPT_PATH || '';
   }
 
   async checkHealth() {
@@ -312,6 +312,9 @@ export class DeepfakeClient {
   }
 
   async classifyLocal(videoPath) {
+    if (!this.scriptPath) {
+      throw new Error('DEEPFAKE_SCRIPT_PATH is required when DEEPFAKE_MODE=local_cli');
+    }
     return execFileJson(this.pythonBin, [
       this.scriptPath,
       '--video', videoPath,

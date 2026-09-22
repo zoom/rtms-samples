@@ -147,6 +147,8 @@ docker run --rm \
 
 The volume is required for durable queue and media recovery across container replacement. The image uses `npm ci` with the committed lockfile and includes FFmpeg `7:5.1.9-0+deb12u1`.
 
+See [DEPLOYMENT.md](DEPLOYMENT.md) for Render and Railway configuration.
+
 ## Key Files
 
 - `index.js`: RTMS lifecycle, webhook verification, recovery scheduling, and shutdown
