@@ -5,8 +5,8 @@
   "private": true,
   "scripts": {
     "start": "node index.js",
-    "start:deepfake-service": "cd /var/www/your-deepfake-service && ./.venv/bin/python -m uvicorn app:app --host 127.0.0.1 --port 8012",
-    "check": "node --check index.js && node --check hlsPipeline.js && node --check audioClipBuffer.js && node --check deepfakeClient.js"
+    "check": "node --check index.js && node --check hlsPipeline.js && node --check audioClipBuffer.js && node --check deepfakeClient.js",
+    "test": "npm run check"
   },
   "dependencies": {
     "dotenv": "^16.5.0",
