@@ -265,7 +265,6 @@ Each link opens the project directory and its project-level `readme.md`.
 | [`ai_rag_customer_support_js`](./zoom_apps/ai_rag_customer_support_js/) | Zoom App combining transcript context with retrieval-augmented support answers. |
 | [`ai_transcript_analysis_js`](./zoom_apps/ai_transcript_analysis_js/) | Zoom App that sends RTMS transcript turns to an external AI analysis service. |
 | [`jev_transcript_analysis_js`](./zoom_apps/jev_transcript_analysis_js/) | Zoom App showing turn-by-turn sales coaching using TypeSafe AI Jev decisions. |
-| [`zoom_decision_transcript_analysis_js`](./zoom_apps/zoom_decision_transcript_analysis_js/) | Zoom App showing bounded sales decisions from Zoom AI Services Decisions. |
 | [`zoom_decisions_compliance_risk_copilot_js`](./zoom_apps/zoom_decisions_compliance_risk_copilot_js/) | Zoom App using Zoom Decisions to score compliance risk and recommend agent actions. |
 | [`prompt_for_user_consent_js`](./zoom_apps/prompt_for_user_consent_js/) | Zoom App that tracks participant consent before processing meeting data. |
 | [`send_audio_to_openai_realtime_api_with_audio_playback_js`](./zoom_apps/send_audio_to_openai_realtime_api_with_audio_playback_js/) | Zoom App sending meeting audio to OpenAI Realtime and playing responses back. |
