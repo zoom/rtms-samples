@@ -1,0 +1,17 @@
+{
+  "name": "rtms-compliance-risk-copilot-js",
+  "version": "1.0.0",
+  "type": "module",
+  "scripts": {
+    "start": "node index.js",
+    "check": "node --check index.js && node --check complianceRiskAnalyzer.js",
+    "test": "node --test tests/*.test.js"
+  },
+  "dependencies": {
+    "dotenv": "^16.5.0",
+    "ejs": "^3.1.10",
+    "express": "^4.21.2",
+    "uuid": "^11.1.0",
+    "ws": "^8.16.0"
+  }
+}

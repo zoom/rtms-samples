@@ -8,6 +8,13 @@ remain under **Unreleased** until a repository release is published.
 
 ## [Unreleased]
 
+### Added
+
+- Added `zoom_apps/zoom_decision_transcript_analysis_js`, a Zoom App that
+  evaluates RTMS transcript turns with the Zoom AI Services Decisions API.
+- Added `zoom_apps/zoom_decisions_compliance_risk_copilot_js`, a Zoom App that uses typed
+  decisions to review live transcripts for compliance gaps and risk.
+
 ### Changed
 
 - RTMS media connections now use split mode exclusively. Clients open a

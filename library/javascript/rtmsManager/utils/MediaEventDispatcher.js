@@ -1,4 +1,4 @@
-const DEFAULT_MEDIA_EVENTS = new Set(['audio', 'video', 'sharescreen']);
+const DEFAULT_MEDIA_EVENTS = new Set(["audio", "video", "sharescreen", "transcript", "chat"]);
 
 export class MediaEventDispatcher {
   constructor({

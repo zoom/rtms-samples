@@ -154,6 +154,7 @@ export function handleMediaMessage(data, {
       case 17: // TRANSCRIPT
         if (msg.content?.data) {
           const { user_id, user_name, data: transcriptData, timestamp, start_time, end_time, language, attribute } = msg.content;
+          FileLogger.log(`[Media] [${conn.rtmsType},${meetingUuid},${streamId}] Transcript packet from ${user_name || user_id}: ${String(transcriptData).slice(0, 120)}`);
           
           processTranscript({
             text: transcriptData,

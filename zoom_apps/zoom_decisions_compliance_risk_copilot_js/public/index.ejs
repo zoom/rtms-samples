@@ -1,0 +1,604 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>Compliance Risk Copilot</title>
+  <script src="https://appssdk.zoom.us/sdk.js"></script>
+  <style>
+    :root {
+      --ink: #17221c;
+      --muted: #657168;
+      --paper: #f4f1e8;
+      --panel: #fffdf7;
+      --line: #d9d6ca;
+      --green: #176b4d;
+      --green-soft: #dcece3;
+      --amber: #b65d18;
+      --red: #a83d35;
+      --blue: #245f8f;
+      --shadow: 0 18px 46px rgba(35, 44, 37, 0.11);
+    }
+
+    * { box-sizing: border-box; }
+
+    body {
+      margin: 0;
+      color: var(--ink);
+      background:
+        linear-gradient(90deg, rgba(23, 107, 77, 0.05) 1px, transparent 1px),
+        linear-gradient(rgba(23, 107, 77, 0.05) 1px, transparent 1px),
+        var(--paper);
+      background-size: 28px 28px;
+      font-family: Georgia, 'Times New Roman', serif;
+    }
+
+    main {
+      width: min(100% - 28px, 900px);
+      margin: 0 auto;
+      padding: 24px 0 48px;
+    }
+
+    header {
+      display: flex;
+      align-items: flex-end;
+      justify-content: space-between;
+      gap: 20px;
+      padding: 10px 2px 20px;
+      border-bottom: 2px solid var(--ink);
+    }
+
+    .eyebrow, .label, .status, .confidence {
+      font-family: 'Trebuchet MS', sans-serif;
+      letter-spacing: 0.08em;
+      text-transform: uppercase;
+    }
+
+    .eyebrow { margin: 0 0 6px; color: var(--green); font-size: 0.72rem; font-weight: 700; }
+    h1 { margin: 0; font-size: clamp(2rem, 7vw, 4.4rem); line-height: 0.9; font-weight: 500; }
+    .subtitle { max-width: 350px; margin: 0; color: var(--muted); font-size: 0.95rem; line-height: 1.45; }
+
+    .status {
+      display: inline-flex;
+      align-items: center;
+      gap: 7px;
+      margin-top: 14px;
+      font-size: 0.68rem;
+      color: var(--muted);
+    }
+
+    .status::before {
+      content: '';
+      width: 8px;
+      height: 8px;
+      border-radius: 50%;
+      background: var(--amber);
+    }
+
+    .status.connected::before { background: var(--green); }
+    .status.error::before { background: var(--red); }
+
+    .role-control {
+      display: inline-flex;
+      align-items: center;
+      gap: 9px;
+      margin-top: 13px;
+      padding: 7px 9px;
+      background: rgba(255, 253, 247, 0.8);
+      border: 1px solid var(--line);
+      font-family: 'Trebuchet MS', sans-serif;
+    }
+
+    .role-control label { color: var(--muted); font-size: 0.68rem; font-weight: 700; letter-spacing: 0.06em; text-transform: uppercase; }
+    .role-control select { color: var(--ink); background: transparent; border: 0; font: 700 0.78rem 'Trebuchet MS', sans-serif; cursor: pointer; }
+    .role-control select:focus-visible { outline: 2px solid var(--green); outline-offset: 2px; }
+
+    .hero-card, .card {
+      background: var(--panel);
+      border: 1px solid var(--line);
+      box-shadow: var(--shadow);
+    }
+
+    .hero-card {
+      margin-top: 22px;
+      padding: clamp(20px, 5vw, 38px);
+      border-top: 5px solid var(--green);
+    }
+
+    .label { color: var(--muted); font-size: 0.68rem; font-weight: 700; }
+    #speaker { margin-top: 8px; color: var(--green); font-family: 'Trebuchet MS', sans-serif; font-weight: 700; }
+    #transcript { margin: 8px 0 0; font-size: clamp(1.25rem, 4vw, 2rem); line-height: 1.35; }
+
+    .grid {
+      display: grid;
+      grid-template-columns: repeat(3, minmax(0, 1fr));
+      gap: 12px;
+      margin-top: 12px;
+    }
+
+    .card { min-width: 0; padding: 18px; }
+    .value { margin: 9px 0 0; font-size: 1.18rem; overflow-wrap: anywhere; }
+    .confidence { margin-top: 8px; color: var(--muted); font-size: 0.62rem; }
+
+    .meter {
+      height: 7px;
+      margin-top: 10px;
+      overflow: hidden;
+      border-radius: 99px;
+      background: #e5e2d8;
+    }
+
+    .meter > span { display: block; width: 0; height: 100%; background: var(--green); transition: width 350ms ease; }
+    #risk-meter > span { background: var(--amber); }
+
+    .action {
+      grid-column: span 2;
+      background: var(--green);
+      color: #fffdf7;
+      border-color: var(--green);
+    }
+
+    .action .label, .action .confidence { color: #cce2d6; }
+    .action blockquote { margin: 15px 0 0; font-size: 1.2rem; line-height: 1.45; }
+    .placeholder { color: var(--muted); }
+
+    .history-section {
+      margin-top: 28px;
+      padding-top: 18px;
+      border-top: 2px solid var(--ink);
+    }
+
+    .history-heading {
+      display: flex;
+      align-items: end;
+      justify-content: space-between;
+      gap: 16px;
+      margin-bottom: 12px;
+    }
+
+    .history-heading h2 { margin: 0; font-size: 1.55rem; font-weight: 500; }
+    .history-heading p { margin: 0; color: var(--muted); font-size: 0.78rem; }
+
+    .turn-history {
+      display: grid;
+      gap: 10px;
+      max-height: 620px;
+      overflow-y: auto;
+      padding-right: 4px;
+      scroll-behavior: smooth;
+    }
+
+    .turn {
+      padding: 16px 18px;
+      background: rgba(255, 253, 247, 0.9);
+      border: 1px solid var(--line);
+      border-left: 4px solid var(--line);
+    }
+
+    .turn.analyzed { border-left-color: var(--green); }
+    .turn.failed { border-left-color: var(--red); }
+    .turn.seller-turn { border-left-color: var(--blue); }
+
+    .turn-meta {
+      display: flex;
+      align-items: baseline;
+      justify-content: space-between;
+      gap: 12px;
+      color: var(--muted);
+      font-family: 'Trebuchet MS', sans-serif;
+      font-size: 0.72rem;
+    }
+
+    .turn-speaker { color: var(--ink); font-weight: 700; }
+    .turn-role { margin-left: 7px; color: var(--green); font-size: 0.62rem; font-weight: 700; letter-spacing: 0.05em; text-transform: uppercase; }
+    .seller-turn .turn-role { color: var(--blue); }
+    .turn-text { margin: 9px 0 0; font-size: 1.03rem; line-height: 1.45; }
+    .turn-state { margin-top: 10px; color: var(--muted); font-family: 'Trebuchet MS', sans-serif; font-size: 0.72rem; }
+
+    .turn-decision {
+      display: none;
+      margin-top: 14px;
+      padding-top: 13px;
+      border-top: 1px solid var(--line);
+    }
+
+    .turn.analyzed.buyer-turn .turn-decision { display: block; }
+    .decision-summary { color: var(--muted); font-family: 'Trebuchet MS', sans-serif; font-size: 0.74rem; }
+    .choice-list { display: grid; gap: 7px; margin-top: 10px; }
+
+    .choice {
+      width: 100%;
+      padding: 10px 12px;
+      color: var(--ink);
+      text-align: left;
+      background: #f7f3e8;
+      border: 1px solid var(--line);
+      border-radius: 0;
+      cursor: pointer;
+      font: 700 0.78rem 'Trebuchet MS', sans-serif;
+    }
+
+    .choice:hover, .choice:focus-visible { border-color: var(--green); outline: none; }
+    .choice.selected { color: #fff; background: var(--green); border-color: var(--green); }
+    .choice small { float: right; margin-left: 10px; font-weight: 400; opacity: 0.8; }
+    .choice .recommended { color: var(--blue); margin-left: 7px; font-size: 0.62rem; text-transform: uppercase; }
+    .choice.selected .recommended { color: #fff; }
+    .selected-guidance { margin: 10px 0 0; line-height: 1.4; }
+
+    @media (max-width: 680px) {
+      header { display: block; }
+      .subtitle { margin-top: 14px; }
+      .grid { grid-template-columns: 1fr 1fr; }
+      .action { grid-column: 1 / -1; }
+    }
+
+    @media (max-width: 430px) {
+      main { width: min(100% - 18px, 900px); padding-top: 14px; }
+      .grid { grid-template-columns: 1fr; }
+      .action { grid-column: auto; }
+    }
+  </style>
+</head>
+<body>
+  <main>
+    <header>
+      <div>
+        <p class="eyebrow">Live decision support</p>
+        <h1>Compliance<br>Copilot</h1>
+        <div id="status" class="status">Connecting</div>
+        <div class="role-control">
+          <label for="viewer-role">My role</label>
+          <select id="viewer-role">
+            <option value="buyer">Customer</option>
+            <option value="seller">Agent</option>
+          </select>
+        </div>
+      </div>
+      <p class="subtitle">Zoom Decisions turns each RTMS transcript segment into bounded compliance checks and risk scores. It does not generate or send messages.</p>
+    </header>
+
+    <section class="hero-card" aria-live="polite">
+      <div class="label">Latest conversation turn</div>
+      <div id="speaker">Waiting for RTMS transcript</div>
+      <p id="transcript" class="placeholder">Analysis will appear after the backend receives a transcript segment.</p>
+    </section>
+
+    <section class="grid" aria-live="polite">
+      <article class="card"><div class="label">Compliance state</div><div id="intent" class="value">—</div><div id="intent-confidence" class="confidence">No decision yet</div></article>
+      <article class="card"><div class="label">Conversation stage</div><div id="stage" class="value">—</div><div id="stage-confidence" class="confidence">No decision yet</div></article>
+      <article class="card"><div class="label">Missing item</div><div id="objection" class="value">—</div><div id="objection-confidence" class="confidence">No decision yet</div></article>
+      <article class="card action">
+        <div class="label">Recommended next move</div>
+        <div id="action" class="value">Wait for the agent turn</div>
+        <blockquote id="suggestion">Listen first. The model will select one reviewed compliance move.</blockquote>
+        <div id="action-confidence" class="confidence">No decision yet</div>
+      </article>
+      <article class="card">
+        <div class="label">Consent recorded</div>
+        <div id="purchase" class="value">0%</div>
+        <div class="meter"><span id="purchase-meter"></span></div>
+        <div class="confidence">Probability</div>
+      </article>
+      <article class="card">
+        <div class="label">Compliance risk</div>
+        <div id="risk" class="value">0 / 4</div>
+        <div id="risk-meter" class="meter"><span></span></div>
+        <div id="risk-confidence" class="confidence">No decision yet</div>
+      </article>
+    </section>
+
+    <section class="history-section" aria-labelledby="history-title">
+      <div class="history-heading">
+        <h2 id="history-title">Compliance history</h2>
+        <p>Choose the compliance move you prefer</p>
+      </div>
+      <div id="turn-history" class="turn-history" aria-live="polite">
+        <div id="history-empty" class="turn placeholder">Transcript turns will appear here as they arrive.</div>
+      </div>
+    </section>
+  </main>
+
+  <script>
+    const statusElement = document.getElementById('status');
+    const roleElement = document.getElementById('viewer-role');
+    const socket = new WebSocket('<%= websocketUrl %>');
+    const historyElement = document.getElementById('turn-history');
+    const turns = new Map();
+    const maxVisibleTurns = 100;
+    let zoomContext = null;
+    let dashboardTurnId = null;
+
+    const roleStorageKey = 'compliance-risk-copilot-role';
+    const savedRole = sessionStorage.getItem(roleStorageKey);
+    if (savedRole === 'buyer' || savedRole === 'seller') roleElement.value = savedRole;
+
+    const humanize = (value) => String(value || 'unclear').replaceAll('_', ' ');
+    const percent = (value) => `${Math.round(Math.max(0, Math.min(1, Number(value) || 0)) * 100)}%`;
+    const setText = (id, value) => { document.getElementById(id).textContent = value; };
+    const normalizeIdentity = (value) => String(value ?? '').trim().toLowerCase();
+
+    function isCurrentUser(transcript) {
+      if (!zoomContext) return false;
+      const transcriptId = normalizeIdentity(transcript.userId);
+      if (transcriptId && zoomContext.identityIds.has(transcriptId)) return true;
+      const transcriptName = normalizeIdentity(transcript.userName);
+      return Boolean(transcriptName && zoomContext.userName && transcriptName === normalizeIdentity(zoomContext.userName));
+    }
+
+    function roleForTranscript(transcript) {
+      const viewerRole = roleElement.value;
+      if (isCurrentUser(transcript)) return viewerRole;
+      return viewerRole === 'seller' ? 'buyer' : 'seller';
+    }
+
+    function setStatus(text, kind = '') {
+      statusElement.textContent = text;
+      statusElement.className = `status ${kind}`.trim();
+    }
+
+    function register() {
+      if (!zoomContext || socket.readyState !== WebSocket.OPEN) return;
+      socket.send(JSON.stringify({
+        type: 'register',
+        meetingUUID: zoomContext.meetingUUID,
+        userID: zoomContext.userID
+      }));
+    }
+
+    function formatTurnTime(timestamp) {
+      const rawTimestamp = Number(timestamp) || Date.now();
+      const timestampMs = rawTimestamp > 100000000000000 ? rawTimestamp / 1000 : rawTimestamp;
+      const date = new Date(timestampMs);
+      return Number.isNaN(date.getTime()) ? '' : date.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit', second: '2-digit' });
+    }
+
+    function createElement(tag, className, text) {
+      const element = document.createElement(tag);
+      if (className) element.className = className;
+      if (text != null) element.textContent = text;
+      return element;
+    }
+
+    function refreshTurnRole(entry) {
+      const role = roleForTranscript(entry.transcript);
+      const ownTurn = isCurrentUser(entry.transcript);
+      entry.role = role;
+      entry.roleBadge.textContent = `${ownTurn ? 'You · ' : ''}${role}`;
+      entry.card.classList.toggle('buyer-turn', role === 'buyer');
+      entry.card.classList.toggle('seller-turn', role === 'seller');
+
+      if (role === 'seller') {
+        entry.state.textContent = 'Seller turn · retained as conversation context.';
+      } else if (entry.analysis) {
+        entry.state.textContent = `Analyzed in ${entry.analysis.latencyMs} ms`;
+      } else {
+        entry.state.textContent = entry.analysisPending
+          ? 'Compliance checks are evaluating this customer turn...'
+          : 'Saved to history; too short for analysis.';
+      }
+    }
+
+    function resetDashboard() {
+      dashboardTurnId = null;
+      setText('intent', '—');
+      setText('intent-confidence', 'No compliance decision yet');
+      setText('stage', '—');
+      setText('stage-confidence', 'No compliance decision yet');
+      setText('objection', '—');
+      setText('objection-confidence', 'No compliance decision yet');
+      setText('action', 'Wait for the agent turn');
+      setText('suggestion', 'The latest analyzed customer turn will provide reviewed compliance moves.');
+      setText('action-confidence', 'No compliance decision yet');
+      setText('purchase', '0%');
+      document.getElementById('purchase-meter').style.width = '0%';
+      setText('risk', '0 / 4');
+      document.querySelector('#risk-meter > span').style.width = '0%';
+      setText('risk-confidence', 'No compliance decision yet');
+    }
+
+    function renderDashboard(entry) {
+      const analysis = entry.analysis;
+      if (!analysis || entry.role !== 'buyer') return;
+      dashboardTurnId = entry.transcript.id;
+      setText('intent', humanize(analysis.complianceState.value));
+      setText('intent-confidence', `${percent(analysis.complianceState.confidence)} confidence`);
+      setText('stage', humanize(analysis.conversationStage.value));
+      setText('stage-confidence', `${percent(analysis.conversationStage.confidence)} confidence`);
+      setText('objection', humanize(analysis.missingRequirement.value));
+      setText('objection-confidence', `${percent(analysis.missingRequirement.confidence)} confidence`);
+      const selectedAction = entry.selectedOption
+        || analysis.actionOptions?.find((option) => option.recommended)
+        || analysis.nextAction;
+      setText('action', selectedAction.label);
+      setText('suggestion', selectedAction.suggestion);
+      setText(
+        'action-confidence',
+        `${percent(selectedAction.probability ?? selectedAction.confidence)} probability${selectedAction.recommended ? ' · compliance recommendation' : ' · selected alternative'}`
+      );
+      setText('purchase', percent(analysis.consentRecorded));
+      document.getElementById('purchase-meter').style.width = percent(analysis.consentRecorded);
+      const risk = Math.max(0, Math.min(4, Number(analysis.complianceRisk.value) || 0));
+      setText('risk', `${risk.toFixed(1)} / 4`);
+      document.querySelector('#risk-meter > span').style.width = `${risk / 4 * 100}%`;
+      setText('risk-confidence', `${percent(analysis.complianceRisk.confidence)} confidence`);
+    }
+
+    function refreshAllRoles() {
+      for (const entry of turns.values()) refreshTurnRole(entry);
+      const latestBuyerAnalysis = Array.from(turns.values())
+        .reverse()
+        .find((entry) => entry.role === 'buyer' && entry.analysis);
+      if (latestBuyerAnalysis) renderDashboard(latestBuyerAnalysis);
+      else resetDashboard();
+    }
+
+    function addTranscriptTurn(message) {
+      const transcript = message.transcript;
+      if (!transcript?.id || turns.has(transcript.id)) return;
+      document.getElementById('history-empty')?.remove();
+
+      const card = createElement('article', 'turn');
+      card.dataset.turnId = transcript.id;
+      const meta = createElement('div', 'turn-meta');
+      const speakerIdentity = createElement('div');
+      const roleBadge = createElement('span', 'turn-role');
+      speakerIdentity.append(
+        createElement('span', 'turn-speaker', transcript.userName || 'Unknown participant'),
+        roleBadge
+      );
+      meta.append(
+        speakerIdentity,
+        createElement('time', '', formatTurnTime(transcript.timestamp))
+      );
+      const text = createElement('p', 'turn-text', transcript.text);
+      const state = createElement(
+        'div',
+        'turn-state',
+        message.analysisPending ? 'Compliance checks are evaluating this turn...' : 'Saved to history; too short for analysis.'
+      );
+      const decision = createElement('div', 'turn-decision');
+      const summary = createElement('div', 'decision-summary');
+      const choices = createElement('div', 'choice-list');
+      const guidance = createElement('p', 'selected-guidance');
+      decision.append(summary, choices, guidance);
+      card.append(meta, text, state, decision);
+      historyElement.append(card);
+      const entry = {
+        card,
+        state,
+        summary,
+        choices,
+        guidance,
+        roleBadge,
+        transcript,
+        analysisPending: Boolean(message.analysisPending),
+        analysis: null,
+        selectedOption: null
+      };
+      turns.set(transcript.id, entry);
+      refreshTurnRole(entry);
+
+      while (turns.size > maxVisibleTurns) {
+        const oldestId = turns.keys().next().value;
+        turns.get(oldestId)?.card.remove();
+        turns.delete(oldestId);
+      }
+      historyElement.scrollTop = historyElement.scrollHeight;
+
+      setText('speaker', transcript.userName || 'Unknown participant');
+      setText('transcript', transcript.text);
+      document.getElementById('transcript').classList.remove('placeholder');
+    }
+
+    function selectAction(entry, option, button) {
+      entry.choices.querySelectorAll('.choice').forEach((choice) => choice.classList.remove('selected'));
+      button.classList.add('selected');
+      entry.selectedOption = option;
+      entry.guidance.textContent = option.suggestion;
+      if (entry.transcript.id === dashboardTurnId) {
+        setText('action', option.label);
+        setText('suggestion', option.suggestion);
+        setText('action-confidence', `${percent(option.probability)} probability${option.recommended ? ' · compliance recommendation' : ' · selected alternative'}`);
+      }
+    }
+
+    function updateTurnAnalysis(message) {
+      const entry = turns.get(message.turnId || message.transcript?.id);
+      if (!entry) {
+        addTranscriptTurn({ transcript: message.transcript, analysisPending: true });
+      }
+      const current = turns.get(message.turnId || message.transcript?.id);
+      if (!current) return;
+
+      current.analysis = message.analysis;
+      current.card.classList.add('analyzed');
+      current.summary.textContent = `${humanize(message.analysis.complianceState.value)} compliance · ${humanize(message.analysis.missingRequirement.value)} missing`;
+      current.choices.replaceChildren();
+
+      const options = message.analysis.actionOptions || [message.analysis.nextAction];
+      options.forEach((option) => {
+        const button = createElement('button', 'choice');
+        button.type = 'button';
+        button.append(document.createTextNode(option.label || humanize(option.value)));
+        if (option.recommended) button.append(createElement('span', 'recommended', 'Compliance pick'));
+        button.append(createElement('small', '', percent(option.probability ?? option.confidence)));
+        button.addEventListener('click', () => selectAction(current, option, button));
+        current.choices.append(button);
+        if (option.recommended) selectAction(current, option, button);
+      });
+      refreshTurnRole(current);
+      return current;
+    }
+
+    function markTurnFailed(turnId, message) {
+      const entry = turns.get(turnId);
+      if (!entry) return;
+      entry.card.classList.add('failed');
+      entry.state.textContent = message;
+    }
+
+    function render(message) {
+      const entry = updateTurnAnalysis(message);
+      if (entry?.role === 'buyer') renderDashboard(entry);
+    }
+
+    roleElement.addEventListener('change', () => {
+      sessionStorage.setItem(roleStorageKey, roleElement.value);
+      refreshAllRoles();
+    });
+
+    socket.addEventListener('open', () => {
+      setStatus('Backend connected');
+      register();
+    });
+
+    socket.addEventListener('message', (event) => {
+      const message = JSON.parse(event.data);
+      if (message.type === 'ping') return socket.send(JSON.stringify({ type: 'pong' }));
+      if (message.type === 'registration_success') return setStatus('Listening for transcript', 'connected');
+      if (message.type === 'transcript_turn') return addTranscriptTurn(message);
+      if (message.type === 'compliance_analysis') return render(message);
+      if (message.type === 'analysis_error') {
+        markTurnFailed(message.turnId, message.message);
+        return setStatus(message.message, 'error');
+      }
+      if (message.type === 'error') setStatus(message.message || 'Backend registration failed', 'error');
+    });
+
+    socket.addEventListener('close', () => setStatus('Backend disconnected', 'error'));
+    socket.addEventListener('error', () => setStatus('WebSocket connection failed', 'error'));
+
+    (async () => {
+      try {
+        await zoomSdk.config({
+          version: '0.16.31',
+          capabilities: ['getRunningContext', 'getMeetingUUID', 'getUserContext']
+        });
+        const [runningContext, meeting, user] = await Promise.all([
+          zoomSdk.getRunningContext(),
+          zoomSdk.getMeetingUUID(),
+          zoomSdk.getUserContext()
+        ]);
+        if (runningContext.context !== 'inMeeting') throw new Error('Open this app during a Zoom meeting');
+        const rawIdentityIds = [
+          user.participantUUID,
+          user.participantUuid,
+          user.participantId,
+          user.userId,
+          user.id
+        ];
+        zoomContext = {
+          meetingUUID: meeting.meetingUUID,
+          userID: rawIdentityIds.find((value) => value != null && value !== ''),
+          identityIds: new Set(rawIdentityIds.map(normalizeIdentity).filter(Boolean)),
+          userName: user.screenName || user.displayName || user.userName || user.name || ''
+        };
+        refreshAllRoles();
+        register();
+      } catch (error) {
+        setStatus(error.message || 'Zoom Apps SDK unavailable', 'error');
+      }
+    })();
+  </script>
+</body>
+</html>
