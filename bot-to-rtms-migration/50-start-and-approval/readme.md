@@ -6,7 +6,7 @@ Takes the lifecycle webhooks safely, decides whether a stream may be opened, and
 
 - [Run this folder alone](#run-this-folder-alone) and [Meeting SDK bot vs RTMS](#meeting-sdk-bot-vs-rtms) - commands first, then the model shift
 - [The flow](#the-flow) - the webhook endpoint, request by request
-- [Handing the stream to a worker](#handing-the-stream-to-a-worker), [two users, one meeting](#two-users-one-meeting) and [should we process this meeting](#should-we-process-this-meeting)
+- [Handing the stream to a worker](#handing-the-stream-to-a-worker), [two users, one meeting](#two-users-in-one-meeting) and [should we process this meeting](#meeting-level-stream-decisions)
 - [Starting on purpose](#starting-on-purpose) and [user authorization (OAuth)](#user-authorization-oauth) - the start path and per-user tokens
 - [Connect to real Zoom](#connect-to-real-zoom), [the simulated demo](#simulated-demo) and [run it](#run-it)
 - [Swap points for production](#swap-points-for-production), [Adapting this sample](#adapting-this-sample) and [files and tests](#files-and-tests)
@@ -70,7 +70,7 @@ The 65-minute key retention exists for the rare slow start, where it makes dedup
 - If the hand-off throws, the service abandons the claim (no tombstone, since the stream never ran), records `stream_start_failed` and alerts, so a later webhook for the same stream can try again. Without this the heartbeat would keep a dead claim alive.
 - When the client finishes for any reason, call `service.releaseStream(streamId, reason)`. It stops lease renewal and marks the stream finished, so a late duplicate started webhook cannot reopen it. A server stop webhook does the same.
 
-## Two users, one meeting
+## Two users in one meeting
 
 Every user who has your app can start it, and each started webhook carries the starter's `operator_id`. The three deduplication layers remove repeats of **one** stream. They do not remove a second user's separate stream, so the service also decides at meeting level. Set `MEETING_POLICY` to one of the values the table below lists.
 
@@ -89,7 +89,7 @@ Its behaviour follows the table below.
 
 "Owner wins" is not built in. Zoom's started webhook says whether the operator is the original host, so you can express it in a capture filter or change `findRival`.
 
-## Should we process this meeting?
+## Meeting-level stream decisions
 
 Auto-start works by category (meetings I own, internally hosted, externally hosted), not by meeting. A rule such as "only meetings on a customer calendar" cannot be expressed there, so accept the webhook, decide, and stop the stream. Point `CAPTURE_FILTER_MODULE` at a file with a default export, like the one below.
 
@@ -295,7 +295,7 @@ Both policies are in the start-and-approval sample (50-start-and-approval/readme
 - Persist the raw payload before you transform it, so a new field or status can be replayed. (The samples keep it in memory only. You should write it to durable storage.)
 - If the hand-off to a worker fails, give the claim back so a later webhook can try again. When a worker finishes, release the claim so a late duplicate cannot reopen the stream.
 
-### Starting on purpose, and the missing webhook
+### Deliberate starts and missing webhooks
 
 The mechanics are in **Starting on purpose** above, the gates, the audit snapshot, the outcome classification and the watchdog. Two things the guide adds.
 
@@ -310,7 +310,7 @@ And you cannot recover a missing lifecycle webhook by polling. Do not connect fr
 - Record the number, the limit, the tenant and the time.
 - If limits are hit often, ask Zoom support or your Zoom sales representative to raise the account's concurrency limit, so the shedding never becomes routine.
 
-### Connecting to Zoom, what the log shows
+### Zoom connection logging
 
 The setup steps are in **Connect to real Zoom** above. Once live, the log shows, one JSON line each:
 

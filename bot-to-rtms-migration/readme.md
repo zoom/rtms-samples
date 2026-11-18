@@ -1,4 +1,4 @@
-# Moving a Meeting SDK bot to Zoom RTMS, a step-by-step guide
+# Moving a Meeting SDK bot to Zoom RTMS
 
 This guide is for those who run a Meeting SDK bot today (a participant that joins meetings to transcribe, record, analyze or assist) and want to replace it with Zoom Realtime Media Streams (RTMS). This readme is the overview. Each step's details live in that step's folder, listed in the table below.
 
@@ -6,7 +6,7 @@ This guide is for those who run a Meeting SDK bot today (a participant that join
 
 - [The shift in one page](#the-shift-in-one-page) - bot vs RTMS, the whole difference in a paragraph
 - [The seven steps](#the-seven-steps) and [before you try anything](#before-you-try-anything) - the plan overview, then the licensing checks
-- [The readmes, one per step](#the-readmes-one-per-step) - the folder table, the real table of contents
+- [Readme per step](#readme-per-step) - the folder table, the real table of contents
 - [Other use cases already in this repo](#other-use-cases-already-in-this-repo) - samples to reuse instead of rebuild
 
 ## The shift in one page
@@ -64,7 +64,7 @@ Step 1 and the dashboard in step 7 run offline with no credentials. Steps 2 to 4
 One honest caveat. The connection code follows the library in `library/javascript/rtmsManager`, which already works with Zoom, but nothing in this folder has yet been connected to a real Zoom stream. Treat your first live meeting as the real test, and see **What is verified** in the [60-stream-lifecycle-client](60-stream-lifecycle-client/readme.md) readme.
 
 ---
-## The readmes, one per step
+## Readme per step
 
 Each step lives in its own folder, and each folder's readme is both the guide for that step and the documentation for the code in it. It carries what to do, why, the questions people ask at that point, and the files, tests and settings. Start at the top. Read a folder's readme when you reach that step.
 

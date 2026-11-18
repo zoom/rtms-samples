@@ -146,7 +146,7 @@ Gate every stream and every artifact write on "does this account have a tenant t
 | 12 | Per-user tokens, reauthorization and deauthorization | [`src/oauth.js`](../50-start-and-approval/src/oauth.js): refresh, rotation, reauthorization flag, verified deauthorization | A secret store for tokens, deleting the rest of a user's data, a reauthorization campaign |
 | 13 | Count concurrency per media socket, and plan for spiky starts at the top of the hour | A concurrency event handler that sheds and blocks | A queue and autoscaling workers, and a load test |
 
-### What to swap before production
+### Pre-production changes
 
 | In the samples | In production |
 |---|---|
@@ -173,7 +173,7 @@ While both run, decide which one captures a given meeting. Never let both captur
 
 Measure the start success rate (started webhooks against the meetings you expected), the time to first packet, the share of meetings captured against the bot baseline, the approval prompt rate, the denial rate, reauthorization completion, and the cost per captured hour.
 
-### What it costs, and how concurrency is counted
+### Cost and concurrency accounting
 
 1. RTMS needs Zoom Developer Pack credits. Volume discounts and commitments above 500 credits go through sales. Basic accounts are not supported: webhooks do not fire and API calls fail with `2310`.
 2. The default limit is **2,000** concurrent streams on a Developer Pack (5 on the free trial), and higher limits are available by request.
@@ -201,7 +201,7 @@ Collect the following before you open a case.
 
 Zoom's published routes are the Developer Forum and Premier Developer Support. Zoom staff can look a meeting up in internal tooling, which is not documented as self-serve, so send the identifiers.
 
-### What changes in the November release (preview, not shipped)
+### November release preview
 
 From Zoom's release preview. Plan for it, but do not promise it to customers.
 

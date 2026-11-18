@@ -10,7 +10,7 @@ Meeting SDK bots keep working, but Zoom now steers new integrations to RTMS, so 
 
 - [Start from an existing sample](#start-from-an-existing-sample) - working repos to build on, never from zero
 - [What actually changes](#what-actually-changes) - bot vs RTMS, table form
-- [Optional: check your gaps first](#optional-check-your-gaps-first) - the `npm run advise` gap-checker
+- [Optional gap check](#optional-gap-check) - the `npm run advise` gap-checker
 - [Reference tables](#reference-tables) - what RTMS replaces, media parity, assumptions that no longer hold, which surface owns what
 - [Adapting this sample](#adapting-this-sample) and [Files and tests](#files-and-tests)
 - [Step 1. Know what changes before you write code](#step-1-know-what-changes-before-you-write-code) - the guide's decision chapter: replacement table, the gaps in order, gains and losses, common questions
@@ -43,7 +43,7 @@ Paths are relative to the repository root (`rtms-samples/`). The folders in this
 | Can speak, chat, mute, admit, record. | Receive only. Those actions need the Meeting SDK, a host integration or REST. |
 | Gets raw frames for every participant it can see. | Gets negotiated formats, one active-speaker or one selected camera at a time. |
 
-## Check your gaps first, optionally
+## Optional gap check
 
 [src/advisor.js](src/advisor.js) is a gap-checker, not a decision maker: you tell it what your bot does, it tells you which parts of your current feature set have an RTMS equivalent and which need a companion surface. It exists because the expensive mistake is finding a gap late, not choosing wrong.
 
@@ -67,7 +67,7 @@ Unknown requirement names throw instead of being ignored.
 
 The four tables below are the reference data. They also live as data in [src/capabilities.js](src/capabilities.js), where the advisor's `--capabilities | --media | --assumptions | --belongs` flags print them. This readme is the human-readable copy.
 
-### What RTMS replaces, and with what
+### RTMS replacements
 
 | Former bot capability | RTMS? | Correct approach |
 |---|---|---|
@@ -134,13 +134,13 @@ The four tables below are the reference data. They also live as data in [src/cap
 
 ---
 
-# The guide, part one: the decision
+# Guide part one: the decision
 
 ## Step 1. Know what changes before you write code
 
 Meeting SDK bots keep working. RTMS is where new builds end up. Before you write code, map what your bot does today onto what RTMS provides, because some features have no RTMS equivalent and finding that out late is the most expensive mistake in this migration.
 
-### What RTMS can and cannot replace
+### RTMS replacement boundaries
 
 | What your bot did | RTMS? | What to use |
 |---|---|---|
@@ -153,7 +153,7 @@ Meeting SDK bots keep working. RTMS is where new builds end up. Before you write
 | Download cloud recordings | No | Recording webhook plus the Recording REST API |
 | Force an approval or bypass a denial | No | Fix the policy, presence, approval or entitlement |
 
-### The gaps, in order
+### Gap assessment order
 
 1. **Nothing has to happen during the meeting** (or you only archive finished meetings to a CRM): recording webhooks and the Recording REST API cover it. Do not pull RTMS in just as a downloader.
 2. **Something blocks RTMS.** That part stays on the Meeting SDK for now. Blockers are an approval flow your product cannot accept, customers who cannot install and authorize the app, joining any meeting from only an ID and passcode, raw capture RTMS does not cover, or every camera at once.
@@ -184,7 +184,7 @@ The table below shows which surface owns what.
 | Host controls | No | Role-based | Limited | Some APIs |
 | Recordings | No | No | No | Yes |
 
-### Gains, losses and open questions
+### Gains and losses
 
 **Gain**
 

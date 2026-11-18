@@ -8,7 +8,7 @@
 - [The parts](#parts) - participant registry, camera selector, media profiles
 - [Run inside the full service](#run-inside-the-full-service) and [Adapting this sample](#adapting-this-sample)
 - [Webinars](#webinars) and [files and tests](#files-and-tests)
-- [The guide, part six: participants and cameras](#the-guide-part-six-participants-and-cameras) - the rules for identity, attribution and the one-camera rule
+- [Guide part six: participants and cameras](#guide-part-six-participants-and-cameras) - the rules for identity, attribution and the one-camera rule
 
 
 ```bash
@@ -29,7 +29,7 @@ Maps what a Meeting SDK bot consumed (raw PCM and YUV, a participant roster, per
 | Per-participant audio and every camera it can render. | Mixed audio (speaker from active-speaker events), per-participant audio only where enabled, and **one** selected individual camera at a time. |
 | A participant leaving ends only that person. | Same, but you must close their intervals and clear a video subscription that depended on them. The stream continues. |
 
-### What actually changes in your pipeline
+### Pipeline changes
 
 The SDK hands you decoded, ready-to-use data, raw PCM samples and YUV frames, one callback per participant, no container. RTMS hands you encoded chunks instead, L16 or Opus audio and H.264 video bitstreams on type-scoped sockets, plus the muxing problem the SDK never gave you. Three shifts follow.
 
@@ -98,7 +98,7 @@ Design around panelist media first. Attendee streams may not be individually ava
 
 ---
 
-## The guide, part six: participants and cameras
+## Guide part six: participants and cameras
 
 ### Participants and cameras
 

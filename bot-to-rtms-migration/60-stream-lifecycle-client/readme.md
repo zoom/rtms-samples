@@ -6,9 +6,9 @@
 
 - [Run the full service against real Zoom](#run-the-full-service-against-real-zoom) - commands and setup
 - [The lifecycle](#lifecycle) and [settings worth knowing](#settings-worth-knowing)
-- [Deduplication, gaps and the manifest](#deduplication-gaps-and-the-manifest) and [the latency spans in the trace](#latency-spans-written-to-the-trace)
-- [What is tested, and what is not](#what-is-tested-and-what-is-not), [Adapting this sample](#adapting-this-sample) and [files](#files)
-- [Step 6. Stay connected: signaling, media and recovery](#step-6-stay-connected-signaling-media-and-recovery) - the guide chapter: connection order, keep-alives, every failure and its recovery, pause and resume, the artifact record
+- [Deduplication, gaps and the manifest](#deduplication-and-the-manifest) and [the latency spans in the trace](#latency-spans-written-to-the-trace)
+- [Test coverage](#test-coverage), [Adapting this sample](#adapting-this-sample) and [files](#files)
+- [Step 6. Stay connected: signaling, media and recovery](#step-6-stay-connected) - the guide chapter: connection order, keep-alives, every failure and its recovery, pause and resume, the artifact record
 
 
 ```bash
@@ -88,7 +88,7 @@ Each socket has its own state, attempt counter and timers.
 
 That is the closest check available without a live stream. It is not a substitute for one: nothing in this repo has yet connected this client to a real Zoom server. Run `npm run live` with a real meeting before you rely on it.
 
-## Deduplication, gaps and the manifest
+## Deduplication and the manifest
 
 - Every chunk gets `sha256(tenant + meeting + stream + media type + timestamp + bytes)`. Replayed buffered chunks are dropped and counted.
 - A reconnect records the last timestamp before the drop. If the first new timestamp is more than `gapThresholdMs` later, a gap is recorded. Late buffered chunks that fill it are accepted and no gap is written.
@@ -100,7 +100,7 @@ That is the closest check available without a live stream. It is not a substitut
 
 `webhook_to_signaling_connected`, `signaling_ping_rtt` (a WebSocket ping to the real signaling host), `signaling_to_media_handshake`, `media_handshake_to_first_packet`, `reconnect`. The reporting dashboard turns them into p50, p95 and p99.
 
-## What is tested, and what is not
+## Test coverage
 
 The local protocol mock is part of the folder now. It is a test harness, not a Zoom implementation. Live behavior still needs a real meeting. The automated tests follow.
 
@@ -126,11 +126,11 @@ The local protocol mock is part of the folder now. It is a test harness, not a Z
 
 ---
 
-## Step 6. Stay connected: signaling, media and recovery
+## Step 6. Stay connected
 
 With a bot the SDK kept the connection. RTMS keeps the connection alive the same way, but the machinery is yours: you answer the server's keep-alive pings, run reconnect with backoff, and deduplicate anything that arrives twice around a reconnect. The connection code is in `60-stream-lifecycle-client`, with participants and cameras in `61-media-and-participants`.
 
-### The connection, in order
+### The connection sequence
 
 ```text
 1. Open the signaling WebSocket (the webhook's server_urls). Send the signaling handshake.
@@ -151,7 +151,7 @@ Concrete media types are audio 1, video 2, screen share 4, transcript 8, chat 16
 
 Both sockets get keep-alive requests. Three unanswered requests and the server closes that socket, which stops zombie writers and duplicate consumers. If you hear nothing for about 65 seconds, treat the socket as dead and rebuild it. A blocked event loop looks exactly like a dead socket, so keep the loop healthy.
 
-### Reconnect, or what Zoom does in each failure
+### Reconnect behavior by failure
 
 | What breaks | What Zoom does | What you do |
 |---|---|---|
@@ -171,7 +171,7 @@ The rules follow.
 
 **The windows.** After a disconnect you have 60 seconds to get signaling back and about 30 seconds to get media back. The client defaults to exactly that and never retries past the window. Change them with `RTMS_SIGNALING_WINDOW_SEC` and `RTMS_MEDIA_WINDOW_SEC`. Backoff starts at 1 second here and is capped by `RTMS_RECONNECT_CAP_MS`.
 
-### Pause, resume, stop and restart
+### Stream control operations
 
 A stream can be **paused and resumed without becoming a new stream**. Track the `STREAM_STATE_UPDATE` states `PAUSED` and `RESUMED`, not only active and stopped. Treat the last packet before `PAUSED` and the first after `RESUMED` as segment boundaries.
 
@@ -204,7 +204,7 @@ The decision rule behind both tables is to classify the stop reason before you r
 
 Zoom sends no "gate is open again" event: the first sign of recovery is a fresh `rtms_started`. Treat any silent no-prompt-no-webhook stretch after a policy stop as the gate still being shut, not as a lost request.
 
-### Missed audio, buffering and duplicates
+### Missed audio and duplicates
 
 **Can I recover audio missed at startup or during an interruption?** Yes, with a tradeoff.
 
@@ -230,7 +230,7 @@ Every stream and artifact carries these fields, so you can replay, remux or migr
 
 Never mutate an original artifact. Keep writing the old version until a tested writer is enabled. The client writes these into [manifest.json](src/manifest.js), plus segments, gaps, reconnects, stop reason and participant intervals. It does not store audio or video: put your writer in `onPacket`.
 
-### What is verified, and what is not
+### Verification coverage
 
 | Verified | How |
 |---|---|
@@ -240,7 +240,7 @@ Never mutate an original artifact. Keep writing the old version until a tested w
 | An established connection: handshakes, keep-alives, media delivery, replay deduplication, `PAUSED`/`RESUMED` segment boundaries, reconnect and recovery, replacement server URLs, scripted terminal states, and manifest counters | [60-stream-lifecycle-client](../60-stream-lifecycle-client/readme.md): [`lifecycle-mock.test.js`](lifecycle-mock.test.js) and `npm run demo:60`, against the repository's mock RTMS server |
 | Silence detection and recovery without hard-coded waits | The same lifecycle mock tests |
 
-### November release preview (not yet live)
+### November release preview
 
 Plan for these. None change the V1 client today.
 

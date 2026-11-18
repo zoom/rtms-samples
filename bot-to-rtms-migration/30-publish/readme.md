@@ -10,13 +10,13 @@ Step 3 of 7. There is no code here. This step is review and evidence. The full i
 - [3.1 Pick the distribution path first](#31-pick-the-distribution-path-first) - Private, Beta, Unlisted or Published, and what each demands
 - [3.2 Production infrastructure](#32-production-infrastructure) and [3.3 Scopes](#33-scopes) - HTTPS endpoints and the scope table reviewers check
 - [3.4 Documentation](#34-documentation) - the public page, add use troubleshoot remove
-- [3.5 The review package](#35-the-review-package) and [3.6 Final checks before you submit](#36-final-checks-before-you-submit)
-- [3.7 Submit, then treat each note as a defect](#37-submit-then-treat-each-note-as-a-defect) - working the review thread
-- [Common rejections and how to avoid them](#common-rejections-and-how-to-avoid-them) and [Adapting this sample](#adapting-this-sample)
+- [3.5 The review package](#35-the-review-package) and [3.6 Final checks before you submit](#36-final-checks)
+- [3.7 Submit, then treat each note as a defect](#37-submit-and-resolve-review-notes) - working the review thread
+- [Common rejections and how to avoid them](#common-rejections-and-remedies) and [Adapting this sample](#adapting-this-sample)
 
 ---
 
-# The guide, part three: the review
+# Guide part three: the review
 
 ## Step 3. Publish the app
 
@@ -81,7 +81,7 @@ Say plainly that Zoom shows the app in the active-app indicator, that admin and 
 
 Have someone who did not build the app run the whole plan from a clean browser and machine, and fix whatever they trip over.
 
-### 3.6 Final checks before you submit
+### 3.6 Final checks
 
 Check your public webhook URL the way Zoom does, with `ZOOM_SECRET_TOKEN` set in `.env`:
 
@@ -104,7 +104,7 @@ It sends the same `endpoint.url_validation` challenge Zoom sends and checks that
 - Security evidence is current and reachable (secure development lifecycle, SAST, DAST, privacy policy, TLS proof).
 - You re-read every active reviewer note and reply right before you submit.
 
-### 3.7 Submit, then treat each note as a defect
+### 3.7 Submit and resolve review notes
 
 1. Read every active reviewer note and its whole reply thread.
 2. Change the actual configuration, document or environment. Replying is not fixing.
@@ -112,7 +112,7 @@ It sends the same `endpoint.url_validation` challenge Zoom sends and checks that
 4. Reply with what changed and where to check it. The field, the exact URL or steps, the expected result.
 5. Re-read the note before you resubmit, and do not call it resolved until it says so.
 
-### Common rejections and how to avoid them
+### Common rejections and remedies
 
 | Rejection | Prevention |
 |---|---|

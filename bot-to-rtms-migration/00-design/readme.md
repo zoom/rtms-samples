@@ -51,7 +51,7 @@ A distributed RTMS backend separates the four concerns that a single-process sam
 
 The single-instance path in this repo (`50-start-and-approval`, `60-stream-lifecycle-client`) is the same state machine on one node. Scale-out changes where the state lives, not what the states are.
 
-### Stream ownership: one worker per stream
+### Stream ownership
 
 The cardinal rule of a distributed RTMS backend is that **two live connections to one stream is a defect, not a feature**, because the second kicks the first. Therefore,
 
@@ -79,7 +79,7 @@ From Zoom's [Failover and reconnection](https://developers.zoom.us/docs/rtms/mee
 
 **Idempotent handshakes.** Reconnects reuse the same signed credentials from the original `rtms_started` payload - which is why the payload is the durable recovery record and is never rebuilt from the REST APIs.
 
-### What the shared store must hold
+### Shared store contents
 
 Minimum durable state, all keyed by `stream_id`.
 
@@ -94,7 +94,7 @@ Minimum durable state, all keyed by `stream_id`.
 
 Everything else (packets, transcripts) flows to the artifact store and never needs to survive a worker.
 
-### Capacity and concurrency, revisited at scale
+### Capacity and concurrency at scale
 
 The single-layer numbers still bind. A concurrent stream is one RTMS **session ID** per media socket, the default account limit is 2,000 sessions, and `rtms.concurrency_near_limit` / `rtms.concurrency_limited` are the autoscaling signals. In a distributed deployment,
 
@@ -117,7 +117,7 @@ A design is resilient only after these drills have run against the real deployme
 5. Queue backlog while a worker is down, then recovery - no lost `stopped`, no phantom live stream.
 6. The chaos harness: Zoom's [reconnection and chaos mode sample](https://github.com/zoom/rtms-samples/tree/main/rtms_api/reconnection_and_chaos_mode_js) exists precisely to test this machinery. Run it against your own implementation too.
 
-### What not to build
+### Excluded components
 
 - **A connection per meeting per service.** One owner, one connection set. Everyone else consumes artifacts or a fan-out of processed events.
 - **Stateful ingress.** The moment your load balancer needs affinity for correctness, a deploy becomes an outage.
@@ -161,14 +161,14 @@ Frame-based fallback (JPG ≤ 5 fps) exists for snapshot pipelines - do not buil
 
 A writer that only appends produces doubled text the first time Zoom corrects a word - this is the single most common transcript bug. The sample writer in this repo appends and does not handle revisions yet. Fix that before promising clean transcripts.
 
-### Timestamps, gaps and muxing - the integration tax
+### Timestamp handling and muxing
 
 - **The stream clock.** Every packet carries Zoom's server-side creation `timestamp`. It is the only join key across media. Store it everywhere. Never re-stamp from local clocks.
 - **Buffered audio offset.** On `rtms_started` the server buffers audio (up to 60 s) while signaling connects. Video does not buffer. `buffer_duration = first_packet_ts - rtms_started_ts`. Subtract it when muxing or A/V drifts by exactly the connect time.
 - **Silence is absence.** Muted users send no audio packets. Video stops when no video exists. Insert silence/filler frames by timestamp arithmetic, or your timelines have holes that every downstream consumer discovers independently.
 - **Muxing is your job.** RTMS hands you separate per-media streams. ffmpeg/gstreamer with the timestamp discipline above combines them. Zoom's recording samples are the reference.
 
-### Capacity arithmetic, per decision
+### Capacity arithmetic per decision
 
 Per stream, rough ordering-of-magnitude (verify with your own traffic):
 
@@ -182,7 +182,7 @@ Per stream, rough ordering-of-magnitude (verify with your own traffic):
 
 Each media type added above is another concurrency unit and another socket of backpressure on the worker. The `send_rate`, fps and resolution you pick are the numbers in your autoscaling policy - write them down next to the worker capacity, and re-derive the worker count whenever a default changes.
 
-### What to subscribe to, by product shape
+### Subscriptions by product shape
 
 | Product | Subscribe | Skip at first | Add later when |
 |---|---|---|---|
@@ -249,7 +249,7 @@ The 50-start-and-approval service already implements this edge. Its green states
 
 ![Subscription endpoint status green in Marketplace](../docs/screenshots/17-subscription-endpoint-status.png)
 
-### The contract, restated as an SLO
+### Webhook contract as an SLO
 
 - **200 within 3 seconds, always.** Validate the signature, enqueue, return. The 3 s ceiling is this repo's budget for the acknowledge. Zoom's guidance is to respond immediately, because a slow reply reads as failure and triggers a retry - and the retry is a second `rtms_started` that can open a duplicate signaling session and kick the first.
 - **Every delivery verified.** `x-zm-signature` HMAC over the raw body, timestamp tolerance enforced, `x-zm-request-id` logged. URL validation (`endpoint.url_validation`) answers `{plainToken, encryptedToken}` from the same secret, computed over the plain token only.

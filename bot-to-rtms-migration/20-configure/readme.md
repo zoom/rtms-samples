@@ -9,21 +9,21 @@ Step 2 of 7. There is no code here. This step is Marketplace settings. The full 
 
 **Contents**
 
-- [What you create](#what-you-create) - the app type, why user-managed, granular scopes
-- [The manifest](#the-manifest) and [what goes in it](#what-goes-in-it) - every field RTMS needs, field by field
+- [Resources created](#resources-created) - the app type, why user-managed, granular scopes
+- [The manifest](#the-manifest) and [manifest contents](#manifest-contents) - every field RTMS needs, field by field
 - [An app that already has users](#an-app-that-already-has-users) - reauthorization and what changes for existing installs
 - [Two ways to put it into Marketplace](#two-ways-to-put-it-into-marketplace) - the UI or the Marketplace API
 - [Common questions](#common-questions) and [Adapting this sample](#adapting-this-sample)
 
 ---
 
-# The guide, part two: the Marketplace app
+# Guide part two: the Marketplace app
 
 ## Step 2. Configure the Marketplace app
 
 Most of the work in this step is configuration. It covers `manifest.json`, scopes, event subscriptions and URLs.
 
-### What you create
+### Resources created
 
 A **General App** in the Zoom Marketplace (Develop, Build App, General App). Three constraints shape the rest of this step.
 
@@ -92,7 +92,7 @@ Marketplace keeps your app's settings as a `manifest.json`. You can fill in the 
 
 Replace the `example.com` placeholders with domains you control. Add one scope per media you receive and the events you need, from the lists below. For webinars, add the webinar product, scopes and events too.
 
-### What goes in it
+### Manifest contents
 
 **Scopes.**
 

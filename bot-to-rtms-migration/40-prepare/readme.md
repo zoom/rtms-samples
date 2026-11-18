@@ -8,23 +8,23 @@ Step 4 of 7. There is no code here. This step is admin settings, host actions an
 
 **Contents**
 
-- [What the customer's account admin does](#what-the-customers-account-admin-does) and [what the host does](#what-the-host-does) - enablement and per-meeting approval
+- [What the customer's account admin does](#account-admin-tasks) and [what the host does](#what-the-host-does) - enablement and per-meeting approval
 - [Four ways to start a stream](#four-ways-to-start-a-stream) - who decides, what must be true
-- [Meetings hosted by another company](#meetings-hosted-by-another-company) - the two controls and neither replaces the other
-- [What participants see, and who consents](#what-participants-see-and-who-consents) and [the status events](#read-the-status-events)
+- [Meetings hosted by another company](#externally-hosted-meetings) - the two controls and neither replaces the other
+- [What participants see, and who consents](#participant-experience-and-consent) and [the status events](#read-the-status-events)
 - [Common questions](#common-questions), [code for this step](#code-for-this-step), [Adapting this sample](#adapting-this-sample)
 
 To see how a service reacts to the request-status events, run `npm run demo:03` (step 5's simulated demo).
 
 ---
 
-# The guide, part four: accounts, approval and consent
+# Guide part four: accounts and consent
 
 ## Step 4. Prepare each meeting
 
 Publishing the app is not enough to start a stream. RTMS is off until an account admin enables it and allows your app, and a host may still approve each meeting. A bot needed none of this, so most "RTMS did not start" problems live here.
 
-### What the customer's account admin does
+### Account admin tasks
 
 1. Sign in at zoom.us as an admin.
 2. Under Account Management, open Account Settings, then Zoom Apps, and enable RTMS for the account.
@@ -83,7 +83,7 @@ A resolved `startRTMS()` promise or a REST `204` only means "request accepted". 
 
 Request status 2 means the **app owner** is not present. That is not the meeting host, and both can be required. For audit, store the app user, the token's user, any explicit participant and the approving host.
 
-### Meetings hosted by another company
+### Externally hosted meetings
 
 Two controls apply and neither replaces the other. **Your** admin must enable "Meetings users attend, externally hosted" for the people who will bring the app into other companies' meetings. **The external host** decides whether to approve it for their meeting. Your admin cannot approve for another company's host, and nobody can bypass the prompt.
 
@@ -113,7 +113,7 @@ Which start paths work in an external meeting:
 
 If none of that is acceptable to your customers, the fallback is a visible Meeting SDK bot that is invited to the meeting.
 
-### What participants see, and who consents
+### Participant experience and consent
 
 No tile, but the active-app indicator. Consent is the overlap of the admin policy, the host's approval, your customer's recording and AI consent policy, and whatever disclosures apply to the participants. Store the approval and policy references with every artifact. Do not infer consent from the existence of a stream.
 
