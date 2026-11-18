@@ -2,6 +2,15 @@
 
 ## Run this folder alone
 
+**Contents**
+
+- [Run the full service against real Zoom](#run-the-full-service-against-real-zoom) - commands and setup
+- [The lifecycle](#lifecycle) and [settings worth knowing](#settings-worth-knowing)
+- [Deduplication, gaps and the manifest](#deduplication-gaps-and-the-manifest) and [the latency spans in the trace](#latency-spans-written-to-the-trace)
+- [What is tested, and what is not](#what-is-tested-and-what-is-not), [Adapting this sample](#adapting-this-sample) and [files](#files)
+- [Step 6. Stay connected: signaling, media and recovery](#step-6-stay-connected-signaling-media-and-recovery) - the guide chapter: connection order, keep-alives, every failure and its recovery, pause and resume, the artifact record
+
+
 ```bash
 npm run demo:60    # offline: local mock RTMS server, no credentials, no files
 npm run test:60    # lifecycle, protocol mock and pure-function tests

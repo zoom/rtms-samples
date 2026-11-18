@@ -5,6 +5,15 @@ Step 3 of 7. There is no code here. This step is review and evidence. The full i
 - Keep every representation of the product consistent. The Marketplace configuration, the scopes, the production OAuth behavior, the docs, the test plan, the screenshots and the listing copy. If two of them disagree, the review stalls.
 - Keep the reviewer test plan concrete: starting state, install, each start path, host approval, one test per scope, stop, removal, reinstall.
 
+**Contents**
+
+- [3.1 Pick the distribution path first](#31-pick-the-distribution-path-first) - Private, Beta, Unlisted or Published, and what each demands
+- [3.2 Production infrastructure](#32-production-infrastructure) and [3.3 Scopes](#33-scopes) - HTTPS endpoints and the scope table reviewers check
+- [3.4 Documentation](#34-documentation) - the public page, add use troubleshoot remove
+- [3.5 The review package](#35-the-review-package) and [3.6 Final checks before you submit](#36-final-checks-before-you-submit)
+- [3.7 Submit, then treat each note as a defect](#37-submit-then-treat-each-note-as-a-defect) - working the review thread
+- [Common rejections and how to avoid them](#common-rejections-and-how-to-avoid-them) and [Adapting this sample](#adapting-this-sample)
+
 ---
 
 # The guide, part three: the review

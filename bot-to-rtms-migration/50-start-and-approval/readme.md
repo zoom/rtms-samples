@@ -2,6 +2,16 @@
 
 Takes the lifecycle webhooks safely, decides whether a stream may be opened, and starts RTMS on purpose. It opens no WebSockets. A verified, claimed stream is handed to the lifecycle client in `60-stream-lifecycle-client`.
 
+**Contents**
+
+- [Run this folder alone](#run-this-folder-alone) and [Meeting SDK bot vs RTMS](#meeting-sdk-bot-vs-rtms) - commands first, then the model shift
+- [The flow](#the-flow) - the webhook endpoint, request by request
+- [Handing the stream to a worker](#handing-the-stream-to-a-worker), [two users, one meeting](#two-users-one-meeting) and [should we process this meeting](#should-we-process-this-meeting)
+- [Starting on purpose](#starting-on-purpose) and [user authorization (OAuth)](#user-authorization-oauth) - the start path and per-user tokens
+- [Connect to real Zoom](#connect-to-real-zoom), [the simulated demo](#simulated-demo) and [run it](#run-it)
+- [Swap points for production](#swap-points-for-production), [Adapting this sample](#adapting-this-sample) and [files and tests](#files-and-tests)
+- [Step 5. Take the webhook safely and start a stream](#step-5-take-the-webhook-safely-and-start-a-stream) - the guide chapter: webhook contents, deduplication layers, the rules, the missing-webhook case
+
 ## Run this folder alone
 
 ```bash

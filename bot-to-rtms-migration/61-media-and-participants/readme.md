@@ -2,6 +2,15 @@
 
 ## Run this folder alone
 
+**Contents**
+
+- [Run this folder alone](#run-this-folder-alone) and [Meeting SDK bot vs RTMS](#meeting-sdk-bot-vs-rtms) - commands, then what changes in your pipeline
+- [The parts](#parts) - participant registry, camera selector, media profiles
+- [Run inside the full service](#run-inside-the-full-service) and [Adapting this sample](#adapting-this-sample)
+- [Webinars](#webinars) and [files and tests](#files-and-tests)
+- [The guide, part six: participants and cameras](#the-guide-part-six-participants-and-cameras) - the rules for identity, attribution and the one-camera rule
+
+
 ```bash
 npm run demo:61    # offline canned stream: participants, video subscription and media profiles
 npm run test:61    # the same components plus edge cases

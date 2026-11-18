@@ -2,6 +2,13 @@
 
 This guide is for those who run a Meeting SDK bot today (a participant that joins meetings to transcribe, record, analyze or assist) and want to replace it with Zoom Realtime Media Streams (RTMS). This readme is the overview. Each step's details live in that step's folder, listed in the table below.
 
+**Contents**
+
+- [The shift in one page](#the-shift-in-one-page) - bot vs RTMS, the whole difference in a paragraph
+- [The seven steps](#the-seven-steps) and [before you try anything](#before-you-try-anything) - the map, then plan and licensing checks
+- [The readmes, one per step](#the-readmes-one-per-step) - the folder table, the real table of contents
+- [Other use cases already in this repo](#other-use-cases-already-in-this-repo) - samples to reuse instead of rebuild
+
 ## The shift in one page
 
 A Meeting SDK bot **joins a meeting as a user**. RTMS **joins the same meeting as a service**, with no participant or roster. Zoom **pre-authorizes the stream**: your app must be installed, its user eligible, an admin policy must allow it, and sometimes the meeting's host must approve that meeting's stream, each time. The client ID and secret only sign the handshake. When the stream exists, a webhook tells you, and you connect to it.

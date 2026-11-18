@@ -7,6 +7,14 @@ Step 2 of 7. There is no code here. This step is Marketplace settings. The full 
 3. Subscribe to the lifecycle events: `meeting.rtms_started`, `rtms_stopped`, `rtms_interrupted` and `rtms.request_status`.
 4. Note the client ID and secret. They only sign the handshake. Installation, policy and approval do the authorizing.
 
+**Contents**
+
+- [What you create](#what-you-create) - the app type, why user-managed, granular scopes
+- [The manifest](#the-manifest) and [what goes in it](#what-goes-in-it) - every field RTMS needs, field by field
+- [An app that already has users](#an-app-that-already-has-users) - reauthorization and what changes for existing installs
+- [Two ways to put it into Marketplace](#two-ways-to-put-it-into-marketplace) - the UI or the Marketplace API
+- [Common questions](#common-questions) and [Adapting this sample](#adapting-this-sample)
+
 ---
 
 # The guide, part two: the Marketplace app

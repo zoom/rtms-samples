@@ -2,6 +2,13 @@
 
 Turns the event trace into the numbers a migration needs after go-live: is the start funnel healthy, how fast is the first packet, how often do sockets recover, why do streams stop, how close are you to the concurrency limit, and is every artifact tied to a consent reference.
 
+**Contents**
+
+- [Run this folder alone](#run-this-folder-alone) and [run it](#run-it) - the commands
+- [The panels](#panels) and [the `crm_sync` event](#the-crm_sync-event) - what each panel shows, and the event your pipeline appends
+- [Sample data](#sample-data), [production](#production), [Adapting this sample](#adapting-this-sample) and [files and tests](#files-and-tests)
+- [Step 7. Operate it](#step-7-operate-it) - the guide chapter: seeing what happens, tenant isolation, the production checklist, what to swap, rollout, cost and concurrency, Zoom support, the November changes, the go-live gate
+
 ## Run this folder alone
 
 ```bash

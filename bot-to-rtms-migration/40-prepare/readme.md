@@ -6,6 +6,14 @@ Step 4 of 7. There is no code here. This step is admin settings, host actions an
 - The admin policy allows the app, and where required the host approves, meeting by meeting.
 - Auto-start, if you use it, is scoped to the right groups and meeting categories.
 
+**Contents**
+
+- [What the customer's account admin does](#what-the-customers-account-admin-does) and [what the host does](#what-the-host-does) - enablement and per-meeting approval
+- [Four ways to start a stream](#four-ways-to-start-a-stream) - who decides, what must be true
+- [Meetings hosted by another company](#meetings-hosted-by-another-company) - the two controls and neither replaces the other
+- [What participants see, and who consents](#what-participants-see-and-who-consents) and [the status events](#read-the-status-events)
+- [Common questions](#common-questions), [code for this step](#code-for-this-step), [Adapting this sample](#adapting-this-sample)
+
 To see how a service reacts to the request-status events, run `npm run demo:03` (step 5's simulated demo).
 
 ---
