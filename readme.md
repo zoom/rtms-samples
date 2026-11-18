@@ -101,6 +101,7 @@ app.listen(3000);
 │   ├── manual_start_stop_using_js/
 │   ├── manual_start_stop_using_python/
 │   └── reconnection_and_chaos_mode_js/
+├── bot-to-rtms-migration/          # Meeting SDK bot to RTMS migration guide
 ├── rtms-distributed-sample/         # Regional fanout/fanin architecture sample
 ├── rtms_mcp_client/                # Model Context Protocol integration
 ├── screen_share/                   # Screen share capture samples
@@ -275,6 +276,7 @@ Each link opens the project directory and its project-level `readme.md`.
 
 | Project | Description |
 |---|---|
+| [`bot-to-rtms-migration`](./bot-to-rtms-migration/) | Step-by-step guide for moving a Meeting SDK bot to RTMS: app setup, webhooks, signaling, media, and operations. |
 | [`rtms-distributed-sample`](./rtms-distributed-sample/) | Distributed RTMS webhook routing, regional compute, queues, caches, and artifact storage. |
 | [`zoom-rtms-mcp-client`](./rtms_mcp_client/zoom-rtms-mcp-client/) | Routes RTMS transcript turns through an MCP client and configurable LLM router. |
 | [`library/javascript`](./library/javascript/) | Shared JavaScript RTMSManager, webhook, media, and frontend WebSocket helpers. |

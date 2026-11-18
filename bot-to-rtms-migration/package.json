@@ -1,0 +1,32 @@
+{
+  "name": "bot-to-rtms-migration",
+  "version": "0.1.0",
+  "private": true,
+  "description": "Runnable samples that guide a Meeting SDK bot migration to Zoom RTMS: the webhook, the stream client and the media handling",
+  "type": "module",
+  "engines": {
+    "node": ">=18"
+  },
+  "scripts": {
+    "advise": "node 10-integration-advisor/cli.js",
+    "live:check": "node 50-start-and-approval/check.js",
+    "start:03": "node 50-start-and-approval/server.js",
+    "live": "node 50-start-and-approval/server.js",
+    "demo:03": "node 50-start-and-approval/demo.js",
+    "demo:60": "node 60-stream-lifecycle-client/demo.js",
+    "demo:61": "node 61-media-and-participants/demo.js",
+    "demo:70": "node 70-reporting-dashboard/cli.js --sample",
+    "start:70": "node 70-reporting-dashboard/server.js",
+    "test:50": "node --test 50-start-and-approval/*.test.js",
+    "test:60": "node --test 60-stream-lifecycle-client/*.test.js",
+    "test:61": "node --test 61-media-and-participants/*.test.js",
+    "test:70": "node --test 70-reporting-dashboard/*.test.js",
+    "test": "node --test",
+    "check": "for file in $(find . -path ./node_modules -prune -o -name '*.js' -print); do node --check \"$file\" || exit 1; done"
+  },
+  "dependencies": {
+    "dotenv": "^16.5.0",
+    "express": "^4.21.2",
+    "ws": "^8.16.0"
+  }
+}

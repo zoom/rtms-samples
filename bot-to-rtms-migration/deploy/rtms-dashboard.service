@@ -1,0 +1,18 @@
+[Unit]
+Description=Zoom RTMS reporting dashboard
+After=network-online.target
+Wants=network-online.target
+
+[Service]
+Type=simple
+User=rtms
+Group=rtms
+WorkingDirectory=/var/www/rtms-sample/rtms-samples/bot-to-rtms-migration
+Environment=NODE_ENV=production
+EnvironmentFile=/var/www/rtms-sample/rtms-samples/bot-to-rtms-migration/.env
+ExecStart=/usr/bin/node 70-reporting-dashboard/server.js
+Restart=on-failure
+RestartSec=2
+
+[Install]
+WantedBy=multi-user.target

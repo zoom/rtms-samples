@@ -1,0 +1,22 @@
+[
+  {
+    "tenantId": "acme",
+    "accountIds": ["acct-acme", "acct-acme-eu"],
+    "status": "active",
+    "products": ["meeting", "webinar"],
+    "media": ["audio", "transcript"],
+    "consentRef": "consent-acme-2026-10",
+    "policyVersion": "policy-7",
+    "retentionClass": "90d"
+  },
+  {
+    "tenantId": "globex",
+    "accountIds": ["acct-globex"],
+    "status": "active",
+    "products": ["meeting"],
+    "media": ["audio"],
+    "consentRef": null,
+    "policyVersion": "policy-2",
+    "retentionClass": "30d"
+  }
+]
