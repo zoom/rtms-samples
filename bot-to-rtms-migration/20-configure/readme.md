@@ -25,7 +25,11 @@ Most of the work in this step is configuration: `manifest.json`, scopes, event s
 
 ### What you create
 
-A **General App** in the Zoom Marketplace (Develop, Build App, General App). RTMS events and scopes can only be added to a **user-managed** app (`USER_OPERATION`): it is installed by the person whose meetings it receives, or added by an admin for users and groups. An admin-managed app (`ADMIN_MANAGEMENT`) cannot use the RTMS scopes, so a bot vendor that runs an admin-managed app needs a separate user-managed app for RTMS. RTMS scopes also need granular scopes (new apps have them, an older app may need them turned on) and cannot be marked optional, so request only the media you use. Event subscription changes take 1-2 minutes to take effect.
+A **General App** in the Zoom Marketplace (Develop, Build App, General App). Three constraints shape the rest of this step.
+
+- RTMS events and scopes require a **user-managed** app (`USER_OPERATION`): installed by the person whose meetings it receives, or added by an admin for users and groups. An admin-managed app (`ADMIN_MANAGEMENT`) cannot use the RTMS scopes, so a bot vendor running one needs a separate user-managed app for RTMS.
+- RTMS scopes must be granular (new apps have them, an older app may need them turned on) and cannot be marked optional, so request only the media you use.
+- Event subscription changes take 1-2 minutes to take effect.
 
 What a Meeting SDK bot did not need, and RTMS does:
 
@@ -121,9 +125,13 @@ No scope name for screen share is documented in this repo. Add it by hand in the
 
 Adding RTMS to an app that people already installed has three consequences:
 
-1. **Users MUST authorize again.** When you update scopes or webhook settings, Zoom requires each user to authorize again before it issues a new code. There is no silent upgrade. Plan a reauthorization campaign: an in-product prompt, an email, and admin outreach, and track completion per tenant. Zoom does not document whether existing users are notified, so send your own notice. After you change OAuth or webhook settings, regenerate the authorization URL instead of reusing old links (Zoom support guidance).
+1. **Users MUST authorize again.** When you update scopes or webhook settings, Zoom requires each user to authorize again before it issues a new code. There is no silent upgrade.
+
+   Plan a reauthorization campaign: an in-product prompt, an email, and admin outreach, and track completion per tenant. Zoom does not document whether existing users are notified, so send your own notice. After you change OAuth or webhook settings, regenerate the authorization URL instead of reusing old links (Zoom support guidance).
 2. **Tokens.** Access tokens last one hour. Refresh tokens last 90 days and rotate, so always store the newest one. If a refresh is rejected, or the token lacks a new scope, only a new authorization fixes it. The start-and-approval sample does this bookkeeping per user.
-3. **Many users.** An admin can add the app for users and groups (Marketplace, Manage, Apps on account, Users & Groups). The RTMS docs do not describe an API that lists everyone who authorized your app or a webhook for users added to a group later, so reconcile against your customer's group list on a schedule and show "authorized N of M seats" in your admin screen. Choose who your event subscription covers (all users in the account, the account and its subaccounts, or only users who added the app) and pick the narrowest that fits.
+3. **Many users.** An admin can add the app for users and groups (Marketplace, Manage, Apps on account, Users & Groups). The RTMS docs list no API of who authorized, or webhook for users added to a group later. So reconcile against your customer's group list on a schedule and show "authorized N of M seats" in your admin screen.
+
+   Choose who your event subscription covers (all users in the account, the account and its subaccounts, or only users who added the app) and pick the narrowest that fits.
 
 When a user removes a production app, Zoom posts a deauthorization event to the URL you set on the app. Verify it like a webhook, delete their tokens, and delete the rest of their data too.
 
@@ -134,7 +142,17 @@ When a user removes a production app, Zoom posts a deauthorization event to the 
 
 ### Common questions
 
-**What goes wrong in a manifest?** A media you receive with no scope. A scope you request but do not use (reviewers ask for a test step per scope). REST start without its scope. An admin scope in a user-managed app. Missing started or stopped events. No `rtms.request_status` when REST or a Zoom App can start a stream. A webhook URL that is not HTTPS, is localhost, a private address, a tunnel or a default CDN host in production. Development equal to production. Placeholder domains. Zoom Apps settings that are incomplete. Secrets in the manifest.
+**What goes wrong in a manifest?**
+
+- a media you receive with no scope
+- a scope you request but do not use (reviewers ask for a test step per scope)
+- REST start without its scope
+- an admin scope in a user-managed app
+- missing started or stopped events
+- no `rtms.request_status` when REST or a Zoom App can start a stream
+- a webhook URL that is not HTTPS, is localhost, a private address, a tunnel or a default CDN host in production
+- development equal to production, placeholder domains
+- Zoom Apps settings that are incomplete, or secrets in the manifest
 
 **Marketplace validation rejects the RTMS event names. Now what?** This has been seen with exported manifests that already contain them. Add the events in the UI (Features, Access, Add Events, search "rtms"), export the manifest, and check that the events are in it.
 

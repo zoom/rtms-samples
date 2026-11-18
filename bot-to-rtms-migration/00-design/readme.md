@@ -147,11 +147,19 @@ Primary source: Zoom's [Media handling](https://developers.zoom.us/docs/rtms/mee
 
 **2. Audio: merged, per-participant, or both.** Merged (`user_id 0`) is one socket and enough for notes and volume analytics. Per-participant is the only way to diarize reliably, isolate speakers, or build per-user clips - and it multiplies sockets by headcount. Diarization from merged audio via active-speaker metadata is approximate. Per-participant is exact. Decide per product, not per deployment.
 
-**3. Video: resolution and fps, honestly.** The handshake asks for a ceiling. Delivery adapts downward. 480p/15 fps is plenty for archival and thumbnails. 720p is the reviewable floor for humans. 1080p+ only for a stated product need, at multiples of the cost. Frame-based fallback (JPG ≤ 5 fps) exists for snapshot pipelines - do not build a video product on it.
+**3. Video: resolution and fps, honestly.** The handshake asks for a ceiling. Delivery adapts downward.
+
+- 480p/15 fps is plenty for archival and thumbnails
+- 720p is the reviewable floor for humans
+- 1080p+ only for a stated product need, at multiples of the cost
+
+Frame-based fallback (JPG ≤ 5 fps) exists for snapshot pipelines - do not build a video product on it.
 
 **4. `send_rate` for audio.** 20 ms is the realtime-analysis default (lowest latency, highest packet rate: 50 packets/s). Raising it to 100-1000 ms cuts packet overhead for store-and-process pipelines at the price of latency and chunkier mute detection. Streaming ASR wants 20 ms. Batch transcription can tolerate 200-500 ms.
 
-**5. Transcript revisions from day one.** The transcript stream carries corrections: the first delivery of a sentence is NEW (`attribute 1`), revisions are UPDATE (`attribute 2`) with the same `sentence_id` and full replacement text. A writer that only appends produces doubled text the first time Zoom corrects a word - this is the single most common transcript bug. The sample writer in this repo appends and does not handle revisions yet. Fix that before promising clean transcripts.
+**5. Transcript revisions from day one.** The transcript stream carries corrections: the first delivery of a sentence is NEW (`attribute 1`), revisions are UPDATE (`attribute 2`) with the same `sentence_id` and full replacement text.
+
+A writer that only appends produces doubled text the first time Zoom corrects a word - this is the single most common transcript bug. The sample writer in this repo appends and does not handle revisions yet. Fix that before promising clean transcripts.
 
 ### Timestamps, gaps and muxing - the integration tax
 

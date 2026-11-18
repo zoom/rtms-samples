@@ -20,13 +20,30 @@ Step 3 of 7. There is no code here. This step is review and evidence. The full i
 
 ## Step 3. Publish the app
 
-Publishing is what lets other accounts install your app. It is mostly evidence gathering, and the way to get through it quickly is to keep every representation of the product consistent. That means the Marketplace configuration, the scopes, the production OAuth behavior, the docs, the test plan, the screenshots and the listing copy. If two of them disagree, the review stalls.
+Publishing is what lets other accounts install your app. It is mostly evidence gathering, and the way to get through it quickly is to keep every representation of the product consistent:
+
+- the Marketplace configuration
+- the scopes
+- the production OAuth behavior
+- the docs, the test plan, the screenshots and the listing copy
+
+If two of them disagree, the review stalls.
 
 ### 3.1 Pick the distribution path first
 
-Private, Beta, Unlisted or Published. It decides who can install and what Zoom asks you to prove. Zoom's RTMS page says approval is required before users outside your account can add the app. The general review page adds that Private and Beta apps do not go through review, but a Beta app can be shared outside your account only after Zoom approves the authorization URL (3-4 business days; the first sharing period is 4 weeks and can be renewed). Do not ask for Beta sharing unless you need external testers and can supply security evidence. Definitions and requirements change, so read Zoom's "Sharing Private and Beta apps" and "App review process" pages before you decide.
+Private, Beta, Unlisted or Published. It decides who can install and what Zoom asks you to prove.
 
-**Test outside your own account before you submit.** Use a second Zoom account on a different tenant, and a Beta authorization URL if you need outside testers. Submit as soon as webhooks, scopes and any SDK paths work, not at the rollout date: the technical design and security documentation take the longest, compliance review happens before security testing, and reviewers authorize the app with a test account that simulates an external user and check that each declared scope is used. You also need Developer Pack credits to get an RTMS app approved.
+- Zoom's RTMS page: approval is required before users outside your account can add the app.
+- The general review page: Private and Beta apps do not go through review, but a Beta app can be shared outside your account only after Zoom approves the authorization URL (3-4 business days, and the first sharing period is 4 weeks, renewable).
+- Do not ask for Beta sharing unless you need external testers and can supply security evidence.
+- Definitions and requirements change, so read Zoom's "Sharing Private and Beta apps" and "App review process" pages before you decide.
+
+**Test outside your own account before you submit.** Use a second Zoom account on a different tenant, and a Beta authorization URL if you need outside testers. Submit as soon as webhooks, scopes and any SDK paths work, not at the rollout date:
+
+- the technical design and security documentation take the longest
+- compliance review happens before security testing
+- reviewers authorize the app with a test account that simulates an external user, and check that each declared scope is used
+- you also need Developer Pack credits to get an RTMS app approved
 
 ### 3.2 Production infrastructure
 
@@ -42,7 +59,12 @@ Make a table of every scope. Each one needs a product feature that uses it and a
 
 ### 3.4 Documentation
 
-Host it on a domain you control and open it signed out. Cover four things: **add** (prerequisites, who can install, the OAuth steps, what success looks like), **use** (the main workflows, what each scope does, admin enablement and host approval), **troubleshoot** (map symptoms to causes, starting from `rtms.request_status`), and **remove** (how to uninstall, what happens to tokens, what you keep and for how long, how a customer asks for deletion, what happens to scheduled jobs, how to reconnect later).
+Host it on a domain you control and open it signed out. Cover four things.
+
+- **Add.** Prerequisites, who can install, the OAuth steps, what success looks like.
+- **Use.** The main workflows, what each scope does, admin enablement and host approval.
+- **Troubleshoot.** Map symptoms to causes, starting from `rtms.request_status`.
+- **Remove.** How to uninstall, what happens to tokens, what you keep and for how long, how a customer asks for deletion, what happens to scheduled jobs, how to reconnect later.
 
 Say plainly that Zoom shows the app in the active-app indicator, that admin and host approval apply, and what you do with the data. A sentence to adapt:
 

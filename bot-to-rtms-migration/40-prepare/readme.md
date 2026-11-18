@@ -47,9 +47,17 @@ The same controls exist for groups and single users. Only an admin sets account,
 | Always ask or Always allow, internal and external | The meeting owner: the host, or the host's account admin | Participants' apps in meetings that owner hosts |
 | Allow once, Deny, Always allow in my meetings | The host, in the meeting | That meeting, or all the host's meetings |
 
-Your customer's admin therefore decides where **your user's** app tries to start. For meetings hosted by that customer's own people, the admin can set Always allow for internal participants, and then the host does not even need to be in the meeting. For a meeting hosted by another company, only that host or that company's admin can make it Always allow.
+Your customer's admin therefore decides where **your user's** app tries to start.
 
-Auto-start works by category, not by meeting, and it applies to every user in scope. One partner turned it on account-wide for a product only a sales team had bought and captured meetings outside the intended group. Deploy to groups, match the categories to the product (a sales assistant: meetings I own plus externally hosted; a team notetaker: internally hosted; a compliance tool: admin-deployed for every meeting on the account), and set your app's default auto-start so the install flow suggests it. For a per-meeting decision use the Zoom App button, REST start, or the capture filter in step 5.
+- For meetings hosted by that customer's own people, the admin can set Always allow for internal participants, and then the host does not even need to be in the meeting.
+- For a meeting hosted by another company, only that host or that company's admin can make it Always allow.
+
+Auto-start works by category, not by meeting, and it applies to every user in scope. One partner turned it on account-wide for a product only a sales team had bought, and captured meetings outside the intended group.
+
+- Deploy to groups, never account-wide on the first pass.
+- Match categories to the product: a sales assistant wants meetings I own plus externally hosted, a team notetaker wants internally hosted, a compliance tool wants admin-deployed for every meeting on the account.
+- Set your app's default auto-start so the install flow suggests the right one.
+- For a per-meeting decision, use the Zoom App button, REST start, or the capture filter in step 5.
 
 ### What the host does
 
@@ -79,7 +87,10 @@ Request status 2 means the **app owner** is not present. That is not the meeting
 
 Two controls apply and neither replaces the other. **Your** admin must enable "Meetings users attend, externally hosted" for the people who will bring the app into other companies' meetings. **The external host** decides whether to approve it for their meeting. Your admin cannot approve for another company's host, and nobody can bypass the prompt.
 
-The person who carries the app in must have installed and authorized it, must be **on the meeting's invite list**, and for REST start must already be in the meeting. Joining only through a shared link is not enough, and it is a known cause of "Not allowed to start RTMS app". For external meetings treat invite-list membership as a hard requirement even outside the REST path.
+The person who carries the app in must have installed and authorized it, must be **on the meeting's invite list**, and for REST start must already be in the meeting.
+
+- Joining only through a shared link is not enough, and it is a known cause of "Not allowed to start RTMS app".
+- For external meetings treat invite-list membership as a hard requirement even outside the REST path.
 
 ```text
 App user joins an external meeting
@@ -123,7 +134,9 @@ No tile, but the active-app indicator. Consent is the overlap of the admin polic
 
 An unknown status is stored and alerted on. Never treat it as success.
 
-**Can I cancel a pending approval request?** No. The participant status API has no cancel: its `action` is only `start`, `stop`, `pause` or `resume`, and `stop` applies to an ongoing app. Stopping before the app starts fails with `13277` ("has not been started"). A pending request resolves only when the host approves or denies it, or when Zoom expires it on its own. If you must retract one deterministically, have it approved and immediately stop it. Otherwise let your own watchdog retire the attempt and absorb a late `rtms_started` if it arrives.
+**Can I cancel a pending approval request?** No. The participant status API has no cancel: its `action` is only `start`, `stop`, `pause` or `resume`, and `stop` applies to an ongoing app. Stopping before the app starts fails with `13277` ("has not been started").
+
+A pending request resolves only when the host approves or denies it, or when Zoom expires it on its own. To retract one deterministically, have it approved and immediately stop it. Otherwise let your own watchdog retire the attempt and absorb a late `rtms_started` if it arrives.
 
 **REST start outcomes.**
 
@@ -141,35 +154,74 @@ An unknown status is stored and alerted on. Never treat it as success.
 | 404 | Meeting not found | Check the ID, including UUID double encoding when it starts with `/` or contains `//` |
 | 429 | Rate limited | Back off with jitter and honor the account limit |
 
-**Messages the host or user may see in the meeting.** "Request sent to the host." (waiting: do not connect). "Request for app to share content denied by host." (ask the host, do not auto retry). "Host cannot approve your app's access to content." (wait). "Host disabled your app from sharing content." (the host must re-enable it). "Request to share content cannot be sent until the host has joined." (wait for the host). "Apps sharing content have been disabled." (the host must enable sharing for apps).
+**Messages the host or user may see in the meeting.**
+
+- "Request sent to the host." Waiting. Do not connect.
+- "Request for app to share content denied by host." Ask the host. Do not auto retry.
+- "Host cannot approve your app's access to content." Wait.
+- "Host disabled your app from sharing content." The host must re-enable it.
+- "Request to share content cannot be sent until the host has joined." Wait for the host.
+- "Apps sharing content have been disabled." The host must enable sharing for apps.
 
 Map those messages to request status. Denied or host declined is 1 or 3, owner not present is 2, license or feature disabled is 4. Do not call a missing started webhook transient until these are ruled out.
 
 ### Common questions
 
-**Can a calendar event start RTMS for every meeting?** Not by itself. A calendar event tells you a meeting exists. It does not authorize media. The valid pattern: identify the expected app user and meeting from the calendar, check the app is installed and the policy allows it, then either wait for auto start, call REST start once the invitee has joined, or ask the app user to press Start in the Zoom App. Handle host approval and `rtms.request_status` either way.
+**Can a calendar event start RTMS for every meeting?** Not by itself. A calendar event tells you a meeting exists. It does not authorize media. The valid pattern:
+
+1. Identify the expected app user and meeting from the calendar.
+2. Check the app is installed and the policy allows it.
+3. Then either wait for auto start, call REST start once the invitee has joined, or ask the app user to press Start in the Zoom App.
+
+Handle host approval and `rtms.request_status` either way.
 
 **What if the host is absent?** RTMS cannot approve itself. With Always ask, wait for the host or an alternative host. If the app owner is absent, request status 2. Do not retry until the missing person is there or the policy changes.
 
 **Nothing started. What do I check?** In this order: the app is installed for the user, the attendee-side policy allows this kind of meeting, the user is on the invite list, the host is present, the host approved, host tools allow apps, and then `rtms.request_status`.
 
-**What should I record about each start attempt?** The meeting ID, the target user, the policy snapshot, the authorization result, the request status, and later the stream events. Also the app's client ID, the scopes and events in force, and the approving host. That lets support tell a Marketplace problem from an admin policy, a host denial, an entitlement problem or a media setting, without reproducing the meeting.
+**What should I record about each start attempt?**
 
-**Rate limits on the status endpoint.** The PATCH `.../rtms_app/status` call that starts, stops, pauses and resumes is a normal rate-limited Zoom REST endpoint: it shares the per-user daily and per-minute allowances of your app tier, and a `429` means back off with jitter, not retry immediately. The client in 50-start-and-approval classifies `429` and backs off. Do not add a second retry loop on top.
+- the meeting ID, the target user, the policy snapshot, the authorization result, the request status, and later the stream events
+- the app's client ID, the scopes and events in force, and the approving host
+
+With those, support can tell a Marketplace problem from an admin policy, a host denial, an entitlement problem or a media setting, without reproducing the meeting.
+
+**Rate limits on the status endpoint.** The PATCH `.../rtms_app/status` call is a normal rate-limited Zoom REST endpoint. It shares the per-user daily and per-minute allowances of your app tier, and a `429` means back off with jitter, not retry immediately. The client in 50-start-and-approval classifies `429` and backs off. Do not add a second retry loop on top.
 
 **Footprint.** RTMS needs less server than a Meeting SDK bot for the same data. A bot joins as a participant and decodes raw media in a per-meeting process. RTMS hands you the encoded streams over sockets your backend already holds, no participant process, no decode-for-relay. The stream client is state per connection, not compute per meeting.
 
-**Troubleshooting evidence differs by stack.** A Meeting SDK bot is diagnosed from its encrypted SDK logs. Capture them the way the SDK guide describes. RTMS is diagnosed from identifiers instead: the meeting UUID and `rtms_stream_id` locate the stream on Zoom's side, and for any REST call or webhook event, also the `x-zm-trackingid` response header (webhook events carry `x-zm-request-id`; a failed API response carries `x-zm-trackingid`). A support ticket with those values lets Zoom service engineering find the backend request without a repro.
+**Troubleshooting evidence differs by stack.** A Meeting SDK bot is diagnosed from its encrypted SDK logs. Capture them the way the SDK guide describes.
+
+RTMS is diagnosed from identifiers instead:
+
+- the meeting UUID and `rtms_stream_id` locate the stream on Zoom's side
+- for any REST call or webhook event, also the `x-zm-trackingid` response header. Webhook events carry `x-zm-request-id`, a failed API response carries `x-zm-trackingid`.
+
+A support ticket with those values lets Zoom service engineering find the backend request without a repro.
 
 **Which limits can I not get around?** You cannot preapprove another company's host. A public meeting link does not make anyone eligible. You cannot force, poll or bypass the approval prompt. You cannot start REST RTMS for someone who has not joined.
 
-**What if two of my users are in the same meeting?** Each user who has your app can start it, and each started webhook carries that user's `operator_id`. Zoom's docs do not describe blocking the second start for you, so assume you can receive two streams. Decide a rule at meeting level: first start wins, owner or host wins, or keep both (and pay for both). The start-and-approval sample defaults to first start wins (step 5).
+**What if two of my users are in the same meeting?** Each user who has your app can start it, and each started webhook carries that user's `operator_id`. Zoom's docs do not describe blocking the second start for you, so assume you can receive two streams. Decide a rule at meeting level:
 
-**Is a request queued until the host joins?** Unverified. Our current reading is that the request is queued until a host or alternative host is present, but the docs do not state this and partners have reported that a request made before the host joined is not retried, so treat queuing as an assumption to verify against a live meeting. To check: start RTMS via REST in a meeting with no host present, watch for the `rtms_started` webhook when the host joins, and note whether a fresh request is needed. Until verified, the safe path stands: have the host's side set to Always allow. Otherwise record `waiting_for_host`, arm the watchdog, and make one fresh request when your own signal says the host has joined. Never retry on a timer.
+- first start wins,
+- owner or host wins, or
+- keep both, and pay for both.
 
-**How long does an external host have to approve?** Assume there is no timeout. Neither the REST error catalog nor `rtms.request_status` carries an expired or timed-out code, so treat a pending request as pending until something resolves it: an approval, a denial, a status event, or the meeting ending. Your watchdog interval is then your own patience limit, not Zoom's: when it fires, retire the attempt, tell the user it was not approved in time, and absorb a late `rtms_started` if one still arrives.
+The start-and-approval sample defaults to first start wins (step 5).
 
-**Long meetings with rotating people (onsites, panels).** The scheduler-as-owner pattern: if the person who scheduled the meeting has your app installed and auto-start enabled for meetings they own, the stream lasts the whole meeting without them ever joining. Put the app on the scheduler, not the participants, and use the scheduler's token for auto-start. When the scheduler is outside your user base (a candidate or an external recruiter booked the call), you cannot use their credentials: fall back to a participant who is your user and accept that the stream dies when they leave, or ask the external scheduler to install the app.
+**Is a request queued until the host joins?** Unverified. Our reading is that the request waits until a host or alternative host is present, but the docs do not state it, and partners report that a request made before the host joined is not retried.
+
+Verify it against a live meeting: start via REST with no host present, watch for `rtms_started` when the host joins, and note whether a fresh request was needed.
+
+Until then, the safe path stands. Have the host's side set to Always allow. Otherwise record `waiting_for_host`, arm the watchdog, and make one fresh request when your own signal says the host has joined. Never retry on a timer.
+
+**How long does an external host have to approve?** Assume there is no timeout. Neither the REST error catalog nor `rtms.request_status` carries an expired or timed-out code, so treat a pending request as pending until something resolves it: an approval, a denial, a status event, or the meeting ending.
+
+Your watchdog interval is then your own patience limit, not Zoom's. When it fires, retire the attempt, tell the user it was not approved in time, and absorb a late `rtms_started` if one still arrives.
+
+**Long meetings with rotating people (onsites, panels).** Use the scheduler-as-owner pattern: if the person who scheduled the meeting has your app installed and auto-start enabled for meetings they own, the stream lasts the whole meeting without them ever joining. Put the app on the scheduler, not the participants, and use the scheduler's token for auto-start.
+
+When the scheduler is outside your user base (a candidate or an external recruiter booked the call), you cannot use their credentials. Either fall back to a participant who is your user and accept that the stream dies when they leave, or ask the external scheduler to install the app.
 
 **Client version floor.** In-meeting start through the Zoom Apps SDK needs the desktop client 6.5.5 or later. Older clients cannot start RTMS from a surface, whatever the policy says.
 
@@ -179,7 +231,9 @@ Map those messages to request status. Denied or host declined is 1 or 3, owner n
 
 `rtms.request_status` reaches you only when all three hold: the user is an invited participant of that meeting, the start went through the participant API with that user's token, and the participant RTMS scope was already on the app's OAuth settings when the token was issued. Outside those, expect silence, not an error. If a deny (or any status) never arrives, troubleshoot in this order: the webhook endpoint itself, then reauthorization, then the app added again if the endpoint or scopes changed. A missing status event is most often stale authorization or a dead webhook, not a missing feature.
 
-**What if the owner or host leaves?** Since the October release, continuous meeting sharing is the default: when a meeting owner leaves and transfers host, the owner's app keeps running, any host can manage its media access, and your app can still use REST with the original owner's token. For an app user who is not the owner and leaves, the stream ends with stop reason 3.
+**What if the owner or host leaves?** Since the October release, continuous meeting sharing is the default. When a meeting owner leaves and transfers host, the owner's app keeps running, any host can manage its media access, and your app can still use REST with the original owner's token.
+
+An app user who is not the owner and leaves ends the stream with stop reason 3.
 
 ### Code for this step
 

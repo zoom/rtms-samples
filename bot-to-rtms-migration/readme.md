@@ -13,7 +13,14 @@ This guide is for those who run a Meeting SDK bot today (a participant that join
 
 A Meeting SDK bot **joins a meeting as a user**. RTMS **joins the same meeting as a service**, with no participant or roster. Zoom **pre-authorizes the stream**: your app must be installed, its user eligible, an admin policy must allow it, and sometimes the meeting's host must approve that meeting's stream, each time. The client ID and secret only sign the handshake. When the stream exists, a webhook tells you, and you connect to it.
 
-Your bot joined with a meeting ID, a passcode and a signed token, as a user. RTMS joins the same meeting with no user: installation, policy and approval pre-authorize the stream, and your credentials only sign the handshake. Your bot showed up as a participant tile. RTMS gets no tile, only a spot in the meeting's active-app indicator that you cannot hide. Your bot decided when to join. Zoom does, and you connect only after a verified `rtms_started` webhook. The SDK gave you one connection. RTMS needs a signaling socket plus one media socket per media type. The SDK stayed connected for you. Now you answer keep-alives and run reconnect, backoff and deduplication. Your bot could speak, chat, mute and record. RTMS only receives, and those actions need another API. Your bot ran under one service account. Every stream now belongs to a tenant, a policy snapshot and a consent decision.
+| | Your Meeting SDK bot | RTMS |
+|---|---|---|
+| Joining | A meeting ID, a passcode and a signed token, as a user | No user. Installation, policy and approval pre-authorize the stream, and your credentials only sign the handshake |
+| Visibility | A participant tile | No tile, only a spot in the active-app indicator that you cannot hide |
+| Starting | Your service decided when to join | Zoom decides. You connect only after a verified `rtms_started` webhook |
+| Connections | One, handled by the SDK | A signaling socket plus one media socket per media type, kept alive by you: keep-alives, reconnect, backoff, deduplication |
+| Acting | Speak, chat, mute, record | Receive only. Those actions need another API |
+| Tenancy | One service account | Every stream belongs to a tenant, a policy snapshot and a consent decision |
 
 ## The seven steps
 

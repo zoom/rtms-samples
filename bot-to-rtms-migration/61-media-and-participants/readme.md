@@ -31,7 +31,18 @@ Maps what a Meeting SDK bot consumed (raw PCM and YUV, a participant roster, per
 
 ### What actually changes in your pipeline
 
-The SDK hands you decoded, ready-to-use data: raw PCM samples and YUV frames, one callback per participant, no container. RTMS hands you encoded chunks: L16 or Opus audio and H.264 video bitstreams on type-scoped sockets, plus the muxing problem the SDK never gave you. Three shifts follow. You now own decoding, so pick codecs your pipeline can decode and lock them with `fromSdkRaw()` before the first byte. YUV becomes H.264: no more per-frame pixels, you receive a bitstream with keyframes only where the encoder put them, so do not expect to cut or seek on any frame. If you choose H.264, weigh its compression against its structure: an I frame stands alone and starts a new group, a P frame depends on the frames before it. Decoding from an arbitrary point, dropping a corrupt stretch, or recovering after a gap all have to begin at an I frame, so segment starts and post-gap recovery should wait for one. The upside is bandwidth a raw or intra-only pipeline cannot match, at the cost of that dependency chain: lossy by design, a corrupted or missing P frame does not just lose that frame, it smears into everything built on it until the next I frame resets the picture. And attribution moves from the callback signature to your own bookkeeping: match audio frames to active-speaker intervals and video frames to the current subscription, both covered above. The stream client records segment boundaries, parameter changes, gaps and dedupes replays. The writer that turns packets into a file stays yours, hooking `onPacket` in 60-stream-lifecycle-client.
+The SDK hands you decoded, ready-to-use data: raw PCM samples and YUV frames, one callback per participant, no container. RTMS hands you encoded chunks: L16 or Opus audio and H.264 video bitstreams on type-scoped sockets, plus the muxing problem the SDK never gave you. Three shifts follow.
+
+1. **You own decoding.** Pick codecs your pipeline can decode and lock them with `fromSdkRaw()` before the first byte.
+2. **YUV becomes H.264.** No more per-frame pixels. You receive a bitstream with keyframes only where the encoder put them, so do not expect to cut or seek on any frame.
+
+    - An I frame stands alone and starts a new group.
+    - A P frame depends on the frames before it, so segment starts, dropped stretches and post-gap recovery all wait for an I frame.
+    - The upside is bandwidth a raw or intra-only pipeline cannot match.
+    - The cost is that dependency chain: a corrupted or missing P frame does not just lose that frame, it smears into everything built on it until the next I frame resets the picture.
+3. **Attribution becomes your bookkeeping.** Match audio frames to active-speaker intervals and video frames to the current subscription, both covered above.
+
+The stream client records segment boundaries, parameter changes, gaps and dedupes replays. The writer that turns packets into a file stays yours, hooking `onPacket` in 60-stream-lifecycle-client.
 
 ## Parts
 

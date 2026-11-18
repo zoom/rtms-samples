@@ -1,6 +1,10 @@
 # 10 Integration advisor
 
-Meeting SDK bots keep working, but Zoom now steers new integrations to RTMS, so moving is not a decision you weigh, it is the destination. This folder is information for developers doing that move: what changes between the two models, which of your bot's features have an RTMS equivalent, and which existing sample to start from so you write as little new connection code as possible.
+Meeting SDK bots keep working, but Zoom now steers new integrations to RTMS, so moving is not a decision you weigh, it is the destination. This folder is information for developers doing that move:
+
+- what changes between the two models
+- which of your bot's features have an RTMS equivalent
+- which existing sample to start from, so you write as little new connection code as possible
 
 **Contents**
 
@@ -156,7 +160,15 @@ Meeting SDK bots keep working. RTMS is where new builds end up. Before you write
 3. **Something RTMS lacks** (a visible bot, speech, chat, host controls, recording control): plan the companion surface for it. Add RTMS as well only if you also want an independent analytics or compliance feed. That combination needs one identity, consent and audit service across both.
 4. **Everything else moves to RTMS.** Add a Zoom App if users need a panel inside the meeting. Contact Center voice RTMS needs its own entitlement.
 
-RTMS fits the parts of your product where all of these hold. You need inbound media and metadata, not control. An admin and host approval flow is acceptable. You can operate reconnect, idempotency and tenant policy. The bot does not need to speak or chat. And the media options cover the layout and channels you need. Everything outside that set needs a companion surface, today on the Meeting SDK, until those features have a replacement.
+RTMS fits the parts of your product where all of these hold.
+
+- You need inbound media and metadata, not control.
+- An admin and host approval flow is acceptable.
+- You can operate reconnect, idempotency and tenant policy.
+- The bot does not need to speak or chat.
+- The media options cover the layout and channels you need.
+
+Everything outside that set needs a companion surface, today on the Meeting SDK, until those features have a replacement.
 
 RTMS is deliberately narrow, only authorized inbound media and metadata. It has no participant runtime and no control surface, so do not force it to own presence, injection or controls. Use RTMS for the data plane, and the Meeting SDK or a Zoom App only for the specific control or UI gap.
 
@@ -198,7 +210,13 @@ Not covered yet, as of 2026-11-05. "Not documented" means Zoom's published docs 
 
 ### Common questions
 
-**Can RTMS join a meeting from a meeting ID and passcode?** No. A meeting ID and passcode authenticate a participant. RTMS is an authorized data feed, and it needs an installed app, an eligible app user, policy, any required host approval, and a signature built from the webhook's meeting ID and stream ID. If your product's contract is "join any meeting", keep the Meeting SDK, or first establish an authorized way to start RTMS.
+**Can RTMS join a meeting from a meeting ID and passcode?** No. A meeting ID and passcode authenticate a participant. RTMS is an authorized data feed, and it needs all of these:
+
+- an installed app and an eligible app user
+- policy, plus any required host approval
+- a signature built from the webhook's meeting ID and stream ID
+
+If your product's contract is "join any meeting", keep the Meeting SDK, or first establish an authorized way to start RTMS.
 
 **Does RTMS remove the participant tile?** Yes. But the app still appears in the meeting client's active-app indicator while RTMS is running. Design your user experience and legal text around visible activity. Do not promise invisible capture.
 
@@ -222,7 +240,12 @@ Not covered yet, as of 2026-11-05. "Not documented" means Zoom's published docs 
 
 **RTMS or cloud recordings?** Use RTMS when the product must act during the meeting (agent assist, compliance prompts, live dashboards, translation). Use recordings when minutes of delay is fine, or when you need Zoom's canonical file. A hybrid is common: live transcript for action, the recording as evidence.
 
-**What latency should I expect?** Expect about 40 to 200 ms on average, depending on how far your server sits from Zoom's signaling and media servers. RTMS removes the bot's join and capture overhead but adds a webhook hop and WebSocket hops. Do not promise real-time guarantees. Measure four things separately: Zoom event to your webhook, webhook to signaling connected, media handshake to first packet, and packet to your result.
+**What latency should I expect?** Expect about 40 to 200 ms on average, depending on how far your server sits from Zoom's signaling and media servers. RTMS removes the bot's join and capture overhead but adds a webhook hop and WebSocket hops. Do not promise real-time guarantees. Measure four things separately:
+
+- Zoom event to your webhook
+- webhook to signaling connected
+- media handshake to first packet
+- packet to your result
 
 ---
 

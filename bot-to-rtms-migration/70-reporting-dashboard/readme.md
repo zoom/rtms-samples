@@ -73,7 +73,14 @@ With a verified live run behind it, the dashboard shows the real streams and the
 
 ## Sample data
 
-[sample-data/generate.js](sample-data/generate.js) produces a deterministic trace shaped exactly like the real samples write it: 24 streams, 3 tenants, reconnects, pauses, duplicates, rejected webhooks, a watchdog firing, a concurrency limit reached, CRM statuses, and one artifact without a consent reference so the audit alert has something to show. A small committed file, [sample-data/events.sample.jsonl](sample-data/events.sample.jsonl), shows the format. A test fails if it drifts from the generator.
+[sample-data/generate.js](sample-data/generate.js) produces a deterministic trace shaped exactly like the real samples write it:
+
+- 24 streams across 3 tenants
+- reconnects, pauses, duplicates, rejected webhooks
+- a watchdog firing and a concurrency limit reached
+- CRM statuses, and one artifact without a consent reference so the audit alert has something to show
+
+A small committed file, [sample-data/events.sample.jsonl](sample-data/events.sample.jsonl), shows the format. A test fails if it drifts from the generator.
 
 ## Production
 
@@ -101,13 +108,25 @@ npm run demo:70            # a dashboard from seeded sample data: .data/report.h
 npm run start:70           # your own streams: http://127.0.0.1:4806/
 ```
 
-The dashboard is one static page: start funnel, first-packet latency at p50, p95 and p99, concurrency against your limit, reconnects, pauses and gaps, stop reasons, duplicates dropped by layer, usage per tenant, artifacts with their versions and consent reference, CRM sync status, and alerts. Run it on a trace file written by `npm run live`, with `--sample` for seeded data. The real streams write their events to `.data/events.jsonl`. In production compute the same panels from your own logging, keeping the event names.
+The dashboard is one static page: start funnel, first-packet latency at p50, p95 and p99, concurrency against your limit, reconnects, pauses and gaps, stop reasons, duplicates dropped by layer, usage per tenant, artifacts with their versions and consent reference, CRM sync status, and alerts.
+
+- Run it on a trace file written by `npm run live`, with `--sample` for seeded data.
+- The real streams write their events to `.data/events.jsonl`.
+- In production compute the same panels from your own logging, keeping the event names.
 
 Alert on: p95 and p99 first-packet latency, reconnect failures, started webhooks that never arrived, `rtms.request_status` failures, concurrency near the limit, any artifact with no consent reference, and any revoked stream. For CRM sync, your pipeline writes `crm_sync` events with a `status` and the dashboard shows the latest per stream, plus finalized artifacts that never reached the CRM.
 
 ### Multi-tenant isolation
 
-A bot ran under one service account. RTMS is policy heavy, so store per tenant: the app installation and user, the admin policy snapshot, the approved host domains or meeting IDs you need for audit, the consent references, and the stream and media mappings with a retention class. Gate every stream and every artifact write on "does this account have a tenant that permits this product and media, with a consent reference". Keep tenant-scoped storage paths and refuse path traversal.
+A bot ran under one service account. RTMS is policy heavy, so store per tenant:
+
+- the app installation and user
+- the admin policy snapshot
+- the approved host domains or meeting IDs you need for audit
+- the consent references
+- the stream and media mappings with a retention class
+
+Gate every stream and every artifact write on "does this account have a tenant that permits this product and media, with a consent reference". Keep tenant-scoped storage paths and refuse path traversal.
 
 ### Production checklist
 
@@ -158,16 +177,29 @@ Measure the start success rate (started webhooks against the meetings you expect
 
 1. RTMS needs Zoom Developer Pack credits. Volume discounts and commitments above 500 credits go through sales. Basic accounts are not supported: webhooks do not fire and API calls fail with `2310`.
 2. The default limit is **2,000** concurrent streams on a Developer Pack (5 on the free trial), and higher limits are available by request.
-3. A concurrent stream is one RTMS **session ID**, not one meeting. A new one is created when you start RTMS in a new meeting, and again when you open a socket for a different media type in the same meeting. Audio and video on separate sockets in one meeting count as **two**. Plan capacity as the sum over live meetings of the media types you open.
+3. A concurrent stream is one RTMS **session ID**, not one meeting. A new session appears when you start RTMS in a new meeting, and again per extra media type socket in that meeting. Audio and video on separate sockets count as **two**. Plan capacity as the sum, over live meetings, of the media types you open.
 4. `rtms.concurrency_near_limit` arrives periodically above 80 percent of the limit, and `rtms.concurrency_limited` when the limit is reached. Request status `5` means no limit is set on the account.
 5. Check concurrency on every account and subaccount after purchase. Partners found limits that were never configured on subaccounts. The docs say to contact your account executive for limits and do not name an approval authority, so ask before launch, not when the limit event arrives.
 6. REST start: Zoom's RTMS guide calls it a light API with a limit of 80 requests per second per account, shared by every light API on the account. The API reference lists a MEDIUM rate limit label, so check Zoom's rate limits page for the number that applies to you, and retry `429` with jitter.
 
-To compare with running bots, multiply meetings per day by average minutes, by the media types you open, by a duplicate factor (the share of meetings that more than one of your users start), then add your own transfer, decoding, storage and AI costs. Levers: open only the media you use, prefer Zoom's transcript to audio plus your own speech recognition when it is good enough, decide a meeting-level rule so two users do not create two streams, and use the capture filter for rules auto-start cannot express. Per-participant audio or several individual cameras multiply streams.
+To compare with running bots, multiply meetings per day by average minutes, by the media types you open, by a duplicate factor (the share of meetings that more than one of your users start), then add your own transfer, decoding, storage and AI costs.
+
+- Open only the media you use.
+- Prefer Zoom's transcript to audio plus your own speech recognition when it is good enough.
+- Decide a meeting-level rule so two users do not create two streams, and use the capture filter for rules auto-start cannot express.
+- Per-participant audio or several individual cameras multiply streams.
 
 ### When you contact Zoom support
 
-Collect before you open a case: your client ID and the account ID. The meeting UUID and ID, the `rtms_stream_id` and the `operator_id`. UTC times and the raw payloads of `rtms_started`, `rtms.request_status` and `rtms_stopped`. The start path and any REST error code (`2308`, `2310`, `13262`, `13267`, `13273`). And the user's auto-start settings and the host's Always ask or Always allow at that moment. Zoom's published routes are the Developer Forum and Premier Developer Support. Zoom staff can look a meeting up in internal tooling, which is not documented as self-serve, so send the identifiers.
+Collect before you open a case:
+
+- your client ID and the account ID
+- the meeting UUID and ID, the `rtms_stream_id` and the `operator_id`
+- UTC times and the raw payloads of `rtms_started`, `rtms.request_status` and `rtms_stopped`
+- the start path and any REST error code (`2308`, `2310`, `13262`, `13267`, `13273`)
+- the user's auto-start settings and the host's Always ask or Always allow at that moment
+
+Zoom's published routes are the Developer Forum and Premier Developer Support. Zoom staff can look a meeting up in internal tooling, which is not documented as self-serve, so send the identifiers.
 
 ### What changes in the November release (preview, not shipped)
 
