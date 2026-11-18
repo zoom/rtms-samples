@@ -64,7 +64,7 @@ The stream client records segment boundaries, parameter changes, gaps and dedupe
 - A subscribe that times out may or may not have taken effect, so it sends a cleanup unsubscribe before trying anything else.
 - `attributeFrame()` counts frames that are not for the current subscription instead of attributing them.
 
-**Media profile** ([src/mediaProfile.js](src/mediaProfile.js)). Builds `media_params` per concrete media type and refuses invalid combinations (stereo needs Opus, fps range, unknown codec). `fromSdkRaw()` turns what your bot consumed into RTMS parameters and says what changes. The accepted values mirror the constants in Zoom's reference manager. `src/mediaProfile.js` is the in-repo source of truth.
+**Media profile** ([src/mediaProfile.js](src/mediaProfile.js)). Builds `media_params` per concrete media type and refuses invalid combinations (stereo needs Opus, fps range, unknown codec). `fromSdkRaw()` turns what your bot consumed into RTMS parameters and says what changes. The accepted values mirror the constants in Zoom's reference manager. [src/mediaProfile.js](src/mediaProfile.js) is the in-repo source of truth.
 
 ## Run inside the full service
 
@@ -86,7 +86,7 @@ Two things to confirm on your first real run, because they depend on Zoom's beha
 - **Media formats.** Set `RTMS_AUDIO_*`, `RTMS_VIDEO_*` and `RTMS_TRANSCRIPT_*`, or edit [src/mediaProfile.js](src/mediaProfile.js) to change the defaults. Invalid combinations are refused before connecting, so a wrong codec fails fast and locally. Use `fromSdkRaw()` to translate what your old bot consumed.
 - **Camera policy.** Who gets the single video slot is your product decision. The selector in [src/videoSubscription.js](src/videoSubscription.js) picks the first person whose video is on. Change `afterVideoEnds` and the selection rule, not the one-request-at-a-time machinery around it.
 - **Identity.** `linkZoomAppParticipant()` joins your Zoom App user to the RTMS user ID, and `setRole()` takes roles from your own source, because RTMS events do not carry them. Wire both to your session store.
-- **Attribution rules.** Speaker attribution and video-frame gating live in [src/participants.js](src/participants.js). The invariants (departed people get nothing, no speaker means nobody) are tested in `media.test.js`. Keep them while you extend.
+- **Attribution rules.** Speaker attribution and video-frame gating live in [src/participants.js](src/participants.js). The invariants (departed people get nothing, no speaker means nobody) are tested in [media.test.js](media.test.js). Keep them while you extend.
 
 ## Webinars
 
@@ -94,7 +94,7 @@ Design around panelist media first. Attendee streams may not be individually ava
 
 ## Files and tests
 
-`src/participants.js`, `src/videoSubscription.js`, `src/mediaProfile.js`, `offlineDemo.js`, `demo.js`, `demo.test.js` (1 test), `media.test.js` (14 tests: registry, subscription manager, media profile).
+[src/participants.js](src/participants.js), [src/videoSubscription.js](src/videoSubscription.js), [src/mediaProfile.js](src/mediaProfile.js), [offlineDemo.js](offlineDemo.js), [demo.js](demo.js), [demo.test.js](demo.test.js) (1 test), [media.test.js](media.test.js) (14 tests: registry, subscription manager, media profile).
 
 ---
 

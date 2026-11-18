@@ -228,7 +228,7 @@ The server binds to `127.0.0.1`. The operator API takes an optional bearer token
 | Dedupe set and claim registry live in memory, per process | One shared store: an atomic unique-key insert in your database, or Redis `SET key owner NX PX`, so every instance sees the same claims. Without it, two instances can both open the same stream. |
 | Lease renewed by `heartbeat()` every `CLAIM_LEASE_MS / 3` | Same contract. A fenced worker (claim taken over) stops using the stream. |
 | Trace file | Your logging or event pipeline |
-| `tenants.sample.json` | Your install and consent records |
+| [tenants.sample.json](tenants.sample.json) | Your install and consent records |
 | Work runs after the 200 in the same process | Put the verified event on a queue and return 200 first |
 | `onStreamReady` starts the client in-process | Enqueue a message for a worker, and call `releaseStream()` when that worker reports the stream finished |
 
@@ -237,14 +237,14 @@ The server binds to `127.0.0.1`. The operator API takes an optional bearer token
 The sample is a working service, so start from the swap table above and then touch the seams it names.
 
 - **Who may stream.** The tenant and consent gate lives in [src/service.js](src/service.js) (the verdict that decides whether a stream may open, plus capacity and the claim). Replace the sample lookup with your install and consent records. Keep the same verdict contract.
-- **Where the stream goes.** `onStreamReady` in `src/liveBridge.js` is the hand-off point. Put your worker queue there, and call `releaseStream()` when your worker finishes.
-- **Your tenants.** Copy `tenants.sample.json` to `tenants.json` and fill in your accounts, policies and consent references. The shape is the contract.
+- **Where the stream goes.** `onStreamReady` in [src/liveBridge.js](src/liveBridge.js) is the hand-off point. Put your worker queue there, and call `releaseStream()` when your worker finishes.
+- **Your tenants.** Copy [tenants.sample.json](tenants.sample.json) to `tenants.json` and fill in your accounts, policies and consent references. The shape is the contract.
 - **OAuth surface.** [src/oauth.js](src/oauth.js) stores per-user tokens in a file. Swap the store for your database. The token lifecycle (refresh, rotation, reauthorization, deauthorization) is already handled and tested.
 - **Persistence.** The dedupe set and claim registry are in-memory. Before two instances can run, move them to a shared store as the swap table describes.
 
 ## Files and tests
 
-`server.js` (the live server), `check.js`, `demo.js` (simulated), `src/service.js`, `src/liveBridge.js`, `src/restClient.js`, `src/oauth.js` (per-user tokens), `src/probes.js` (the webhook URL check behind `live:check`), `tenants.sample.json`, `service.test.js` (30 tests, including meeting policy, the capture filter, pause and resume and per-user REST tokens: rejected webhooks, retries, refresh, two workers, lease takeover and fencing, failed hand-off, release, stop idempotency, revoked purge, request status, concurrency, REST outcomes, watchdog cancellation, audit snapshot), `liveBridge.test.js` (8 tests, no RTMS server involved: a stop webhook ends a session and writes the manifest, retries never open a second session, refresh handling, bad credentials abandon the claim, refused accounts never open a session, shutdown, live config). `oauth.test.js` (11 tests: state, code exchange, refresh and rotation, reauthorization, deauthorization, file store), `probes.test.js` (1 test: the URL validation check against a local endpoint). What a live session does against Zoom is checked by running `npm run live`.
+[server.js](server.js) (the live server), [check.js](check.js), [demo.js](demo.js) (simulated), [src/service.js](src/service.js), [src/liveBridge.js](src/liveBridge.js), [src/restClient.js](src/restClient.js), [src/oauth.js](src/oauth.js) (per-user tokens), [src/probes.js](src/probes.js) (the webhook URL check behind `live:check`), [tenants.sample.json](tenants.sample.json), [service.test.js](service.test.js) (30 tests, including meeting policy, the capture filter, pause and resume and per-user REST tokens: rejected webhooks, retries, refresh, two workers, lease takeover and fencing, failed hand-off, release, stop idempotency, revoked purge, request status, concurrency, REST outcomes, watchdog cancellation, audit snapshot), [liveBridge.test.js](liveBridge.test.js) (8 tests, no RTMS server involved: a stop webhook ends a session and writes the manifest, retries never open a second session, refresh handling, bad credentials abandon the claim, refused accounts never open a session, shutdown, live config). [oauth.test.js](oauth.test.js) (11 tests: state, code exchange, refresh and rotation, reauthorization, deauthorization, file store), [probes.test.js](probes.test.js) (1 test: the URL validation check against a local endpoint). What a live session does against Zoom is checked by running `npm run live`.
 
 ---
 
@@ -265,7 +265,7 @@ For a meeting expect:
 
 Video SDK uses a session ID and key instead of a meeting UUID.
 
-The stream ID plus your signed credentials authorize the signaling handshake, and `server_urls` says where to connect. Treat the raw object as the recovery record and do not rebuild it from the meeting APIs later. `shared/rtmsPayload.js` reads these fields into one shape and keeps the raw object next to it.
+The stream ID plus your signed credentials authorize the signaling handshake, and `server_urls` says where to connect. Treat the raw object as the recovery record and do not rebuild it from the meeting APIs later. [shared/rtmsPayload.js](../shared/rtmsPayload.js) reads these fields into one shape and keeps the raw object next to it.
 
 ### The flow
 

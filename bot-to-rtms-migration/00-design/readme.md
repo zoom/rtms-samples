@@ -112,7 +112,7 @@ A design is resilient only after these have been run against the real deployment
 
 1. Kill a worker mid-stream (lease expiry claim by a second worker. No duplicate sockets. Sequence continuity).
 2. Drop signaling only (scenario 2 recovery inside the window. Media resumes. Sequence gap report clean).
-3. Drop one media leg (scenario 3; other legs uninterrupted).
+3. Drop one media leg (scenario 3). The other legs run uninterrupted.
 4. Simulate Zoom server failure (re-delivered `rtms_started` for a live stream. Scenario 1 full reconnect to new URLs).
 5. Queue backlog while a worker is down, then recovery - no lost `stopped`, no phantom live stream.
 6. The chaos harness: Zoom's [reconnection and chaos mode sample](https://github.com/zoom/rtms-samples/tree/main/rtms_api/reconnection_and_chaos_mode_js) exists precisely to test this machinery. Run it against your own implementation too.

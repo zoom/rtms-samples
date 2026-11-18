@@ -130,7 +130,7 @@ The four tables below are the reference data. They also live as data in [src/cap
 
 ## Files and tests
 
-`cli.js`, `src/advisor.js`, `src/capabilities.js`, `advisor.test.js` (9 tests, including every built-in scenario).
+[cli.js](cli.js), [src/advisor.js](src/advisor.js), [src/capabilities.js](src/capabilities.js), [advisor.test.js](advisor.test.js) (9 tests, including every built-in scenario).
 
 ---
 

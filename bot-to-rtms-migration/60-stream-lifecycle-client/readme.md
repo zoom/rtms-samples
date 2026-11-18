@@ -116,13 +116,13 @@ The local protocol mock is part of the folder now. It is a test harness, not a Z
 
 - **Your media writer.** The client counts, hashes and attributes chunks but stores nothing. Put your storage in the `onPacket` callback of [src/streamClient.js](src/streamClient.js). The manifest and gap bookkeeping keep working whatever you write.
 - **Tuning.** Reconnect windows (`RTMS_SIGNALING_WINDOW_SEC`, `RTMS_MEDIA_WINDOW_SEC`), `RTMS_BUFFER_DATA` and the transcript languages are environment settings, listed under Settings worth knowing. Start there before editing code.
-- **Event subscriptions.** The default set (active speaker, join, leave) is built in `src/streamClient.js` at `msg_type 5`. Add the groups your product needs. They are re-sent after every signaling reconnect, so keep that path intact.
+- **Event subscriptions.** The default set (active speaker, join, leave) is built in [src/streamClient.js](src/streamClient.js) at `msg_type 5`. Add the groups your product needs. They are re-sent after every signaling reconnect, so keep that path intact.
 - **A richer test harness.** The client accepts a `WebSocketImpl` option, so you can inject your own socket implementation without touching the reconnect logic.
 - **Manifest fields.** Add product-specific fields in [src/manifest.js](src/manifest.js) and bump `schema_version` when you do. [src/generations.js](src/generations.js) must keep numbering generations without reuse.
 
 ## Files
 
-`src/streamClient.js`, `src/liveSession.js`, `src/manifest.js`, `src/generations.js`, `mockRtmsServer.js`, `demo.js`, `lifecycle.test.js` (8 tests), `lifecycle-mock.test.js` (3 tests).
+[src/streamClient.js](src/streamClient.js), [src/liveSession.js](src/liveSession.js), [src/manifest.js](src/manifest.js), [src/generations.js](src/generations.js), [mockRtmsServer.js](mockRtmsServer.js), [demo.js](demo.js), [lifecycle.test.js](lifecycle.test.js) (8 tests), [lifecycle-mock.test.js](lifecycle-mock.test.js) (3 tests).
 
 ---
 
@@ -195,7 +195,7 @@ The same meeting can have several streams over its life, one generation each. Ke
 | 10 | Server internal exception | Retry with backoff if authorized |
 | 11 | Connection timed out | Reconnect by the rules above |
 
-Codes 12 to 26 (instance, signal and data interruptions, authentication failure, await-reconnection timeout, keep-alive timeout, admin disabled, and others) are in `shared/codes.js` with an action each. Their restart column is a reading of the reference library's lookup table, not Zoom policy, so check it against your own rules.
+Codes 12 to 26 (instance, signal and data interruptions, authentication failure, await-reconnection timeout, keep-alive timeout, admin disabled, and others) are in [shared/codes.js](../shared/codes.js) with an action each. Their restart column is a reading of the reference library's lookup table, not Zoom policy, so check it against your own rules.
 
 The decision rule behind both tables: classify the stop reason before you retry.
 
@@ -228,7 +228,7 @@ Every stream and artifact carries these fields, so you can replay, remux or migr
 | `artifact_writer_version` | Your encoder and storage writer version |
 | `policy_version`, `consent_ref` | The policy snapshot and consent record in force |
 
-Never mutate an original artifact. Keep writing the old version until a tested writer is enabled. The client writes these into `manifest.json`, plus segments, gaps, reconnects, stop reason and participant intervals. It does not store audio or video: put your writer in `onPacket`.
+Never mutate an original artifact. Keep writing the old version until a tested writer is enabled. The client writes these into [manifest.json](src/manifest.js), plus segments, gaps, reconnects, stop reason and participant intervals. It does not store audio or video: put your writer in `onPacket`.
 
 ### What is verified, and what is not
 
@@ -237,7 +237,7 @@ Never mutate an original artifact. Keep writing the old version until a tested w
 | Backoff and giving up when a server is unreachable, the attempt cap, closing a client that never connected, subscription defaults, chunk IDs, generations | Unit tests, with nothing listening on the port |
 | Participant registry, one-camera subscription logic, media parameters | Unit tests |
 | Meeting-level policy for two users, the capture filter, per-user tokens with refresh and reauthorization, verified deauthorization, REST pause and resume | Unit tests, plus a run of the real server against its HTTP routes (nothing connected to Zoom) |
-| An established connection: handshakes, keep-alives, media delivery, replay deduplication, `PAUSED`/`RESUMED` segment boundaries, reconnect and recovery, replacement server URLs, scripted terminal states, and manifest counters | [60-stream-lifecycle-client](60-stream-lifecycle-client/readme.md): `lifecycle-mock.test.js` and `npm run demo:60`, against the repository's mock RTMS server |
+| An established connection: handshakes, keep-alives, media delivery, replay deduplication, `PAUSED`/`RESUMED` segment boundaries, reconnect and recovery, replacement server URLs, scripted terminal states, and manifest counters | [60-stream-lifecycle-client](../60-stream-lifecycle-client/readme.md): [`lifecycle-mock.test.js`](lifecycle-mock.test.js) and `npm run demo:60`, against the repository's mock RTMS server |
 | Silence detection and recovery without hard-coded waits | The same lifecycle mock tests |
 
 ### November release preview (not yet live)

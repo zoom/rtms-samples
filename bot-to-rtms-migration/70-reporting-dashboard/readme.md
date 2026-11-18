@@ -95,7 +95,7 @@ The report builder is a pure function over events. In production compute the sam
 
 ## Files and tests
 
-`cli.js`, `server.js`, `src/report.js`, `src/render.js`, `sample-data/`, `report.test.js` (9 tests, including one that feeds the stream client.s event names through the report).
+[cli.js](cli.js), [server.js](server.js), [src/report.js](src/report.js), [src/render.js](src/render.js), [sample-data/](sample-data), [report.test.js](report.test.js) (9 tests, including one that feeds the stream client.s event names through the report).
 
 ---
 
@@ -143,7 +143,7 @@ Gate every stream and every artifact write on "does this account have a tenant t
 | 9 | Test host absence, denial, cohost change, waiting room, lock, webinar, pause, resume, revoke | Request status handling and revoke | Live tests on real accounts: cohost change, waiting room, lock and webinar are not simulated |
 | 10 | Load test concurrent streams and per-socket recovery | Not covered | A load test against real Zoom with your entitlement, killing sockets on purpose |
 | 11 | Negotiate TLS 1.2 or 1.3 (required from 2026-11-15) | `ws` on a current Node release does by default | Your proxy and runtime settings |
-| 12 | Per-user tokens, reauthorization and deauthorization | `src/oauth.js`: refresh, rotation, reauthorization flag, verified deauthorization | A secret store for tokens, deleting the rest of a user's data, a reauthorization campaign |
+| 12 | Per-user tokens, reauthorization and deauthorization | [`src/oauth.js`](../50-start-and-approval/src/oauth.js): refresh, rotation, reauthorization flag, verified deauthorization | A secret store for tokens, deleting the rest of a user's data, a reauthorization campaign |
 | 13 | Count concurrency per media socket, and plan for spiky starts at the top of the hour | A concurrency event handler that sheds and blocks | A queue and autoscaling workers, and a load test |
 
 ### What to swap before production
@@ -152,7 +152,7 @@ Gate every stream and every artifact write on "does this account have a tenant t
 |---|---|
 | In-memory dedupe set and claim registry, per process | One shared store: an atomic unique-key insert in your database, or Redis `SET key owner NX PX leaseMs`. Keep the claim, renew and release contract and the generation as a fencing token |
 | A JSON-lines trace file (not a database; nothing here uses one) | Your logging or analytics pipeline. Keep the event names |
-| `tenants.sample.json` or `TENANT_ACCOUNT_IDS` | Your install, policy and consent records |
+| [`tenants.sample.json`](../50-start-and-approval/tenants.sample.json) or `TENANT_ACCOUNT_IDS` | Your install, policy and consent records |
 | The file token store (`OAUTH_TOKEN_DIR`) | Your secret store or an encrypted column, with the same get, set, delete and list contract |
 | Work runs after the 200, in the same process | Put the verified event on a queue, return 200 first, and have a worker run the client |
 | The `onPacket` hook | Your artifact writer: durable, versioned, tenant-scoped |
