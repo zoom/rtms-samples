@@ -4,7 +4,7 @@
 
 **Contents**
 
-- [Run the full service against real Zoom](#run-the-full-service-against-real-zoom) - commands and setup
+- [Run the full service against Zoom](#run-the-full-service-against-zoom) - commands and setup
 - [The lifecycle](#lifecycle) and [settings worth knowing](#settings-worth-knowing)
 - [Deduplication, gaps and the manifest](#deduplication-and-the-manifest) and [the latency spans in the trace](#latency-spans-written-to-the-trace)
 - [Test coverage](#test-coverage), [Adapting this sample](#adapting-this-sample) and [files](#files)
@@ -34,7 +34,7 @@ Connects to Zoom's real RTMS servers. It runs the signaling and media handshakes
 | The SDK records locally through an outage. | Buffered media arrives after a reconnect, and you deduplicate it. A long outage is a gap you must record. |
 | Pause is a meeting concept. | Pause and resume are stream states inside the same stream. |
 
-## Run the full service against real Zoom
+## Run the full service against Zoom
 
 ```bash
 cp .env.example .env              # ZOOM_SECRET_TOKEN, ZOOM_CLIENT_ID, ZOOM_CLIENT_SECRET, TENANT_ACCOUNT_IDS
@@ -42,7 +42,7 @@ npm run live:check                # checks your setup, prints no secrets
 npm run live                      # listens for webhooks, connects to Zoom on rtms_started
 ```
 
-Then start a meeting with RTMS enabled. The full walkthrough, including exposing the webhook URL, is in the "Connect to real Zoom" section of the 50-start-and-approval readme. You see `connecting to the RTMS signaling server`, then `phase signaling_connected`, `media_connected`, `client_ready_sent`, `streaming`, then `stats` lines with packet counts, and when the stream ends a `manifest.json` under `.data/streams/<tenant>/<stream>/`.
+Then start a meeting with RTMS enabled. The full walkthrough, including exposing the webhook URL, is in the "Connect to Zoom" section of the 50-start-and-approval readme. You see `connecting to the RTMS signaling server`, then `phase signaling_connected`, `media_connected`, `client_ready_sent`, `streaming`, then `stats` lines with packet counts, and when the stream ends a `manifest.json` under `.data/streams/<tenant>/<stream>/`.
 
 To drive the client yourself, build the envelope from a claimed `rtms_started` payload:
 
@@ -86,7 +86,7 @@ Each socket has its own state, attempt counter and timers.
 - **`buffer_data`** defaults to false, matching Zoom's reference manager behavior. Set `RTMS_BUFFER_DATA=true` to also receive media buffered before the handshake finished. Duplicates are dropped by chunk ID either way.
 - **Transcript parameters** default to English with language detection on (`src_language: 9`, `enable_lid: true`), like the reference manager.
 
-That is the closest check available without a live stream. It is not a substitute for one: nothing in this repo has yet connected this client to a real Zoom server. Run `npm run live` with a real meeting before you rely on it.
+That is the closest check available without a live stream. It is not a substitute for one: nothing in this repo has yet connected this client to a live Zoom server. Run `npm run live` with a real meeting before you rely on it.
 
 ## Deduplication and the manifest
 

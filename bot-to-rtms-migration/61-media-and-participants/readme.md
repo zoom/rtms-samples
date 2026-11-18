@@ -68,7 +68,7 @@ The stream client records segment boundaries, parameter changes, gaps and dedupe
 
 ## Run inside the full service
 
-These parts are wired into the live session, so they run on a real stream with `npm run live` (setup is in the "Connect to real Zoom" section of the 50-start-and-approval readme):
+These parts are wired into the live session, so they run on a real stream with `npm run live` (setup is in the "Connect to Zoom" section of the 50-start-and-approval readme):
 
 ```bash
 RTMS_MEDIA=audio,transcript npm run live                               # participants and active speaker

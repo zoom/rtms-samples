@@ -61,7 +61,7 @@ npm test          # 115 tests, a few seconds, no network
 
 Step 1 and the dashboard in step 7 run offline with no credentials. Steps 2 to 4 are configuration and people, so there is no code for them. Steps 5 and 6 are one live path: `npm run live` takes your real webhooks and connects to Zoom's real RTMS servers.
 
-One honest caveat. The connection code follows the library in `library/javascript/rtmsManager`, which already works with Zoom, but nothing in this folder has yet been connected to a real Zoom stream. Treat your first live meeting as the real test, and see **What is verified** in the [60-stream-lifecycle-client](60-stream-lifecycle-client/readme.md) readme.
+One honest caveat. The connection code follows the library in `library/javascript/rtmsManager`, which already works with Zoom, but nothing in this folder has yet been connected to a live Zoom stream. Treat your first live meeting as the real test, and see **What is verified** in the [60-stream-lifecycle-client](60-stream-lifecycle-client/readme.md) readme.
 
 ---
 ## Readme per step

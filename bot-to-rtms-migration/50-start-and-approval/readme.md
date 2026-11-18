@@ -8,7 +8,7 @@ Takes the lifecycle webhooks safely, decides whether a stream may be opened, and
 - [The flow](#the-flow) - the webhook endpoint, request by request
 - [Handing the stream to a worker](#handing-the-stream-to-a-worker), [two users, one meeting](#two-users-in-one-meeting) and [should we process this meeting](#meeting-level-stream-decisions)
 - [Starting on purpose](#starting-on-purpose) and [user authorization (OAuth)](#user-authorization-oauth) - the start path and per-user tokens
-- [Connect to real Zoom](#connect-to-real-zoom), [the simulated demo](#simulated-demo) and [run it](#run-it)
+- [Connect to Zoom](#connect-to-zoom), [the simulated demo](#simulated-demo) and [run it](#run-it)
 - [Swap points for production](#swap-points-for-production), [Adapting this sample](#adapting-this-sample) and [files and tests](#files-and-tests)
 - [Step 5. Take the webhook safely and start a stream](#step-5-take-the-webhook-safely-and-start-a-stream) - the guide chapter: webhook contents, deduplication layers, the rules, the missing-webhook case
 
@@ -20,7 +20,7 @@ npm run live:check     # settings check; reads .env when present, makes no chang
 npm run live           # full service: webhook -> claim -> PATCH -> live client
 ```
 
-`demo:03` prints the lifecycle decisions and exits. `live:check` prints `[ ok ]`, `[info]`, `[warn]` and `[FAIL]` rows, then exits nonzero only on a `FAIL`. It is safe with no environment. `live` starts on `PORT_03` (default 4803) and needs `ZOOM_SECRET_TOKEN`, `ZOOM_CLIENT_ID` and `ZOOM_CLIENT_SECRET` for real webhooks and client handshakes. `TENANT_ACCOUNT_IDS` gates which Zoom accounts are accepted. `ZOOM_REDIRECT_URI` or `ZOOM_ACCESS_TOKEN` is required only for REST-initiated start, stop, pause and resume. The detailed setup is in "Connect to real Zoom" below.
+`demo:03` prints the lifecycle decisions and exits. `live:check` prints `[ ok ]`, `[info]`, `[warn]` and `[FAIL]` rows, then exits nonzero only on a `FAIL`. It is safe with no environment. `live` starts on `PORT_03` (default 4803) and needs `ZOOM_SECRET_TOKEN`, `ZOOM_CLIENT_ID` and `ZOOM_CLIENT_SECRET` for real webhooks and client handshakes. `TENANT_ACCOUNT_IDS` gates which Zoom accounts are accepted. `ZOOM_REDIRECT_URI` or `ZOOM_ACCESS_TOKEN` is required only for REST-initiated start, stop, pause and resume. The detailed setup is in "Connect to Zoom" below.
 
 ## Meeting SDK bot vs RTMS
 
@@ -169,7 +169,7 @@ A bare `invalid_or_expired_state` failure with a code present means an old or fo
 
 Scopes are granted at authorize time. A scope added to the app later appears on tokens only after the user authorizes again, and the refresh path flags the user `reauthorization_required` until they do.
 
-## Connect to real Zoom
+## Connect to Zoom
 
 `npm run live` is this server with the lifecycle client attached. A verified, claimed `rtms_started` webhook opens real signaling and media sockets to Zoom's RTMS servers.
 
@@ -215,7 +215,7 @@ The 60 second watchdog logs the audit order (installation, attendee-side policy,
 
 ```bash
 npm run live:check                   # verify your .env, optionally the public webhook URL
-npm run live                         # real Zoom: POST /webhook, /api/start|stop|pause|resume, GET /api/state, /healthz, /oauth/*
+npm run live                         # Zoom: POST /webhook, /api/start|stop|pause|resume, GET /api/state, /healthz, /oauth/*
 npm run demo:03                      # the simulated walkthrough
 ```
 
@@ -312,7 +312,7 @@ And you cannot recover a missing lifecycle webhook by polling. Do not connect fr
 
 ### Zoom connection logging
 
-The setup steps are in **Connect to real Zoom** above. Once live, the log shows, one JSON line each:
+The setup steps are in **Connect to Zoom** above. Once live, the log shows, one JSON line each:
 
 `listening for Zoom webhooks`, then for a stream `connecting to the RTMS signaling server`, `phase signaling_connected`, `media_connected`, `client_ready_sent`, `streaming`, a `stats` line every 10 seconds, `participant join`, and at the end `stream finished` with the stop reason and the path to `manifest.json`.
 

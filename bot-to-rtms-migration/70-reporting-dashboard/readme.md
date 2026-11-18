@@ -141,7 +141,7 @@ Gate every stream and every artifact write on "does this account have a tenant t
 | 7 | Isolate tenants, credentials, policy and retention | The tenant gate, tenant paths, audit snapshot | Per-tenant credentials, retention jobs, deletion on revoke |
 | 8 | Log IDs and state, never secrets or raw media | Trace events carry IDs and state names only | Redaction and access control in your logging |
 | 9 | Test host absence, denial, cohost change, waiting room, lock, webinar, pause, resume, revoke | Request status handling and revoke | Live tests on real accounts, where cohost change, waiting room, lock and webinar are not simulated |
-| 10 | Load test concurrent streams and per-socket recovery | Not covered | A load test against real Zoom with your entitlement, killing sockets on purpose |
+| 10 | Load test concurrent streams and per-socket recovery | Not covered | A load test against Zoom with your entitlement, killing sockets on purpose |
 | 11 | Negotiate TLS 1.2 or 1.3 (required from 2026-11-15) | `ws` on a current Node release does by default | Your proxy and runtime settings |
 | 12 | Per-user tokens, reauthorization and deauthorization | [`src/oauth.js`](../50-start-and-approval/src/oauth.js): refresh, rotation, reauthorization flag, verified deauthorization | A secret store for tokens, deleting the rest of a user's data, a reauthorization campaign |
 | 13 | Count concurrency per media socket, and plan for spiky starts at the top of the hour | A concurrency event handler that sheds and blocks | A queue and autoscaling workers, and a load test |
