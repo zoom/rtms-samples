@@ -1,15 +1,15 @@
 # Moving a Meeting SDK bot to Zoom RTMS
 
-This guide is for those who run a Meeting SDK bot today (a participant that joins meetings to transcribe, record, analyze or assist) and want to replace it with Zoom Realtime Media Streams (RTMS). This readme is the overview. Each step's details live in that step's folder, listed in the table below.
+This guide is for teams that run a Meeting SDK bot today (a participant that joins meetings to transcribe, record, analyze or assist) and want to replace it with Zoom Realtime Media Streams (RTMS). This readme is the overview. Each step's details live in that step's folder, listed in the table below.
 
 **Contents**
 
-- [The shift in one page](#the-shift-in-one-page) - bot vs RTMS, the whole difference in a paragraph
-- [The seven steps](#the-seven-steps) and [before you try anything](#before-you-try-anything) - the plan overview, then the licensing checks
+- [The difference in one page](#the-difference-in-one-page) - bot vs RTMS, the whole difference in a paragraph
+- [The seven steps](#the-seven-steps) and [before you try anything](#before-you-try-anything) - the plan, then the licensing checks
 - [Readme per step](#readme-per-step) - the folder table, the real table of contents
 - [Other use cases already in this repo](#other-use-cases-already-in-this-repo) - samples to reuse instead of rebuild
 
-## The shift in one page
+## The difference in one page
 
 A Meeting SDK bot **joins a meeting as a user**. RTMS **joins the same meeting as a service**, with no participant or roster. Zoom **pre-authorizes the stream**. Your app must be installed and its user eligible, an admin policy must allow it, and sometimes the meeting's host must approve that meeting's stream, each time.
 
@@ -49,19 +49,19 @@ You do not have to start from this repository. Two existing resources work today
 - **The reference manager**, `library/javascript/rtmsManager` in this repo (with `library/javascript/webhookManager`), a compact, working connection layer.
 - **The RTMS SDK**, Zoom's published client for the protocol, if you prefer a supported package.
 
-This repository's `60-stream-lifecycle-client` is a fuller service built on the same protocol: generations, manifests, recovery and the artifact record. Read those two first if you want the smallest moving thing. Come here when you need the whole path.
+This repository's `60-stream-lifecycle-client` is a fuller service built on the same protocol: generations, manifests, recovery and the artifact record. Read those two first for the smallest working setup. Use this repository when you need the whole path.
 
 Node 18 or newer.
 
 ```bash
 cd bot-to-rtms-migration
 npm install
-npm test          # 115 tests, a few seconds, no network
+npm test          # 108 tests, a few seconds, no network
 ```
 
 Step 1 and the dashboard in step 7 run offline with no credentials. Steps 2 to 4 are configuration and people, so there is no code for them. Steps 5 and 6 are one live path: `npm run live` takes your real webhooks and connects to Zoom's real RTMS servers.
 
-One honest caveat. The connection code follows the library in `library/javascript/rtmsManager`, which already works with Zoom, but nothing in this folder has yet been connected to a live Zoom stream. Treat your first live meeting as the real test, and see **What is verified** in the [60-stream-lifecycle-client](60-stream-lifecycle-client/readme.md) readme.
+One honest caveat. The connection code follows the library in `library/javascript/rtmsManager`, which already works with Zoom, but nothing in this folder has yet been connected to a live Zoom stream. Your first live meeting is the real test. See **What is verified** in the [60-stream-lifecycle-client](60-stream-lifecycle-client/readme.md) readme.
 
 ---
 ## Readme per step
@@ -71,7 +71,7 @@ Each step lives in its own folder, and each folder's readme is both the guide fo
 | Step | Folder | What is in it |
 |---|---|---|
 | Before | [00-design](00-design/readme.md) | The production architecture reading. No code |
-| 1 Know the shift | [10-integration-advisor](10-integration-advisor/readme.md) | What changes, which existing samples to build on, the gap-checker (`npm run advise`) |
+| 1 Know the change | [10-integration-advisor](10-integration-advisor/readme.md) | What changes, which existing samples to build on, the gap-checker (`npm run advise`) |
 | 2 Configure | [20-configure](20-configure/readme.md) | The Marketplace app: manifest, scopes, events, credentials. No code |
 | 3 Publish | [30-publish](30-publish/readme.md) | Review, evidence and the rejections to avoid. No code |
 | 4 Prepare | [40-prepare](40-prepare/readme.md) | Admin enablement, host approval, consent, the status codes. No code |

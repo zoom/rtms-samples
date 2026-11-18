@@ -1,6 +1,6 @@
 # 10 Integration advisor
 
-Meeting SDK bots keep working, but Zoom now steers new integrations to RTMS, so moving is not a decision you weigh, it is the destination. This folder is information for developers doing that move. It covers the differences, the feature mapping and the sample to start from.
+Meeting SDK bots keep working, but Zoom now steers new integrations to RTMS, so the move is a matter of when, not whether. This folder is information for developers doing that move. It covers the differences, the feature mapping and the sample to start from.
 
 - what changes between the two models
 - which of your bot's features have an RTMS equivalent
@@ -8,7 +8,7 @@ Meeting SDK bots keep working, but Zoom now steers new integrations to RTMS, so 
 
 **Contents**
 
-- [Start from an existing sample](#start-from-an-existing-sample) - working repos to build on, never from zero
+- [Start from an existing sample](#start-from-an-existing-sample) - working repos to build on instead of new connection code
 - [What actually changes](#what-actually-changes) - bot vs RTMS, table form
 - [Optional gap check](#optional-gap-check) - the `npm run advise` gap-checker
 - [Reference tables](#reference-tables) - what RTMS replaces, media parity, assumptions that no longer hold, which surface owns what
