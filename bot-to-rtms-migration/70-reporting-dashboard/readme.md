@@ -5,9 +5,9 @@ Turns the event trace into the numbers a migration needs after go-live. Is the s
 **Contents**
 
 - [Run this folder alone](#run-this-folder-alone) and [run it](#run-it) - the commands
-- [The panels](#panels) and [the `crm_sync` event](#the-crm_sync-event) - what each panel shows, and the event your pipeline appends
+- [The panels](#panels) and [the `crm_sync` event](#the-crmsync-event) - what each panel shows, and the event your pipeline appends
 - [Sample data](#sample-data), [production](#production), [Adapting this sample](#adapting-this-sample) and [files and tests](#files-and-tests)
-- [Step 7. Operate it](#step-7-operate-it) - the guide chapter: seeing what happens, tenant isolation, the production checklist, what to swap, rollout, cost and concurrency, Zoom support, the November changes, the go-live gate
+- [Step 7. Operate it](#step-7-operate-it) - the guide chapter: seeing what happens, tenant isolation, the production checklist, what to swap, rollout, cost and concurrency, Zoom support, the shipped protocol changes, the go-live gate
 
 ## Run this folder alone
 
@@ -201,14 +201,13 @@ Collect the following before you open a case.
 
 Zoom's published routes are the Developer Forum and Premier Developer Support. Zoom staff can look a meeting up in internal tooling, which is not documented as self-serve, so send the identifiers.
 
-### November release preview
+### Shipped protocol changes
 
-From Zoom's release preview. Plan for it, but do not promise it to customers.
+The features Zoom announced in its November release are live. Meetings and webinars keep `protocol_version: 1`; the V2 wire format, SRT as a data transport next to WSS, `event_code` in place of `event_type`, 640x360 standard-definition video and the removal of PNG are all in force. `REQUEST_ERROR_RESP`, `MEDIA_DATA_USER_INFO`, the audio `source` field and application-layer AEAD encryption (approved per app, by request) are available. Zoom Phone audio and transcript run over protocol V2 through [library/javascript/rtmsManager](../../library/javascript/rtmsManager/RTMSManager.js) and its `phone.call_rtms_started`, `phone.call_rtms_stopped` and `phone.call_rtms_interrupted` webhooks.
 
-1. **V2 protocol:** protobuf wire format (JSON messages keep working), SRT as a data transport next to WSS, `event_code` in place of `event_type`, standard definition video becoming 640x360 and PNG no longer available for video or screen share. The handshake `protocol_version` defaults to `1`. Zoom does not document a pinning or advance-notice policy.
-2. **Transcript rewind.** Corrections to sentences already delivered. The first delivery is a NEW event (`attribute: 1`), and revisions are UPDATE events (`attribute: 2`) with the same `sentence_id` and the full replacement text. Replace the sentence, do not append. The sample writer now does this when `RTMS_SAVE_TRANSCRIPT=true`. Verify it against a real meeting with corrections.
-3. **`REQUEST_ERROR_RESP`, `MEDIA_DATA_USER_INFO`, an audio `source` field**, application-layer AEAD media encryption (approved per app, by request), and **Zoom Phone** audio and transcript.
-4. **TLS 1.2 or 1.3 required on every connection from 2026-11-15.** The `ws` client on a current Node release negotiates TLS 1.2 or newer by default. Check your own proxy or runtime if you changed it.
+Transcript rewind is live too. Corrections to sentences already delivered arrive as UPDATE events (`attribute: 2`) with the same `sentence_id` and the full replacement text; the first delivery is NEW (`attribute: 1`). Replace the sentence, do not append. The sample writer does this when `RTMS_SAVE_TRANSCRIPT=true`. Verify it against a real meeting with corrections.
+
+TLS 1.2 or 1.3 is required on every connection since 2026-11-15. The `ws` client on a current Node release negotiates TLS 1.2 or newer by default. Check your own proxy or runtime if you changed it.
 
 Zoom documents two caveats. Closing an app from the app menu fires no callback and can leave an orphaned stream (watch for stale connections and close them after a timeout), and switching to phone audio while computer audio stays connected stops transcripts until the user hangs up the phone or chooses "Leave computer audio" first.
 

@@ -192,7 +192,7 @@ Each media type added above is another concurrency unit and another socket of ba
 | Recording replacement | Audio + video + screen share, muxed from day one | - | - |
 | Translation | Audio 20 ms + transcript | video | latency budget proves room |
 
-Revisit this table when Zoom ships the announced multi-camera and Zoom Phone media types. Each new media type re-opens the handshake, the capacity math and the branch logic.
+Zoom Phone media are shipped and supported in [library/javascript/rtmsManager](../../library/javascript/rtmsManager/RTMSManager.js) through `PRESETS.PHONE`; multi-camera remains a server feature enabled by request. Each new media type re-opens the handshake, the capacity math and the branch logic.
 
 ## 03 Observability
 

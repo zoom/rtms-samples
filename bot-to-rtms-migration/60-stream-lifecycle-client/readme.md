@@ -240,18 +240,18 @@ Never mutate an original artifact. Keep writing the old version until a tested w
 | An established connection: handshakes, keep-alives, media delivery, replay deduplication, `PAUSED`/`RESUMED` segment boundaries, reconnect and recovery, replacement server URLs, scripted terminal states, and manifest counters | [60-stream-lifecycle-client](../60-stream-lifecycle-client/readme.md): [`lifecycle-mock.test.js`](lifecycle-mock.test.js) and `npm run demo:60`, against the repository's mock RTMS server |
 | Silence detection and recovery without hard-coded waits | The same lifecycle mock tests |
 
-### November release preview
+### Shipped protocol features to plan for
 
-Plan for these. None change the V1 client today.
+The features Zoom announced in its November release are now live. None changes this V1 client today, and the handshake `protocol_version` stays `1` for meetings and webinars. Zoom Phone is the exception and is handled in [library/javascript/rtmsManager](../../library/javascript/rtmsManager/RTMSManager.js), whose `PRESETS.PHONE` sets `protocolVersion: 2` for the per-channel call audio and transcript path.
 
-- TLS 1.2 or 1.3 becomes required on every connection from 15 November 2026, so pin your Node TLS range now.
+- TLS 1.2 or 1.3 is required on every connection. Pin your Node TLS range now.
 - The V2 protocol adds a protobuf wire format (JSON stays unchanged and works on both) and `event_code` replacing the legacy `event_type`.
-- An SRT transport option for data connections (`srt_passphrase` and `srt_pbkey_length` in the handshake response), AEAD payload encryption by request only, and a `REQUEST_ERROR_RESP` message with `status_code` and `reason` for failed requests.
-- Multiple individual video streams, up to four concurrent 720p subscriptions per stream, as a server feature enabled by request.
-- SD video becomes 640x360 and PNG goes away for video and screen share.
-- Transcript rewind sends UPDATE events with the same `sentence_id` and full replacement text whenever `enable_lid` is on. Replace the sentence, do not append.
-- `MEDIA_DATA_USER_INFO` arrives unsubscriptioned on the event channel with `user_id`, `user_name` and `participant_uuid` (Meetings only). `MEDIA_DATA_AUDIO` gains `content.source` (1 microphone, 2 shared content).
-- Audio boundaries change to one frame per message for RTP and raw Opus/G711/G722, and variable frames up to 128 KiB for L16.
+- An SRT transport option exists for data connections (`srt_passphrase` and `srt_pbkey_length` in the handshake response), alongside AEAD payload encryption by request and a `REQUEST_ERROR_RESP` message with `status_code` and `reason` for failed requests.
+- Multiple individual video streams, up to four concurrent 720p subscriptions per stream, are a server feature enabled by request.
+- SD video is 640x360 and PNG is gone for video and screen share.
+- Transcript rewind is live. Corrections arrive as UPDATE events with the same `sentence_id` and the full replacement text whenever `enable_lid` is on. Replace the sentence, do not append. The sample writer handles this in [src/transcriptStore.js](src/transcriptStore.js), active when `RTMS_SAVE_TRANSCRIPT=true`.
+- `MEDIA_DATA_USER_INFO` arrives unsubscriptioned on the event channel with `user_id`, `user_name` and `participant_uuid` (Meetings only). `MEDIA_DATA_AUDIO` carries `content.source` (1 microphone, 2 shared content).
+- Audio boundaries are one frame per message for RTP and raw Opus/G711/G722, and variable frames up to 128 KiB for L16.
 
 The mock is a protocol harness, not Zoom. Before production, validate the remaining real-service behavior: Zoom's exact status codes and phase timing, media waiting for signaling under real failure timing, sustained-outage timing, and the real `TERMINATING` grace period. A live meeting is the only real check.
 

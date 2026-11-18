@@ -206,7 +206,7 @@ Not covered yet, as of 2026-11-05. "Not documented" means Zoom's published docs 
 | Zoom Rooms: install an app for a room, auto-start for room-owned meetings | Not documented. Test before you promise it |
 | Web client: guest consent flows, in-client pause or stop | Partners report gaps. Build your own pause, resume and stop buttons on the REST status endpoint |
 | Posting into chat, bidirectional audio | Not available. RTMS only receives |
-| Several individual cameras at once, Zoom Phone, application-layer encryption | In the November release preview, not shipped (see step 7) |
+| Several individual cameras at once, application-layer encryption | Server features enabled by request, not covered by the samples. Zoom Phone audio and transcript are supported in [library/javascript/rtmsManager](../../library/javascript/rtmsManager/RTMSManager.js) |
 
 ### Common questions
 
