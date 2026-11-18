@@ -174,7 +174,7 @@ Collect before you open a case: your client ID and the account ID. The meeting U
 From Zoom's release preview. Plan for it, but do not promise it to customers:
 
 1. **V2 protocol:** protobuf wire format (JSON messages keep working), SRT as a data transport next to WSS, `event_code` in place of `event_type`, standard definition video becoming 640x360 and PNG no longer available for video or screen share. The handshake `protocol_version` defaults to `1`. Zoom does not document a pinning or advance-notice policy.
-2. **Transcript rewind.** Corrections to sentences already delivered. The first delivery is a NEW event (`attribute: 1`), and revisions are UPDATE events (`attribute: 2`) with the same `sentence_id` and the full replacement text. Replace the sentence, do not append. The sample writer now does this when `RTMS_SAVE_TRANSCRIPT=true`. Verify it with the F3 coverage test.
+2. **Transcript rewind.** Corrections to sentences already delivered. The first delivery is a NEW event (`attribute: 1`), and revisions are UPDATE events (`attribute: 2`) with the same `sentence_id` and the full replacement text. Replace the sentence, do not append. The sample writer now does this when `RTMS_SAVE_TRANSCRIPT=true`. Verify it against a real meeting with corrections.
 3. **`REQUEST_ERROR_RESP`, `MEDIA_DATA_USER_INFO`, an audio `source` field**, application-layer AEAD media encryption (approved per app, by request), and **Zoom Phone** audio and transcript.
 4. **TLS 1.2 or 1.3 required on every connection from 2026-11-15.** The `ws` client on a current Node release negotiates TLS 1.2 or newer by default. Check your own proxy or runtime if you changed it.
 
@@ -185,7 +185,7 @@ Zoom documents two caveats: closing an app from the app menu fires no callback a
 1. Run `npm run live:check -- --public-url https://<your-host>/webhook` against your production URL (step 3).
 2. Give your customers step 4's admin and host instructions. RTMS does not start until their admin enables it.
 3. Subscribe to `rtms.request_status` and both concurrency events, and alert on them.
-4. Rehearse a purge: stop reason 8 means delete the assets and confirm. The F3 coverage test exercises the service purge flag, deletion confirmations and dashboard alert together.
+4. Rehearse a purge: stop reason 8 means delete the assets and confirm. Walk the service purge flag, the deletion confirmations and the dashboard alert together.
 5. Run a real meeting through `npm run live` and watch every phase, a reconnect, and a stop.
 
 ---
