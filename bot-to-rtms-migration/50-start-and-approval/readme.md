@@ -262,3 +262,20 @@ The setup steps are in **Connect to real Zoom** above. Once live, the log shows,
 `npm run demo:03` replays a fixed script of signed webhooks through the same service, in-process, with a throwaway secret and no network. It is a simulation, useful for reading each decision without a meeting.
 
 ---
+
+---
+
+## Elsewhere in the guide
+
+Every part, one click away. The [overview](../readme.md) holds the map.
+
+- [00 Design](../00-design/readme.md) - Production architecture: failure drills, media choices, observability, the webhook SLO
+- [10 Integration Advisor](../10-integration-advisor/readme.md) - Step 1. What changes, which sample to start from, the gap-checker
+- [20 Configure](../20-configure/readme.md) - Step 2. The Marketplace app: manifest, scopes, events, credentials
+- [30 Publish](../30-publish/readme.md) - Step 3. Review, evidence and the rejections to avoid
+- [40 Prepare](../40-prepare/readme.md) - Step 4. Admin enablement, host approval, consent, the status codes
+- [60 Stream Lifecycle Client](../60-stream-lifecycle-client/readme.md) - Step 6. Signaling and media sockets, keep-alives, reconnect, generations
+- [61 Media And Participants](../61-media-and-participants/readme.md) - Step 6. The participant registry, the camera selector, media profiles
+- [70 Reporting Dashboard](../70-reporting-dashboard/readme.md) - Step 7. The dashboard, alerts, the event contract, the production checklist
+- [The root readme](../readme.md) - the seven steps, the plan and licensing checks, the reuse table
+

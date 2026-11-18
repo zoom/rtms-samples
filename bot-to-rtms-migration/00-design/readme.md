@@ -267,3 +267,20 @@ The 50-start-and-approval service already implements this edge. Its green states
 3. Alert on 5xx rate, p-95 acknowledge latency against the 3 s budget, dedupe window size, and queue age.
 4. Chaos: kill replicas mid-delivery, partition the store, slow the queue - the endpoint must keep answering 200 or fail loudly, never hang.
 5. Rehearse the purge and deauthorization flows: they arrive as webhooks too, and they carry data-deletion obligations.
+
+---
+
+## Elsewhere in the guide
+
+Every part, one click away. The [overview](../readme.md) holds the map.
+
+- [10 Integration Advisor](../10-integration-advisor/readme.md) - Step 1. What changes, which sample to start from, the gap-checker
+- [20 Configure](../20-configure/readme.md) - Step 2. The Marketplace app: manifest, scopes, events, credentials
+- [30 Publish](../30-publish/readme.md) - Step 3. Review, evidence and the rejections to avoid
+- [40 Prepare](../40-prepare/readme.md) - Step 4. Admin enablement, host approval, consent, the status codes
+- [50 Start And Approval](../50-start-and-approval/readme.md) - Step 5. The webhook endpoint, deduplication, claims, the tenant gate, OAuth
+- [60 Stream Lifecycle Client](../60-stream-lifecycle-client/readme.md) - Step 6. Signaling and media sockets, keep-alives, reconnect, generations
+- [61 Media And Participants](../61-media-and-participants/readme.md) - Step 6. The participant registry, the camera selector, media profiles
+- [70 Reporting Dashboard](../70-reporting-dashboard/readme.md) - Step 7. The dashboard, alerts, the event contract, the production checklist
+- [The root readme](../readme.md) - the seven steps, the plan and licensing checks, the reuse table
+

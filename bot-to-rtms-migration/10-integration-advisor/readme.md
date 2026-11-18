@@ -223,3 +223,20 @@ Not covered yet, as of 2026-11-05. "Not documented" means Zoom's published docs 
 **RTMS or cloud recordings?** Use RTMS when the product must act during the meeting (agent assist, compliance prompts, live dashboards, translation). Use recordings when minutes of delay is fine, or when you need Zoom's canonical file. A hybrid is common: live transcript for action, the recording as evidence.
 
 **What latency should I expect?** Expect about 40 to 200 ms on average, depending on how far your server sits from Zoom's signaling and media servers. RTMS removes the bot's join and capture overhead but adds a webhook hop and WebSocket hops. Do not promise real-time guarantees. Measure four things separately: Zoom event to your webhook, webhook to signaling connected, media handshake to first packet, and packet to your result.
+
+---
+
+## Elsewhere in the guide
+
+Every part, one click away. The [overview](../readme.md) holds the map.
+
+- [00 Design](../00-design/readme.md) - Production architecture: failure drills, media choices, observability, the webhook SLO
+- [20 Configure](../20-configure/readme.md) - Step 2. The Marketplace app: manifest, scopes, events, credentials
+- [30 Publish](../30-publish/readme.md) - Step 3. Review, evidence and the rejections to avoid
+- [40 Prepare](../40-prepare/readme.md) - Step 4. Admin enablement, host approval, consent, the status codes
+- [50 Start And Approval](../50-start-and-approval/readme.md) - Step 5. The webhook endpoint, deduplication, claims, the tenant gate, OAuth
+- [60 Stream Lifecycle Client](../60-stream-lifecycle-client/readme.md) - Step 6. Signaling and media sockets, keep-alives, reconnect, generations
+- [61 Media And Participants](../61-media-and-participants/readme.md) - Step 6. The participant registry, the camera selector, media profiles
+- [70 Reporting Dashboard](../70-reporting-dashboard/readme.md) - Step 7. The dashboard, alerts, the event contract, the production checklist
+- [The root readme](../readme.md) - the seven steps, the plan and licensing checks, the reuse table
+

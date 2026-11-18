@@ -188,3 +188,19 @@ Zoom documents two caveats: closing an app from the app menu fires no callback a
 4. Rehearse a purge: stop reason 8 means delete the assets and confirm. The F3 coverage test exercises the service purge flag, deletion confirmations and dashboard alert together.
 5. Run a real meeting through `npm run live` and watch every phase, a reconnect, and a stop.
 
+---
+
+## Elsewhere in the guide
+
+Every part, one click away. The [overview](../readme.md) holds the map.
+
+- [00 Design](../00-design/readme.md) - Production architecture: failure drills, media choices, observability, the webhook SLO
+- [10 Integration Advisor](../10-integration-advisor/readme.md) - Step 1. What changes, which sample to start from, the gap-checker
+- [20 Configure](../20-configure/readme.md) - Step 2. The Marketplace app: manifest, scopes, events, credentials
+- [30 Publish](../30-publish/readme.md) - Step 3. Review, evidence and the rejections to avoid
+- [40 Prepare](../40-prepare/readme.md) - Step 4. Admin enablement, host approval, consent, the status codes
+- [50 Start And Approval](../50-start-and-approval/readme.md) - Step 5. The webhook endpoint, deduplication, claims, the tenant gate, OAuth
+- [60 Stream Lifecycle Client](../60-stream-lifecycle-client/readme.md) - Step 6. Signaling and media sockets, keep-alives, reconnect, generations
+- [61 Media And Participants](../61-media-and-participants/readme.md) - Step 6. The participant registry, the camera selector, media profiles
+- [The root readme](../readme.md) - the seven steps, the plan and licensing checks, the reuse table
+

@@ -98,3 +98,19 @@ Design around panelist media first. Attendee streams may not be individually ava
 - **If a subscribed participant leaves,** only that person's video interval ends. Close it, remove them from the selection and keep the stream.
 - **Formats:** `RTMS_AUDIO_*`, `RTMS_VIDEO_*` and `RTMS_TRANSCRIPT_*` set what you negotiate, and invalid combinations (stereo without Opus, an fps out of range) are refused before anything connects.
 
+---
+
+## Elsewhere in the guide
+
+Every part, one click away. The [overview](../readme.md) holds the map.
+
+- [00 Design](../00-design/readme.md) - Production architecture: failure drills, media choices, observability, the webhook SLO
+- [10 Integration Advisor](../10-integration-advisor/readme.md) - Step 1. What changes, which sample to start from, the gap-checker
+- [20 Configure](../20-configure/readme.md) - Step 2. The Marketplace app: manifest, scopes, events, credentials
+- [30 Publish](../30-publish/readme.md) - Step 3. Review, evidence and the rejections to avoid
+- [40 Prepare](../40-prepare/readme.md) - Step 4. Admin enablement, host approval, consent, the status codes
+- [50 Start And Approval](../50-start-and-approval/readme.md) - Step 5. The webhook endpoint, deduplication, claims, the tenant gate, OAuth
+- [60 Stream Lifecycle Client](../60-stream-lifecycle-client/readme.md) - Step 6. Signaling and media sockets, keep-alives, reconnect, generations
+- [70 Reporting Dashboard](../70-reporting-dashboard/readme.md) - Step 7. The dashboard, alerts, the event contract, the production checklist
+- [The root readme](../readme.md) - the seven steps, the plan and licensing checks, the reuse table
+

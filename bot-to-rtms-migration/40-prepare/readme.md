@@ -189,3 +189,20 @@ There is none. This step is admin settings, host actions and invitations, and no
 ## Adapting this sample
 
 Document your own rollout in this folder: which accounts, which groups, which approval flow, and the checklist you run per customer. Add screenshots of the admin pages in the state your customers will see.
+
+---
+
+## Elsewhere in the guide
+
+Every part, one click away. The [overview](../readme.md) holds the map.
+
+- [00 Design](../00-design/readme.md) - Production architecture: failure drills, media choices, observability, the webhook SLO
+- [10 Integration Advisor](../10-integration-advisor/readme.md) - Step 1. What changes, which sample to start from, the gap-checker
+- [20 Configure](../20-configure/readme.md) - Step 2. The Marketplace app: manifest, scopes, events, credentials
+- [30 Publish](../30-publish/readme.md) - Step 3. Review, evidence and the rejections to avoid
+- [50 Start And Approval](../50-start-and-approval/readme.md) - Step 5. The webhook endpoint, deduplication, claims, the tenant gate, OAuth
+- [60 Stream Lifecycle Client](../60-stream-lifecycle-client/readme.md) - Step 6. Signaling and media sockets, keep-alives, reconnect, generations
+- [61 Media And Participants](../61-media-and-participants/readme.md) - Step 6. The participant registry, the camera selector, media profiles
+- [70 Reporting Dashboard](../70-reporting-dashboard/readme.md) - Step 7. The dashboard, alerts, the event contract, the production checklist
+- [The root readme](../readme.md) - the seven steps, the plan and licensing checks, the reuse table
+
