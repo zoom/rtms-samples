@@ -2,9 +2,18 @@
 
 Meeting SDK bots keep working, but Zoom now steers new integrations to RTMS, so moving is not a decision you weigh, it is the destination. This folder is information for developers doing that move: what changes between the two models, which of your bot's features have an RTMS equivalent, and which existing sample to start from so you write as little new connection code as possible.
 
+**Contents**
+
+- [Start from an existing sample](#start-from-an-existing-sample) - working repos to build on, never from zero
+- [What actually changes](#what-actually-changes) - bot vs RTMS, table form
+- [Optional: check your gaps first](#optional-check-your-gaps-first) - the `npm run advise` gap-checker
+- [Reference tables](#reference-tables) - what RTMS replaces, media parity, assumptions that no longer hold, which surface owns what
+- [Adapting this sample](#adapting-this-sample) and [Files and tests](#files-and-tests)
+- [Step 1. Know what changes before you write code](#step-1-know-what-changes-before-you-write-code) - the guide's decision chapter: replacement table, the gaps in order, gains and losses, common questions
+
 ## Start from an existing sample
 
-Do not write the RTMS flow from scratch. Each of these works today; pick the closest to your product and build on it:
+Do not write the RTMS flow from scratch. Each of these works today. Pick the closest to your product and build on it:
 
 | Your bot does | Start from |
 |---|---|
@@ -43,16 +52,16 @@ npm run advise -- --capabilities | --media | --assumptions | --belongs
 
 It reads as a checklist, in this order:
 
-1. **No live action needed, or CRM archive only** → recording webhooks plus the Recording REST API are enough; do not pull RTMS in just as a downloader.
+1. **No live action needed, or CRM archive only** → recording webhooks plus the Recording REST API are enough. Do not pull RTMS in just as a downloader.
 2. **A blocker for RTMS** (approval flow unacceptable, external customers cannot authorize, ad hoc join, raw capture gaps, every camera at once) → that part of the product needs a companion while RTMS carries the rest.
-3. **A control RTMS lacks** (visible bot, speech, chat, host controls, recording control) → plan the companion surface; keep RTMS for the data feed if you want it independent (`wantsRtmsDataPlane`).
+3. **A control RTMS lacks** (visible bot, speech, chat, host controls, recording control) → plan the companion surface. Keep RTMS for the data feed if you want it independent (`wantsRtmsDataPlane`).
 4. **Otherwise** the whole bot maps onto RTMS, with the conditions the checker names (active-app indicator, Contact Center entitlement, reconnect and tenant policy).
 
 Unknown requirement names throw instead of being ignored.
 
 ## Reference tables
 
-The four tables below are the reference data. They also live as data in [src/capabilities.js](src/capabilities.js), where the advisor's `--capabilities | --media | --assumptions | --belongs` flags print them; this readme is the human-readable copy.
+The four tables below are the reference data. They also live as data in [src/capabilities.js](src/capabilities.js), where the advisor's `--capabilities | --media | --assumptions | --belongs` flags print them. This readme is the human-readable copy.
 
 ### What RTMS replaces, and with what
 
@@ -125,7 +134,7 @@ The four tables below are the reference data. They also live as data in [src/cap
 
 ## Step 1. Know what changes before you write code
 
-Meeting SDK bots keep working; RTMS is where new builds end up. Before you write code, map what your bot does today onto what RTMS provides, because some features have no RTMS equivalent and finding that out late is the most expensive mistake in this migration.
+Meeting SDK bots keep working. RTMS is where new builds end up. Before you write code, map what your bot does today onto what RTMS provides, because some features have no RTMS equivalent and finding that out late is the most expensive mistake in this migration.
 
 ### What RTMS can and cannot replace
 
@@ -147,7 +156,7 @@ Meeting SDK bots keep working; RTMS is where new builds end up. Before you write
 3. **Something RTMS lacks** (a visible bot, speech, chat, host controls, recording control): plan the companion surface for it. Add RTMS as well only if you also want an independent analytics or compliance feed. That combination needs one identity, consent and audit service across both.
 4. **Everything else moves to RTMS.** Add a Zoom App if users need a panel inside the meeting. Contact Center voice RTMS needs its own entitlement.
 
-RTMS fits the parts of your product where all of these hold: you need inbound media and metadata, not control; an admin and host approval flow is acceptable; you can operate reconnect, idempotency and tenant policy; the bot does not need to speak or chat; and the media options cover the layout and channels you need. Everything outside that set needs a companion surface, today on the Meeting SDK, until those features have a replacement.
+RTMS fits the parts of your product where all of these hold. You need inbound media and metadata, not control. An admin and host approval flow is acceptable. You can operate reconnect, idempotency and tenant policy. The bot does not need to speak or chat. And the media options cover the layout and channels you need. Everything outside that set needs a companion surface, today on the Meeting SDK, until those features have a replacement.
 
 RTMS is deliberately narrow, only authorized inbound media and metadata. It has no participant runtime and no control surface, so do not force it to own presence, injection or controls. Use RTMS for the data plane, and the Meeting SDK or a Zoom App only for the specific control or UI gap.
 
@@ -174,7 +183,7 @@ Which surface owns what:
 5. An app used by a meeting owner keeps running after the owner leaves and transfers host.
 6. Receive-only infrastructure, with no meeting client per meeting.
 
-**Give up or rebuild** — speaking, posting chat and host controls; meetings where no authorized user is present; capture that does not depend on permission (a host can deny); and the WebSocket lifecycle, reconnect and deduplication, which become yours.
+**Give up or rebuild** — speaking, posting chat and host controls. Meetings where no authorized user is present. Capture that does not depend on permission (a host can deny). And the WebSocket lifecycle, reconnect and deduplication, which become yours.
 
 Not covered yet, as of 2026-11-05. "Not documented" means Zoom's published docs do not say it is supported, so treat it as unsupported until Zoom confirms:
 

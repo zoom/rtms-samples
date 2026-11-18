@@ -9,7 +9,7 @@ npm run demo:70 -- --json    # offline: deterministic sample trace, no environme
 npm run start:70 -- --sample # serve the sample at http://127.0.0.1:4806/
 ```
 
-No environment is required. The demo writes nothing by default and prints the report summary as JSON; `npm run demo:70` alone writes `.data/report.html` and prints a human-readable summary. The sample server serves the same data at `/`. For your own trace, omit `--sample` and set `TRACE_FILE` or use the CLI `--trace` option shown below.
+No environment is required. The demo writes nothing by default and prints the report summary as JSON. `npm run demo:70` alone writes `.data/report.html` and prints a human-readable summary. The sample server serves the same data at `/`. For your own trace, omit `--sample` and set `TRACE_FILE` or use the CLI `--trace` option shown below.
 
 ## Meeting SDK bot vs RTMS
 
@@ -76,8 +76,8 @@ The report builder is a pure function over events. In production compute the sam
 
 - **New panels.** Compute them in [src/report.js](src/report.js) from the event stream and render them in [src/render.js](src/render.js). The report is a pure function over events, so a new panel is a new reduction, plus one test.
 - **Your alerts.** Thresholds for the critical alerts (revoked stream, missing consent, limit reached, lost claim) are in the report builder. Move alerting into your pager by consuming `GET /api/report` or the same events.
-- **Your CRM.** Emit `crm_sync` events from your pipeline as documented above; the panel needs nothing else. Add statuses freely, the latest per stream wins.
-- **The event contract.** Keep the event names and fields; they are the contract between steps 5, 6 and 7, and a test feeds the stream client's events through the report to enforce it.
+- **Your CRM.** Emit `crm_sync` events from your pipeline as documented above. The panel needs nothing else. Add statuses freely, the latest per stream wins.
+- **The event contract.** Keep the event names and fields. They are the contract between steps 5, 6 and 7, and a test feeds the stream client's events through the report to enforce it.
 
 ## Files and tests
 
@@ -160,14 +160,14 @@ To compare with running bots, multiply meetings per day by average minutes, by t
 
 ### When you contact Zoom support
 
-Collect before you open a case: your client ID and the account ID; the meeting UUID and ID, the `rtms_stream_id` and the `operator_id`; UTC times and the raw payloads of `rtms_started`, `rtms.request_status` and `rtms_stopped`; the start path and any REST error code (`2308`, `2310`, `13262`, `13267`, `13273`); and the user's auto-start settings and the host's Always ask or Always allow at that moment. Zoom's published routes are the Developer Forum and Premier Developer Support. Zoom staff can look a meeting up in internal tooling, which is not documented as self-serve, so send the identifiers.
+Collect before you open a case: your client ID and the account ID. The meeting UUID and ID, the `rtms_stream_id` and the `operator_id`. UTC times and the raw payloads of `rtms_started`, `rtms.request_status` and `rtms_stopped`. The start path and any REST error code (`2308`, `2310`, `13262`, `13267`, `13273`). And the user's auto-start settings and the host's Always ask or Always allow at that moment. Zoom's published routes are the Developer Forum and Premier Developer Support. Zoom staff can look a meeting up in internal tooling, which is not documented as self-serve, so send the identifiers.
 
 ### What changes in the November release (preview, not shipped)
 
 From Zoom's release preview. Plan for it, but do not promise it to customers:
 
 1. **V2 protocol:** protobuf wire format (JSON messages keep working), SRT as a data transport next to WSS, `event_code` in place of `event_type`, standard definition video becoming 640x360 and PNG no longer available for video or screen share. The handshake `protocol_version` defaults to `1`. Zoom does not document a pinning or advance-notice policy.
-2. **Transcript rewind:** corrections to sentences already delivered. The first delivery is a NEW event (`attribute: 1`), and revisions are UPDATE events (`attribute: 2`) with the same `sentence_id` and the full replacement text. Replace the sentence, do not append. The sample writer now does this when `RTMS_SAVE_TRANSCRIPT=true`; verify it with the F3 coverage test.
+2. **Transcript rewind.** Corrections to sentences already delivered. The first delivery is a NEW event (`attribute: 1`), and revisions are UPDATE events (`attribute: 2`) with the same `sentence_id` and the full replacement text. Replace the sentence, do not append. The sample writer now does this when `RTMS_SAVE_TRANSCRIPT=true`. Verify it with the F3 coverage test.
 3. **`REQUEST_ERROR_RESP`, `MEDIA_DATA_USER_INFO`, an audio `source` field**, application-layer AEAD media encryption (approved per app, by request), and **Zoom Phone** audio and transcript.
 4. **TLS 1.2 or 1.3 required on every connection from 2026-11-15.** The `ws` client on a current Node release negotiates TLS 1.2 or newer by default. Check your own proxy or runtime if you changed it.
 

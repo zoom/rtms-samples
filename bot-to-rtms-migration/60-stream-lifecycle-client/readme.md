@@ -9,7 +9,7 @@ npm run test:60    # lifecycle, protocol mock and pure-function tests
 
 Offline is the default. `demo:60` connects to a local WebSocket server, completes the handshakes, answers keep-alives, carries media, pauses and resumes, reconnects after a dropped socket, follows a server replacement, and prints the final manifest summary. Expect `phase client_ready_sent`, `phase streaming`, then `mock stream complete` with packets, duplicates, keep-alives, reconnects and segment boundaries. That local server, [mockRtmsServer.js](mockRtmsServer.js), is a test harness that speaks the protocol, not Zoom: the live path always connects to Zoom's real servers, and the mock exists only so reconnect, dedup and state-machine logic can be tested without a meeting.
 
-To point the same demo at a real RTMS endpoint, set `RTMS_SIGNALING_URL`, `ZOOM_CLIENT_ID` and `ZOOM_CLIENT_SECRET`; `RTMS_MEDIA`, `RTMS_MEETING_ID` and `RTMS_STREAM_ID` are optional. The full webhook-to-client path is in 50-start-and-approval; this folder can connect only when you already have a signaling URL.
+To point the same demo at a real RTMS endpoint, set `RTMS_SIGNALING_URL`, `ZOOM_CLIENT_ID` and `ZOOM_CLIENT_SECRET`. `RTMS_MEDIA`, `RTMS_MEETING_ID` and `RTMS_STREAM_ID` are optional. The full webhook-to-client path is in 50-start-and-approval. This folder can connect only when you already have a signaling URL.
 
 Connects to Zoom's real RTMS servers. It runs the signaling and media handshakes, answers keep-alives, recovers each socket on its own, treats pause and resume as boundaries, and produces a versioned manifest. The start-and-approval service hands it each claimed stream, and the media-and-participants folder adds participants and cameras on top.
 
@@ -67,7 +67,7 @@ Each socket has its own state, attempt counter and timers.
 7. **Failed recovery or a missed window** finalizes the generation with `degraded` set and `requires_new_generation` true. It does not retry forever.
 8. **Server replaced**: a new `started` webhook for a stream you already hold carries new server URLs. `client.refresh(serverUrls)` closes the old sockets quietly and reconnects to the new server. That is not counted as a failure or a reconnect.
 9. `PAUSED` closes the open segments, `RESUMED` opens new ones with boundary `resume`. A pause is not a new stream. `degraded_or_paused` is not by itself proof of a user pause: a media leg can be interrupted and recover while the stream remains live, so use the `PAUSED`/`RESUMED` events for pause boundaries. `MEDIA_CONNECTION_INTERRUPTED` and `INTERRUPTED` mark the stream degraded.
-10. A server stop (`TERMINATED`, session `STOPPED`) finalizes with `decideStop(reason)`. A controlled stop can move directly through `STOPPED` to `TERMINATED` without an explicit `TERMINATING`; the three-second fallback covers a server that closes the sockets after `TERMINATING`. `client.close()` sends `STREAM_CLOSE_REQ` first.
+10. A server stop (`TERMINATED`, session `STOPPED`) finalizes with `decideStop(reason)`. A controlled stop can move directly through `STOPPED` to `TERMINATED` without an explicit `TERMINATING`. The three-second fallback covers a server that closes the sockets after `TERMINATING`. `client.close()` sends `STREAM_CLOSE_REQ` first.
 
 ### Settings worth knowing
 
@@ -91,7 +91,7 @@ That is the closest check available without a live stream. It is not a substitut
 
 ## What is tested, and what is not
 
-The local protocol mock is part of the folder now. It is a test harness, not a Zoom implementation; live behavior still needs a real meeting. The automated tests:
+The local protocol mock is part of the folder now. It is a test harness, not a Zoom implementation. Live behavior still needs a real meeting. The automated tests:
 
 | Covered | How |
 |---|---|
@@ -103,11 +103,11 @@ The local protocol mock is part of the folder now. It is a test harness, not a Z
 
 ## Adapting this sample
 
-- **Your media writer.** The client counts, hashes and attributes chunks but stores nothing. Put your storage in the `onPacket` callback of [src/streamClient.js](src/streamClient.js); the manifest and gap bookkeeping keep working whatever you write.
+- **Your media writer.** The client counts, hashes and attributes chunks but stores nothing. Put your storage in the `onPacket` callback of [src/streamClient.js](src/streamClient.js). The manifest and gap bookkeeping keep working whatever you write.
 - **Tuning.** Reconnect windows (`RTMS_SIGNALING_WINDOW_SEC`, `RTMS_MEDIA_WINDOW_SEC`), `RTMS_BUFFER_DATA` and the transcript languages are environment settings, listed under Settings worth knowing. Start there before editing code.
-- **Event subscriptions.** The default set (active speaker, join, leave) is built in `src/streamClient.js` at `msg_type 5`. Add the groups your product needs; they are re-sent after every signaling reconnect, so keep that path intact.
+- **Event subscriptions.** The default set (active speaker, join, leave) is built in `src/streamClient.js` at `msg_type 5`. Add the groups your product needs. They are re-sent after every signaling reconnect, so keep that path intact.
 - **A richer test harness.** The client accepts a `WebSocketImpl` option, so you can inject your own socket implementation without touching the reconnect logic.
-- **Manifest fields.** Add product-specific fields in [src/manifest.js](src/manifest.js) and bump `schema_version` when you do; [src/generations.js](src/generations.js) must keep numbering generations without reuse.
+- **Manifest fields.** Add product-specific fields in [src/manifest.js](src/manifest.js) and bump `schema_version` when you do. [src/generations.js](src/generations.js) must keep numbering generations without reuse.
 
 ## Files
 
@@ -217,8 +217,8 @@ Never mutate an original artifact. Keep writing the old version until a tested w
 
 ### November release preview (not yet live)
 
-Plan for these; none change the V1 client today. TLS 1.2 or 1.3 becomes required on every connection from 15 November 2026, so pin your Node TLS range now. The V2 protocol adds a protobuf wire format (JSON stays unchanged and works on both), `event_code` replacing the legacy `event_type`, an SRT transport option for data connections (`srt_passphrase` and `srt_pbkey_length` in the handshake response), AEAD payload encryption by request only, a `REQUEST_ERROR_RESP` message with `status_code` and `reason` for failed requests, and multiple individual video streams (up to four concurrent 720p subscriptions per stream, server feature by request). SD video becomes 640x360 and PNG goes away for video and screen share. Transcript rewind sends UPDATE events with the same `sentence_id` and full replacement text whenever `enable_lid` is on: replace the sentence, do not append. `MEDIA_DATA_USER_INFO` arrives unsubscriptioned on the event channel with `user_id`, `user_name` and `participant_uuid` (Meetings only), and `MEDIA_DATA_AUDIO` gains `content.source` (1 microphone, 2 shared content). Audio boundaries change: one frame per message for RTP and raw Opus/G711/G722, variable frames up to 128 KiB for L16.
+Plan for these. None change the V1 client today. TLS 1.2 or 1.3 becomes required on every connection from 15 November 2026, so pin your Node TLS range now. The V2 protocol adds a protobuf wire format (JSON stays unchanged and works on both), `event_code` replacing the legacy `event_type`, an SRT transport option for data connections (`srt_passphrase` and `srt_pbkey_length` in the handshake response), AEAD payload encryption by request only, a `REQUEST_ERROR_RESP` message with `status_code` and `reason` for failed requests, and multiple individual video streams (up to four concurrent 720p subscriptions per stream, server feature by request). SD video becomes 640x360 and PNG goes away for video and screen share. Transcript rewind sends UPDATE events with the same `sentence_id` and full replacement text whenever `enable_lid` is on: replace the sentence, do not append. `MEDIA_DATA_USER_INFO` arrives unsubscriptioned on the event channel with `user_id`, `user_name` and `participant_uuid` (Meetings only), and `MEDIA_DATA_AUDIO` gains `content.source` (1 microphone, 2 shared content). Audio boundaries change: one frame per message for RTP and raw Opus/G711/G722, variable frames up to 128 KiB for L16.
 
-The mock is a protocol harness, not Zoom. Before production, validate the remaining real-service behavior: Zoom's exact status codes and phase timing, media waiting for signaling under real failure timing, sustained-outage timing, and the real `TERMINATING` grace period. The F3 coverage sample demonstrates the gap, state and representative-code logic against the mock; it is not a substitute for a live meeting.
+The mock is a protocol harness, not Zoom. Before production, validate the remaining real-service behavior: Zoom's exact status codes and phase timing, media waiting for signaling under real failure timing, sustained-outage timing, and the real `TERMINATING` grace period. The F3 coverage sample demonstrates the gap, state and representative-code logic against the mock. It is not a substitute for a live meeting.
 
 ---

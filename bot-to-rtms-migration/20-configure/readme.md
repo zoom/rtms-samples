@@ -1,11 +1,11 @@
 # 20 Configure the Marketplace app
 
-Step 2 of 7. There is no code here; this step is Marketplace settings. The full instructions are in the root readme, section **Step 2**. In short:
+Step 2 of 7. There is no code here. This step is Marketplace settings. The full instructions are in the root readme, section **Step 2**. In short:
 
 1. Create the app and fill in the manifest, display and developer information.
 2. Add the RTMS scopes, one per media type you capture, for example `meeting:read:meeting_audio` and `meeting:read:meeting_transcript`.
 3. Subscribe to the lifecycle events: `meeting.rtms_started`, `rtms_stopped`, `rtms_interrupted` and `rtms.request_status`.
-4. Note the client ID and secret. They only sign the handshake; installation, policy and approval do the authorizing.
+4. Note the client ID and secret. They only sign the handshake. Installation, policy and approval do the authorizing.
 
 ---
 
@@ -17,7 +17,7 @@ Most of the work in this step is configuration: `manifest.json`, scopes, event s
 
 ### What you create
 
-A **General App** in the Zoom Marketplace (Develop, Build App, General App). RTMS events and scopes can only be added to a **user-managed** app (`USER_OPERATION`): it is installed by the person whose meetings it receives, or added by an admin for users and groups. An admin-managed app (`ADMIN_MANAGEMENT`) cannot use the RTMS scopes, so a bot vendor that runs an admin-managed app needs a separate user-managed app for RTMS. RTMS scopes also need granular scopes (new apps have them; an older app may need them turned on) and cannot be marked optional, so request only the media you use. Event subscription changes take 1-2 minutes to take effect.
+A **General App** in the Zoom Marketplace (Develop, Build App, General App). RTMS events and scopes can only be added to a **user-managed** app (`USER_OPERATION`): it is installed by the person whose meetings it receives, or added by an admin for users and groups. An admin-managed app (`ADMIN_MANAGEMENT`) cannot use the RTMS scopes, so a bot vendor that runs an admin-managed app needs a separate user-managed app for RTMS. RTMS scopes also need granular scopes (new apps have them, an older app may need them turned on) and cannot be marked optional, so request only the media you use. Event subscription changes take 1-2 minutes to take effect.
 
 What a Meeting SDK bot did not need, and RTMS does:
 
@@ -113,7 +113,7 @@ No scope name for screen share is documented in this repo. Add it by hand in the
 
 Adding RTMS to an app that people already installed has three consequences:
 
-1. **Users MUST authorize again.** When you update scopes or webhook settings, Zoom requires each user to authorize again before it issues a new code; there is no silent upgrade. Plan a reauthorization campaign: an in-product prompt, an email, and admin outreach, and track completion per tenant. Zoom does not document whether existing users are notified, so send your own notice. After you change OAuth or webhook settings, regenerate the authorization URL instead of reusing old links (Zoom support guidance).
+1. **Users MUST authorize again.** When you update scopes or webhook settings, Zoom requires each user to authorize again before it issues a new code. There is no silent upgrade. Plan a reauthorization campaign: an in-product prompt, an email, and admin outreach, and track completion per tenant. Zoom does not document whether existing users are notified, so send your own notice. After you change OAuth or webhook settings, regenerate the authorization URL instead of reusing old links (Zoom support guidance).
 2. **Tokens.** Access tokens last one hour. Refresh tokens last 90 days and rotate, so always store the newest one. If a refresh is rejected, or the token lacks a new scope, only a new authorization fixes it. The start-and-approval sample does this bookkeeping per user.
 3. **Many users.** An admin can add the app for users and groups (Marketplace, Manage, Apps on account, Users & Groups). The RTMS docs do not describe an API that lists everyone who authorized your app or a webhook for users added to a group later, so reconcile against your customer's group list on a schedule and show "authorized N of M seats" in your admin screen. Choose who your event subscription covers (all users in the account, the account and its subaccounts, or only users who added the app) and pick the narrowest that fits.
 

@@ -1,6 +1,6 @@
 # 30 Publish the app
 
-Step 3 of 7. There is no code here; this step is review and evidence. The full instructions are in the root readme, section **Step 3**. The rules that matter:
+Step 3 of 7. There is no code here. This step is review and evidence. The full instructions are in the root readme, section **Step 3**. The rules that matter:
 
 - Keep every representation of the product consistent. The Marketplace configuration, the scopes, the production OAuth behavior, the docs, the test plan, the screenshots and the listing copy. If two of them disagree, the review stalls.
 - Keep the reviewer test plan concrete: starting state, install, each start path, host approval, one test per scope, stop, removal, reinstall.
@@ -21,7 +21,7 @@ Private, Beta, Unlisted or Published. It decides who can install and what Zoom a
 
 ### 3.2 Production infrastructure
 
-- Stable production URLs on a domain you control. HTTPS only. Zoom supports TLS 1.2 and above only; TLS 1.0 and 1.1 are not supported and must be refused.
+- Stable production URLs on a domain you control. HTTPS only. Zoom supports TLS 1.2 and above only. TLS 1.0 and 1.1 are not supported and must be refused.
 - If a CDN or proxy sits in front, check both hops: viewer to CDN, and CDN to origin.
 - Do not use a generated CDN hostname such as `d123example.cloudfront.net` as the production domain. You cannot add Zoom's verification record under it and you do not control its certificate settings. On CloudFront use a custom domain, an ACM certificate in `us-east-1`, a `TLSv1.2_2021` or newer policy, and an HTTPS-only origin allowing only TLS 1.2.
 - Verify every Marketplace domain with Zoom. A DNS TXT record is the most reliable check. A verification file must be served at the exact path and content, with no redirect, no authentication and no single-page-app rewrite.

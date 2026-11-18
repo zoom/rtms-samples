@@ -1,6 +1,6 @@
 # 40 Prepare accounts and approvals
 
-Step 4 of 7. There is no code here; this step is admin settings, host actions and people, and none of it can be simulated honestly. The full instructions are in the root readme, section **Step 4**. What has to be true before a stream can start:
+Step 4 of 7. There is no code here. This step is admin settings, host actions and people, and none of it can be simulated honestly. The full instructions are in the root readme, section **Step 4**. What has to be true before a stream can start:
 
 - RTMS enabled for the account, the app installed, the user eligible.
 - The admin policy allows the app, and where required the host approves, meeting by meeting.
@@ -115,7 +115,7 @@ No tile, but the active-app indicator. Consent is the overlap of the admin polic
 
 An unknown status is stored and alerted on. Never treat it as success.
 
-**Can I cancel a pending approval request?** No. The participant status API has no cancel: its `action` is only `start`, `stop`, `pause` or `resume`, and `stop` applies to an ongoing app. Stopping before the app starts fails with `13277` ("has not been started"). A pending request resolves only when the host approves or denies it, or when Zoom expires it on its own. If you must retract one deterministically, have it approved and immediately stop it; otherwise let your own watchdog retire the attempt and absorb a late `rtms_started` if it arrives.
+**Can I cancel a pending approval request?** No. The participant status API has no cancel: its `action` is only `start`, `stop`, `pause` or `resume`, and `stop` applies to an ongoing app. Stopping before the app starts fails with `13277` ("has not been started"). A pending request resolves only when the host approves or denies it, or when Zoom expires it on its own. If you must retract one deterministically, have it approved and immediately stop it. Otherwise let your own watchdog retire the attempt and absorb a late `rtms_started` if it arrives.
 
 **REST start outcomes.**
 
@@ -147,11 +147,11 @@ Map those messages to request status. Denied or host declined is 1 or 3, owner n
 
 **What should I record about each start attempt?** The meeting ID, the target user, the policy snapshot, the authorization result, the request status, and later the stream events. Also the app's client ID, the scopes and events in force, and the approving host. That lets support tell a Marketplace problem from an admin policy, a host denial, an entitlement problem or a media setting, without reproducing the meeting.
 
-**Rate limits on the status endpoint.** The PATCH `.../rtms_app/status` call that starts, stops, pauses and resumes is a normal rate-limited Zoom REST endpoint: it shares the per-user daily and per-minute allowances of your app tier, and a `429` means back off with jitter, not retry immediately. The client in 50-start-and-approval classifies `429` and backs off; do not add a second retry loop on top.
+**Rate limits on the status endpoint.** The PATCH `.../rtms_app/status` call that starts, stops, pauses and resumes is a normal rate-limited Zoom REST endpoint: it shares the per-user daily and per-minute allowances of your app tier, and a `429` means back off with jitter, not retry immediately. The client in 50-start-and-approval classifies `429` and backs off. Do not add a second retry loop on top.
 
-**Footprint.** RTMS needs less server than a Meeting SDK bot for the same data. A bot joins as a participant and decodes raw media in a per-meeting process; RTMS hands you the encoded streams over sockets your backend already holds, no participant process, no decode-for-relay. The stream client is state per connection, not compute per meeting.
+**Footprint.** RTMS needs less server than a Meeting SDK bot for the same data. A bot joins as a participant and decodes raw media in a per-meeting process. RTMS hands you the encoded streams over sockets your backend already holds, no participant process, no decode-for-relay. The stream client is state per connection, not compute per meeting.
 
-**Troubleshooting evidence differs by stack.** A Meeting SDK bot is diagnosed from its encrypted SDK logs; capture them the way the SDK guide describes. RTMS is diagnosed from identifiers instead: the meeting UUID and `rtms_stream_id` locate the stream on Zoom's side, and for any REST call or webhook event, also the `x-zm-trackingid` response header (webhook events carry `x-zm-request-id`; a failed API response carries `x-zm-trackingid`). A support ticket with those values lets Zoom service engineering find the backend request without a repro.
+**Troubleshooting evidence differs by stack.** A Meeting SDK bot is diagnosed from its encrypted SDK logs. Capture them the way the SDK guide describes. RTMS is diagnosed from identifiers instead: the meeting UUID and `rtms_stream_id` locate the stream on Zoom's side, and for any REST call or webhook event, also the `x-zm-trackingid` response header (webhook events carry `x-zm-request-id`; a failed API response carries `x-zm-trackingid`). A support ticket with those values lets Zoom service engineering find the backend request without a repro.
 
 **Which limits can I not get around?** You cannot preapprove another company's host. A public meeting link does not make anyone eligible. You cannot force, poll or bypass the approval prompt. You cannot start REST RTMS for someone who has not joined.
 

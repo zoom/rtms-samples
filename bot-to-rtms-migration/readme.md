@@ -1,12 +1,12 @@
 # Moving a Meeting SDK bot to Zoom RTMS, a step-by-step guide
 
-This guide is for those who run a Meeting SDK bot today (a participant that joins meetings to transcribe, record, analyze or assist) and want to replace it with Zoom Realtime Media Streams (RTMS). This readme is the overview; each step's details live in that step's folder, listed in the table below.
+This guide is for those who run a Meeting SDK bot today (a participant that joins meetings to transcribe, record, analyze or assist) and want to replace it with Zoom Realtime Media Streams (RTMS). This readme is the overview. Each step's details live in that step's folder, listed in the table below.
 
 ## The shift in one page
 
 A Meeting SDK bot **joins a meeting as a user**. RTMS **joins the same meeting as a service**, with no participant or roster. Zoom **pre-authorizes the stream**: your app must be installed, its user eligible, an admin policy must allow it, and sometimes the meeting's host must approve that meeting's stream, each time. The client ID and secret only sign the handshake. When the stream exists, a webhook tells you, and you connect to it.
 
-Your bot joined with a meeting ID, a passcode and a signed token, as a user. RTMS joins the same meeting with no user: installation, policy and approval pre-authorize the stream, and your credentials only sign the handshake. Your bot showed up as a participant tile; RTMS gets no tile, only a spot in the meeting's active-app indicator that you cannot hide. Your bot decided when to join; Zoom does, and you connect only after a verified `rtms_started` webhook. The SDK gave you one connection; RTMS needs a signaling socket plus one media socket per media type. The SDK stayed connected for you; now you answer keep-alives and run reconnect, backoff and deduplication. Your bot could speak, chat, mute and record; RTMS only receives, and those actions need another API. Your bot ran under one service account; every stream now belongs to a tenant, a policy snapshot and a consent decision.
+Your bot joined with a meeting ID, a passcode and a signed token, as a user. RTMS joins the same meeting with no user: installation, policy and approval pre-authorize the stream, and your credentials only sign the handshake. Your bot showed up as a participant tile. RTMS gets no tile, only a spot in the meeting's active-app indicator that you cannot hide. Your bot decided when to join. Zoom does, and you connect only after a verified `rtms_started` webhook. The SDK gave you one connection. RTMS needs a signaling socket plus one media socket per media type. The SDK stayed connected for you. Now you answer keep-alives and run reconnect, backoff and deduplication. Your bot could speak, chat, mute and record. RTMS only receives, and those actions need another API. Your bot ran under one service account. Every stream now belongs to a tenant, a policy snapshot and a consent decision.
 
 ## The seven steps
 
@@ -31,7 +31,7 @@ You do not have to start from this repository. Two existing resources work today
 - **The reference manager**, `library/javascript/rtmsManager` in this repo (with `library/javascript/webhookManager`), a compact, working connection layer.
 - **The RTMS SDK**, Zoom's published client for the protocol, if you prefer a supported package.
 
-This repository's `60-stream-lifecycle-client` is a fuller service built on the same protocol: generations, manifests, recovery and the artifact record. Read those two first if you want the smallest moving thing; come here when you need the whole path.
+This repository's `60-stream-lifecycle-client` is a fuller service built on the same protocol: generations, manifests, recovery and the artifact record. Read those two first if you want the smallest moving thing. Come here when you need the whole path.
 
 Node 18 or newer.
 
@@ -48,7 +48,7 @@ One honest caveat. The connection code follows the library in `library/javascrip
 ---
 ## The readmes, one per step
 
-Each step lives in its own folder, and each folder's readme is both the guide for that step and the documentation for the code in it: what to do, why, the questions people ask at that point, and the files, tests and settings. Start at the top; read a folder's readme when you reach that step.
+Each step lives in its own folder, and each folder's readme is both the guide for that step and the documentation for the code in it: what to do, why, the questions people ask at that point, and the files, tests and settings. Start at the top. Read a folder's readme when you reach that step.
 
 | Step | Folder | What is in it |
 |---|---|---|
@@ -74,7 +74,7 @@ These have working samples elsewhere in this repo (paths from the repo root), so
 | Compliance copilot | `zoom_apps/zoom_decisions_compliance_risk_copilot_js`, `zoom_apps/prompt_for_user_consent_js` (waits for consent, pauses when someone joins) |
 | Agent assist | `zoom_apps/ai_rag_customer_support_js`, `zoom_apps/ai_transcript_analysis_js` |
 | Enterprise capture and CRM sync | `storage/save_audio_and_video_to_aws_s3_storage_js` (finalize and upload through a durable queue) |
-| Contact Center agent assist | No RTMS sample here; Contact Center voice uses engagement events and the CC APIs, not the meeting RTMS flow. See `zoom/zcc-javascript-quickstart` and `zoom/zcc-nextjs-sample` on GitHub, and validate the engagement event coverage and entitlement first |
+| Contact Center agent assist | No RTMS sample here. Contact Center voice uses engagement events and the CC APIs, not the meeting RTMS flow. See `zoom/zcc-javascript-quickstart` and `zoom/zcc-nextjs-sample` on GitHub, and validate the engagement event coverage and entitlement first |
 | Start and stop from a Zoom App, or by REST | `zoom_apps/start_stop_rtms_control_js`, `rtms_api/manual_start_stop_using_js` |
 | Reconnection and chaos testing | `rtms_api/reconnection_and_chaos_mode_js` |
 | The reference library | `library/javascript/rtmsManager`, `library/javascript/webhookManager` |
