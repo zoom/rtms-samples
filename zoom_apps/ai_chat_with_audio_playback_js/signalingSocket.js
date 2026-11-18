@@ -1,4 +1,5 @@
 import WebSocket from 'ws';
+import { isAllowedRtmsCallbackUrl } from './urlPolicy.js';
 import { generateSignature } from './utils/signature.js';
 import { connectToMediaWebSocket } from './mediaSocket.js';
 import {
@@ -46,7 +47,7 @@ export function connectToSignalingWebSocket(
   console.log(`[Signaling] Connecting for meeting ${meetingUuid}`);
 
 
-  if (!serverUrls || typeof serverUrls !== 'string' || !serverUrls.startsWith('ws')) {
+  if (!isAllowedRtmsCallbackUrl(serverUrls)) {
     console.error(`[Signaling] ❌ Invalid WebSocket URL:`, serverUrls);
 
     // Set shouldReconnect to false to prevent retry loop

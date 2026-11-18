@@ -9,7 +9,12 @@ import dotenv from 'dotenv';
 import crypto from 'crypto';
 import { constants } from 'crypto';
 import fs from 'fs';
-import { authenticateZoomWebhook, captureRawBody } from './webhookSignature.js';
+import {
+  authenticateZoomWebhook,
+  captureRawBody,
+  buildUrlValidationResponse,
+  isAllowedRtmsCallbackUrl,
+} from './webhookSignature.js';
 
 dotenv.config();
 
@@ -505,6 +510,11 @@ function connectToMediaWebSocket(
 
   console.log(`Media WebSocket SSL verification disabled`);
 
+  if (!isAllowedRtmsCallbackUrl(mediaUrl)) {
+    console.warn(`[Media] Refusing media URL outside allowlist: ${mediaUrl}`);
+    return;
+  }
+
   const mediaWs = new WebSocket(mediaUrl, [], wsOptions);
   conn.media[mediaType] = { socket: mediaWs, state: 'connecting', lastKeepAlive: null };
   console.log(`[Media] WebSocket instance created successfully, SSL verification disabled`);
@@ -632,7 +642,7 @@ function connectToSignalingWebSocket(
   console.log(`[Signaling] Stream ID: ${streamId}, Server URL: ${serverUrls}`);
   console.log(`[Signaling] Connecting for video session ${sessionID}`);
 
-  if (!serverUrls || typeof serverUrls !== 'string' || !serverUrls.startsWith('ws')) {
+  if (!isAllowedRtmsCallbackUrl(serverUrls)) {
     console.error(`[Signaling] ❌ Invalid WebSocket URL:`, serverUrls);
     console.error(`[Signaling] URL validation failed - URL is null/undefined or doesn't start with ws/wss`);
 
@@ -1021,15 +1031,15 @@ app.post(config.webhookPath, authenticateZoomWebhook(config.zoomSecretToken), as
   console.log('Webhook event received:', event);
   console.log('Webhook payload:', JSON.stringify(payload, null, 2));
 
-  if (event === 'endpoint.url_validation' && payload?.plainToken) {
-    const hash = crypto.createHmac('sha256', config.zoomSecretToken)
-      .update(payload.plainToken)
-      .digest('hex');
-    console.log('Webhook validation response sent');
-    return res.json({
-      plainToken: payload.plainToken,
-      encryptedToken: hash,
-    });
+  if (event === 'endpoint.url_validation') {
+    try {
+      const response = buildUrlValidationResponse(payload?.plainToken, config.zoomSecretToken);
+      console.log('Webhook validation response sent');
+      return res.json(response);
+    } catch (error) {
+      const status = error.message === 'missing_webhook_secret_token' ? 500 : 400;
+      return res.status(status).json({ error: error.message });
+    }
   } else {
     res.sendStatus(200);
     console.log('Webhook response sent (200 OK)');

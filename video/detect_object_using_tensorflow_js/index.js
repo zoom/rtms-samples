@@ -20,7 +20,7 @@ const { MEDIA_PARAMS } = RTMSManager;
 const decoderMap = new Map();
 
 function sanitizeFileName(name) {
-  return name.replace(/[<>:"\/\\|?*=\s]/g, '_');
+  return name.replace(/[^A-Za-z0-9._-]/g, '_');
 }
 
 const appConfig = {

@@ -9,7 +9,12 @@ import { promisify } from 'util';
 
 import { startYouTubeStream } from './youtubeLiveStreamer.js';
 import { readFileSync } from 'fs';
-import { authenticateZoomWebhook, captureRawBody } from './webhookSignature.js';
+import {
+  authenticateZoomWebhook,
+  captureRawBody,
+  buildUrlValidationResponse,
+  isAllowedRtmsCallbackUrl,
+} from './webhookSignature.js';
 
 // Load environment variables from a .env file
 dotenv.config();
@@ -104,17 +109,13 @@ app.post(WEBHOOK_PATH, authenticateZoomWebhook(ZOOM_SECRET_TOKEN), (req, res) =>
     const { event, payload } = req.body;
 
     // Handle URL validation event
-    if (event === 'endpoint.url_validation' && payload?.plainToken) {
-        // Generate a hash for URL validation using the plainToken and a secret token
-        const hash = crypto
-            .createHmac('sha256', ZOOM_SECRET_TOKEN)
-            .update(payload.plainToken)
-            .digest('hex');
-        console.log('Responding to URL validation challenge');
-        return res.json({
-            plainToken: payload.plainToken,
-            encryptedToken: hash,
-        });
+    if (event === 'endpoint.url_validation') {
+        try {
+            return res.json(buildUrlValidationResponse(payload?.plainToken, ZOOM_SECRET_TOKEN));
+        } catch (error) {
+            const status = error.message === 'missing_webhook_secret_token' ? 500 : 400;
+            return res.status(status).json({ error: error.message });
+        }
     }
 
     res.sendStatus(200);
@@ -166,6 +167,11 @@ function connectToSignalingWebSocket(meetingUuid, streamId, serverUrl) {
 
     clearSignalingTimers(conn);
     conn._signalingConnectLocked = true;
+
+    if (!isAllowedRtmsCallbackUrl(serverUrl)) {
+        console.warn(`[Signaling] Refusing signaling URL outside allowlist: ${serverUrl}`);
+        return;
+    }
 
     const ws = new WebSocket(serverUrl);
     conn._signalingConnectSocket = ws;
@@ -401,6 +407,10 @@ function connectToMediaWebSocket(mediaUrls, meetingUuid, streamId, signalingSock
     const connectMediaType = (mediaType) => {
     const mediaUrl = mediaUrls[mediaType];
     if (!mediaUrl) return;
+    if (!isAllowedRtmsCallbackUrl(mediaUrl)) {
+        console.warn(`[Media] Refusing media URL outside allowlist: ${mediaUrl}`);
+        return;
+    }
     const mediaWs = new WebSocket(mediaUrl, { rejectUnauthorized: false });
     conn.media[mediaType] = mediaWs;
 

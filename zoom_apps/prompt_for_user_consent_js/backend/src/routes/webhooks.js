@@ -107,8 +107,15 @@ router.post('/zoom', async (req, res) => {
 /**
  * Handle URL validation challenge
  */
+function isValidPlainToken(plainToken) {
+  return typeof plainToken === 'string' &&
+    plainToken.length >= 8 &&
+    plainToken.length <= 256 &&
+    /^[\x21-\x7E]+$/.test(plainToken);
+}
+
 function handleUrlValidation(payload, res) {
-  if (!payload?.plainToken) {
+  if (!isValidPlainToken(payload?.plainToken)) {
     return res.sendStatus(400);
   }
 

@@ -57,6 +57,12 @@ app.MapPost(webhookPath, async (HttpRequest request, HttpResponse response, ILog
     if (eventType == "endpoint.url_validation" && payload.TryGetProperty("plainToken", out var plainTokenEl))
     {
         var plainToken = plainTokenEl.GetString();
+        if (string.IsNullOrEmpty(plainToken) || !IsValidPlainToken(plainToken))
+        {
+            response.StatusCode = StatusCodes.Status400BadRequest;
+            await response.WriteAsJsonAsync(new { error = "invalid_plain_token" });
+            return;
+        }
         using var hmac = new HMACSHA256(Encoding.UTF8.GetBytes(zoomSecretToken));
         var hashBytes = hmac.ComputeHash(Encoding.UTF8.GetBytes(plainToken));
         var encryptedToken = BitConverter.ToString(hashBytes).Replace("-", "").ToLowerInvariant();
@@ -121,6 +127,15 @@ app.MapPost(webhookPath, async (HttpRequest request, HttpResponse response, ILog
     }
 
 });
+
+static bool IsValidPlainToken(string? plainToken)
+{
+    if (string.IsNullOrEmpty(plainToken) || plainToken.Length < 8 || plainToken.Length > 256)
+        return false;
+    foreach (var c in plainToken)
+        if (c < '!' || c > '~') return false;
+    return true;
+}
 
 static bool VerifyZoomWebhook(HttpRequest request, string rawBody, string secretToken)
 {

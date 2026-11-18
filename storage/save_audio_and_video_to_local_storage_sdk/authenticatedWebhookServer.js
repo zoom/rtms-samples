@@ -8,6 +8,13 @@ function sendJson(res, statusCode, body) {
   res.end(JSON.stringify(body));
 }
 
+function normalizeWebhookPlainToken(plainToken) {
+  if (typeof plainToken !== 'string') return null;
+  if (plainToken.length < 8 || plainToken.length > 256) return null;
+  if (!/^[\x21-\x7E]+$/.test(plainToken)) return null;
+  return plainToken;
+}
+
 function verifyDelivery(rawBody, headers, secretToken) {
   if (!secretToken) return { ok: false, reason: 'missing_webhook_secret_token' };
   const signature = headers['x-zm-signature'];
@@ -82,12 +89,17 @@ export function startAuthenticatedWebhookServer(onEvent) {
         return;
       }
 
-      if (body.event === 'endpoint.url_validation' && body.payload?.plainToken) {
+      if (body.event === 'endpoint.url_validation') {
+        const plainToken = normalizeWebhookPlainToken(body.payload?.plainToken);
+        if (!plainToken) {
+          sendJson(res, 400, { error: 'invalid_plain_token' });
+          return;
+        }
         const encryptedToken = crypto
           .createHmac('sha256', secretToken)
-          .update(body.payload.plainToken)
+          .update(plainToken)
           .digest('hex');
-        sendJson(res, 200, { plainToken: body.payload.plainToken, encryptedToken });
+        sendJson(res, 200, { plainToken, encryptedToken });
         return;
       }
 

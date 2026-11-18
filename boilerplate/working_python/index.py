@@ -341,9 +341,12 @@ def handle_webhook():
     event = data.get("event")
     payload = data.get("payload", {})
 
-    if event == "endpoint.url_validation" and payload.get("plainToken"):
-        hash_ = hmac.new(ZOOM_SECRET_TOKEN.encode(), payload["plainToken"].encode(), hashlib.sha256).hexdigest()
-        return jsonify({"plainToken": payload["plainToken"], "encryptedToken": hash_})
+    if event == "endpoint.url_validation":
+        plain_token = _normalize_plain_token(payload.get("plainToken"))
+        if not plain_token:
+            return jsonify({"error": "invalid_plain_token"}), 400
+        hash_ = hmac.new(ZOOM_SECRET_TOKEN.encode(), plain_token.encode(), hashlib.sha256).hexdigest()
+        return jsonify({"plainToken": plain_token, "encryptedToken": hash_})
 
     if not verify_zoom_webhook(raw_body):
         return jsonify({"error": "invalid_zoom_webhook"}), 500 if not ZOOM_SECRET_TOKEN else 401
@@ -354,6 +357,14 @@ def handle_webhook():
         lambda: threading.Thread(target=process_webhook_after_ack, args=(data,), daemon=True).start()
     )
     return response
+
+def _normalize_plain_token(token):
+    """Zoom endpoint.url_validation tokens: 8-256 printable ASCII, no spaces."""
+    if not isinstance(token, str) or not 8 <= len(token) <= 256:
+        return None
+    if any(not ('!' <= ch <= '~') for ch in token):
+        return None
+    return token
 
 def verify_zoom_webhook(raw_body):
     signature = request.headers.get('x-zm-signature')

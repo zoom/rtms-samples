@@ -47,7 +47,8 @@ export class PCMAnalyzer {
 export function saveRawAudio(chunk, meetingUuid, user_id, timestamp, streamId, isMixed = true) {
     const safeMeetingUuid = sanitize(meetingUuid);
     const safeStreamId = sanitize(streamId);
-    const fileName = isMixed ? 'mixed_audio.raw' : `${user_id}.raw`;
+    const safeUserId = user_id ? sanitize(String(user_id)) : 'unknown';
+    const fileName = isMixed ? 'mixed_audio.raw' : `${safeUserId}.raw`;
     const filePath = path.join(process.cwd(), 'recordings', safeMeetingUuid, safeStreamId, fileName);
 
     const dir = path.dirname(filePath);

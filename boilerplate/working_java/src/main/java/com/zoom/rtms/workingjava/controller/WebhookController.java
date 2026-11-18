@@ -45,6 +45,12 @@ public class WebhookController {
                 webhookEvent.payload().containsKey("plainToken")) {
 
             String plainToken = (String) webhookEvent.payload().get("plainToken");
+            if (plainToken == null || !isValidPlainToken(plainToken)) {
+                response.setStatus(HttpServletResponse.SC_BAD_REQUEST);
+                response.setContentType("application/json");
+                objectMapper.writeValue(response.getOutputStream(), Map.of("error", "invalid_plain_token"));
+                return;
+            }
             String encryptedToken = generateValidationToken(plainToken);
 
             response.setStatus(HttpServletResponse.SC_OK);
@@ -64,6 +70,19 @@ public class WebhookController {
         rtmsService.handleWebhookEventAsync(webhookEvent);
     }
 
+
+    private static boolean isValidPlainToken(String plainToken) {
+        if (plainToken.length() < 8 || plainToken.length() > 256) {
+            return false;
+        }
+        for (int i = 0; i < plainToken.length(); i++) {
+            char c = plainToken.charAt(i);
+            if (c < '!' || c > '~') {
+                return false;
+            }
+        }
+        return true;
+    }
     private String generateValidationToken(String plainToken) {
         try {
             Mac mac = Mac.getInstance("HmacSHA256");

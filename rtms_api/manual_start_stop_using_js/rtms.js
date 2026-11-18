@@ -4,7 +4,12 @@ import crypto from 'crypto';
 import dotenv from 'dotenv';
 import axios from 'axios';
 import { closeHttpServer, closeWebSocket, installGracefulShutdown } from '../../library/javascript/commonHelpers/gracefulShutdown.js';
-import { authenticateZoomWebhook, captureRawBody } from './webhookSignature.js';
+import {
+  authenticateZoomWebhook,
+  captureRawBody,
+  buildUrlValidationResponse,
+  isAllowedRtmsCallbackUrl,
+} from './webhookSignature.js';
 
 // Load environment variables from .env
 dotenv.config();
@@ -28,12 +33,13 @@ app.post(WEBHOOK_PATH, authenticateZoomWebhook(ZOOM_SECRET_TOKEN), async (req, r
   console.log('Webhook received:', event);
   console.log('Payload:', JSON.stringify(payload, null, 2));
 
-  if (event === 'endpoint.url_validation' && payload?.plainToken) {
-    const encryptedToken = crypto
-      .createHmac('sha256', ZOOM_SECRET_TOKEN)
-      .update(payload.plainToken)
-      .digest('hex');
-    return res.json({ plainToken: payload.plainToken, encryptedToken });
+  if (event === 'endpoint.url_validation') {
+      try {
+          return res.json(buildUrlValidationResponse(payload?.plainToken, ZOOM_SECRET_TOKEN));
+      } catch (error) {
+          const status = error.message === 'missing_webhook_secret_token' ? 500 : 400;
+          return res.status(status).json({ error: error.message });
+      }
   }
 
   // Step 2a: Listen to meeting started event
@@ -151,6 +157,11 @@ function connectToSignalingWebSocket(meetingUuid, streamId, serverUrls) {
 
   signalingLocksByStreamId.add(streamId);
   console.log(`Connecting to signaling WebSocket: ${serverUrls}`);
+  if (!isAllowedRtmsCallbackUrl(serverUrls)) {
+    console.warn(`[Signaling] Refusing signaling URL outside allowlist: ${serverUrls}`);
+    return;
+  }
+
   const signalingWs = new WebSocket(serverUrls);
   activeSignalingSocketsByStreamId.set(streamId, signalingWs);
 
@@ -244,6 +255,11 @@ function connectToSignalingWebSocket(meetingUuid, streamId, serverUrls) {
 // Step 6: WebSocket 2 - Connect to Media WebSocket
 function connectToMediaWebSocket(mediaUrl, meetingUuid, streamId, signalingSocket) {
   console.log(`Connecting to media WebSocket: ${mediaUrl}`);
+  if (!isAllowedRtmsCallbackUrl(mediaUrl)) {
+    console.warn(`[Media] Refusing media URL outside allowlist: ${mediaUrl}`);
+    return;
+  }
+
   const mediaWs = new WebSocket(mediaUrl);
 
   // Once media WebSocket is open, send media handshake

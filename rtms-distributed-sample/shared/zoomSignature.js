@@ -6,17 +6,29 @@ export function captureRawBody(req, _res, buffer) {
   req.rawBody = buffer;
 }
 
+export function normalizeWebhookPlainToken(plainToken) {
+  if (typeof plainToken !== 'string') return null;
+  if (plainToken.length < 8 || plainToken.length > 256) return null;
+  if (!/^[\x21-\x7E]+$/.test(plainToken)) return null;
+  return plainToken;
+}
+
 export function buildUrlValidationResponse(plainToken, secretToken) {
   if (!secretToken) {
     throw new Error('missing_webhook_secret_token');
   }
 
+  const token = normalizeWebhookPlainToken(plainToken);
+  if (!token) {
+    throw new Error('invalid_plain_token');
+  }
+
   const encryptedToken = crypto
     .createHmac('sha256', secretToken)
-    .update(plainToken)
+    .update(token)
     .digest('hex');
 
-  return { plainToken, encryptedToken };
+  return { plainToken: token, encryptedToken };
 }
 
 export function verifyZoomWebhookSignature(req, secretToken, options = {}) {

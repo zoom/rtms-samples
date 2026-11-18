@@ -17,7 +17,12 @@
 import express from 'express';
 import { closeHttpServer, installGracefulShutdown } from '../../library/javascript/commonHelpers/gracefulShutdown.js';
 import WebSocket from 'ws';
-import { authenticateZoomWebhook, captureRawBody } from './webhookSignature.js';
+import {
+  authenticateZoomWebhook,
+  captureRawBody,
+  buildUrlValidationResponse,
+  isAllowedRtmsCallbackUrl,
+} from './webhookSignature.js';
 import crypto from 'crypto';
 import dotenv from 'dotenv';
 
@@ -226,6 +231,11 @@ function connectToSignalingWebSocket(conn) {
   }
 
   log(conn.streamId, 'SIGNALING', `Connecting to signaling server: ${conn.serverUrls}`);
+  if (!isAllowedRtmsCallbackUrl(conn.serverUrls)) {
+    log(conn.streamId, 'SIGNALING', `Refusing signaling URL outside allowlist: ${conn.serverUrls}`);
+    return;
+  }
+
   const ws = new WebSocket(conn.serverUrls);
   conn.signalingWs = ws;
 
@@ -482,6 +492,11 @@ function connectToMediaWebSocket(conn) {
   }
 
   log(conn.streamId, 'MEDIA', `Connecting to media server: ${conn.mediaUrl}`);
+  if (!isAllowedRtmsCallbackUrl(conn.mediaUrl)) {
+    log(conn.streamId, 'MEDIA', `Refusing media URL outside allowlist: ${conn.mediaUrl}`);
+    return;
+  }
+
   const ws = new WebSocket(conn.mediaUrl);
   conn.mediaWs = ws;
 
@@ -804,13 +819,13 @@ app.post(WEBHOOK_PATH, authenticateZoomWebhook(ZOOM_SECRET_TOKEN), (req, res) =>
   // Zoom sends a plainToken; we hash it with our secret and return both.
   // See: https://developers.zoom.us/docs/api/webhooks/#verify-webhook-events
   // ---------------------------------------------------------------
-  if (event === 'endpoint.url_validation' && payload?.plainToken) {
-    const hash = crypto
-      .createHmac('sha256', ZOOM_SECRET_TOKEN)
-      .update(payload.plainToken)
-      .digest('hex');
-    log(null, 'WEBHOOK', 'Responding to Zoom URL validation challenge.');
-    return res.json({ plainToken: payload.plainToken, encryptedToken: hash });
+  if (event === 'endpoint.url_validation') {
+      try {
+          return res.json(buildUrlValidationResponse(payload?.plainToken, ZOOM_SECRET_TOKEN));
+      } catch (error) {
+          const status = error.message === 'missing_webhook_secret_token' ? 500 : 400;
+          return res.status(status).json({ error: error.message });
+      }
   }
 
   // Always acknowledge the webhook immediately to prevent Zoom retries

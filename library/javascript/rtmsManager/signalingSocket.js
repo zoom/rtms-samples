@@ -4,6 +4,7 @@ import { buildRtmsEntityPayload } from './utils/rtmsEntityHelper.js';
 import { handleSignalingMessage } from './signalingSocketMessageHandler.js';
 import { FileLogger } from './utils/FileLogger.js';
 import { RTMSError } from './utils/RTMSError.js';
+import { isAllowedRtmsCallbackUrl } from './utils/rtmsUrlPolicy.js';
 
 function releaseSignalingConnectLock(conn, socket) {
   if (conn._signalingConnectSocket === socket) {
@@ -131,7 +132,7 @@ export function connectToSignalingWebSocket(
     conn._duplicateSignalRetryTimer = null;
   }
 
-  if (!serverUrls || typeof serverUrls !== 'string' || !serverUrls.startsWith('ws')) {
+  if (!isAllowedRtmsCallbackUrl(serverUrls)) {
     const error = RTMSError.fromCode('CONNECTION_FAILED', {
       meetingId: meetingUuid,
       streamId

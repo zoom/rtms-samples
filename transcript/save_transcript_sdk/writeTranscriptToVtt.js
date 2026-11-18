@@ -83,6 +83,6 @@ export function writeTranscriptToVtt(user_name, timestamp, data, meetingUuid) {
 
 
 function sanitizeFileName(name) {
-    return name.replace(/[<>:"\/\\|?*=\s]/g, '_');
+    return name.replace(/[^A-Za-z0-9._-]/g, '_');
   }
   

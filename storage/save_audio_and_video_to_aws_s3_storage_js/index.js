@@ -168,7 +168,12 @@ if (appConfig.managerType === 'webhook') {
       : process.env.ZOOM_SECRET_TOKEN;
     if (event === 'endpoint.url_validation' && payload?.plainToken) {
       if (!secretToken) return res.status(500).json({ error: 'webhook_secret_not_configured' });
-      return res.json(buildUrlValidationResponse(payload.plainToken, secretToken));
+try {
+        return res.json(buildUrlValidationResponse(payload.plainToken, secretToken));
+      } catch (error) {
+        const status = error.message === 'missing_webhook_secret_token' ? 500 : 400;
+        return res.status(status).json({ error: error.message });
+      }
     }
     const verification = verifyZoomWebhookRequest(req, secretToken, {
       toleranceSeconds: process.env.WEBHOOK_TIMESTAMP_TOLERANCE_SECONDS

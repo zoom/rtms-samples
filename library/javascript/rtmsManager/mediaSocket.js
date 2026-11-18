@@ -3,6 +3,8 @@ import { generateRTMSSignature } from './utils/signatureHelper.js';
 import { buildRtmsEntityPayload } from './utils/rtmsEntityHelper.js';
 import { handleMediaMessage } from './mediaSocketMessageHandler.js';
 import { FileLogger } from './utils/FileLogger.js';
+import { RTMSError } from './utils/RTMSError.js';
+import { isAllowedRtmsCallbackUrl } from './utils/rtmsUrlPolicy.js';
 
 const TYPE_FLAGS = {
   audio: 1,
@@ -64,6 +66,12 @@ export function connectToMediaWebSocket(
   if (mediaObj.reconnectTimer) {
     clearTimeout(mediaObj.reconnectTimer);
     mediaObj.reconnectTimer = null;
+  }
+
+  if (!isAllowedRtmsCallbackUrl(mediaUrl)) {
+    FileLogger.error(`[Media] [${conn.rtmsType},${meetingUuid},${streamId}] Refusing media URL outside allowlist: ${mediaUrl}`);
+    emit('error', RTMSError.fromCode('CONNECTION_FAILED', { meetingId: meetingUuid, streamId }));
+    return;
   }
 
   const mediaWs = new WebSocket(mediaUrl);

@@ -6,6 +6,14 @@ from typing import Callable, Dict, Any, Optional, List
 from ..rtms_manager.utils.logger import FileLogger
 
 
+def _normalize_plain_token(token: Any) -> Optional[str]:
+    """Zoom endpoint.url_validation tokens: 8-256 printable ASCII, no spaces."""
+    if not isinstance(token, str) or not 8 <= len(token) <= 256:
+        return None
+    if any(not ('!' <= ch <= '~') for ch in token):
+        return None
+    return token
+
 class WebhookManager:
     def __init__(
         self,
@@ -75,11 +83,14 @@ class WebhookManager:
                      'rtms.start_failed') or event.endswith('rtms_interrupted'):
             FileLogger.warn(f'[WebhookManager] Critical RTMS event: {event}')
 
-        if event == 'endpoint.url_validation' and payload.get('plainToken'):
+        if event == 'endpoint.url_validation':
+            plain_token = _normalize_plain_token(payload.get('plainToken'))
+            if not plain_token:
+                return {'error': 'invalid_plain_token'}
             query_params = query_params or {}
             is_video = query_params.get('type') == 'video'
             secret_token = self.video_secret_token if is_video else self.zoom_secret_token
-            response = self.validate_webhook(payload['plainToken'], secret_token)
+            response = self.validate_webhook(plain_token, secret_token)
             FileLogger.log(f'[WebhookManager] Webhook validation response: {response}')
             return response
 

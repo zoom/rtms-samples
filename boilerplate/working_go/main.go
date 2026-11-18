@@ -298,7 +298,11 @@ func webhookHandler(clientID, clientSecret, zoomToken string) http.HandlerFunc {
 		}
 
 		if event == "endpoint.url_validation" {
-			plainToken := data["plainToken"].(string)
+			plainToken, ok := data["plainToken"].(string)
+			if !ok || !isValidPlainToken(plainToken) {
+				http.Error(w, "invalid plain token", http.StatusBadRequest)
+				return
+			}
 			hash := hmac.New(sha256.New, []byte(zoomToken))
 			hash.Write([]byte(plainToken))
 			encrypted := hex.EncodeToString(hash.Sum(nil))
@@ -458,4 +462,16 @@ func main() {
 	if err := server.Shutdown(shutdownContext); err != nil {
 		log.Printf("HTTP shutdown failed: %v", err)
 	}
+}
+
+func isValidPlainToken(token string) bool {
+	if len(token) < 8 || len(token) > 256 {
+		return false
+	}
+	for _, r := range token {
+		if r < '!' || r > '~' {
+			return false
+		}
+	}
+	return true
 }

@@ -1,4 +1,5 @@
 import WebSocket from 'ws';
+import { isAllowedRtmsCallbackUrl } from './urlPolicy.js';
 import { generateSignature } from './utils/signature.js';
 import { handleMediaMessage } from './mediaMessageHandler.js';
 
@@ -14,6 +15,11 @@ export function connectToMediaWebSocket(
   sharedServices = null
 ) {
   console.log(`[Media] Connecting for meeting ${meetingUuid}...`);
+  if (!isAllowedRtmsCallbackUrl(mediaUrl)) {
+    console.warn(`[Media] Refusing media URL outside allowlist: ${mediaUrl}`);
+    return;
+  }
+
   const mediaWs = new WebSocket(mediaUrl);
   conn.media.socket = mediaWs;
   conn.media.state = 'connecting';

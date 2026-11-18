@@ -43,4 +43,46 @@ function authenticateZoomWebhook(
   };
 }
 
-module.exports = { authenticateZoomWebhook, captureRawBody };
+
+const DEFAULT_ALLOWED_RTMS_HOST_SUFFIXES = Object.freeze(['zoom.us']);
+
+function normalizeWebhookPlainToken(plainToken) {
+  if (typeof plainToken !== 'string') return null;
+  if (plainToken.length < 8 || plainToken.length > 256) return null;
+  if (!/^[\x21-\x7E]+$/.test(plainToken)) return null;
+  return plainToken;
+}
+
+function buildUrlValidationResponse(plainToken, secretToken) {
+  if (!secretToken) throw new Error('missing_webhook_secret_token');
+  const token = normalizeWebhookPlainToken(plainToken);
+  if (!token) throw new Error('invalid_plain_token');
+  const encryptedToken = crypto
+    .createHmac('sha256', secretToken)
+    .update(token)
+    .digest('hex');
+  return { plainToken: token, encryptedToken };
+}
+
+function isAllowedRtmsCallbackUrl(value, allowedHosts) {
+  if (typeof value !== 'string' || value.length === 0 || value.length > 2048) return false;
+  let parsed;
+  try {
+    parsed = new URL(value);
+  } catch {
+    return false;
+  }
+  if (parsed.protocol !== 'wss:' && parsed.protocol !== 'ws:') return false;
+  const configured = allowedHosts
+    ?? (typeof process !== 'undefined' && process.env?.RTMS_ALLOWED_MEDIA_HOSTS
+      ? process.env.RTMS_ALLOWED_MEDIA_HOSTS.split(',')
+      : DEFAULT_ALLOWED_RTMS_HOST_SUFFIXES);
+  const suffixes = configured
+    .map((host) => String(host).trim().toLowerCase().replace(/^\./, ''))
+    .filter(Boolean);
+  if (suffixes.length === 0) return true;
+  const host = parsed.hostname.toLowerCase();
+  return suffixes.some((suffix) => host === suffix || host.endsWith(`.${suffix}`));
+}
+
+module.exports = { authenticateZoomWebhook, captureRawBody, buildUrlValidationResponse, normalizeWebhookPlainToken, isAllowedRtmsCallbackUrl };
