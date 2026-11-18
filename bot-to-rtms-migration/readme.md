@@ -5,20 +5,22 @@ This guide is for those who run a Meeting SDK bot today (a participant that join
 **Contents**
 
 - [The shift in one page](#the-shift-in-one-page) - bot vs RTMS, the whole difference in a paragraph
-- [The seven steps](#the-seven-steps) and [before you try anything](#before-you-try-anything) - the map, then plan and licensing checks
+- [The seven steps](#the-seven-steps) and [before you try anything](#before-you-try-anything) - the plan overview, then the licensing checks
 - [The readmes, one per step](#the-readmes-one-per-step) - the folder table, the real table of contents
 - [Other use cases already in this repo](#other-use-cases-already-in-this-repo) - samples to reuse instead of rebuild
 
 ## The shift in one page
 
-A Meeting SDK bot **joins a meeting as a user**. RTMS **joins the same meeting as a service**, with no participant or roster. Zoom **pre-authorizes the stream**: your app must be installed, its user eligible, an admin policy must allow it, and sometimes the meeting's host must approve that meeting's stream, each time. The client ID and secret only sign the handshake. When the stream exists, a webhook tells you, and you connect to it.
+A Meeting SDK bot **joins a meeting as a user**. RTMS **joins the same meeting as a service**, with no participant or roster. Zoom **pre-authorizes the stream**. Your app must be installed and its user eligible, an admin policy must allow it, and sometimes the meeting's host must approve that meeting's stream, each time.
+
+The client ID and secret only sign the handshake. When the stream exists, a webhook tells you, and you connect to it.
 
 | | Your Meeting SDK bot | RTMS |
 |---|---|---|
 | Joining | A meeting ID, a passcode and a signed token, as a user | No user. Installation, policy and approval pre-authorize the stream, and your credentials only sign the handshake |
 | Visibility | A participant tile | No tile, only a spot in the active-app indicator that you cannot hide |
 | Starting | Your service decided when to join | Zoom decides. You connect only after a verified `rtms_started` webhook |
-| Connections | One, handled by the SDK | A signaling socket plus one media socket per media type, kept alive by you: keep-alives, reconnect, backoff, deduplication |
+| Connections | One, handled by the SDK | A signaling socket plus one media socket per media type, with keep-alives, reconnect, backoff and deduplication kept alive by you |
 | Acting | Speak, chat, mute, record | Receive only. Those actions need another API |
 | Tenancy | One service account | Every stream belongs to a tenant, a policy snapshot and a consent decision |
 
@@ -26,7 +28,7 @@ A Meeting SDK bot **joins a meeting as a user**. RTMS **joins the same meeting a
 
 ```text
  1 KNOW        Meeting SDK bots remain supported, but new builds belong on RTMS: what changes, and where to start
- 2 CONFIGURE   Create the Marketplace app: manifest, scopes, events, credentials
+ 2 CONFIGURE   Create the Marketplace app with manifest, scopes, events and credentials
  3 PUBLISH     Get the app through review so other accounts can install it
  4 PREPARE     Admin enablement, host approval and invitations, per meeting
  5 START       Take the webhook safely, claim the stream, start on purpose
@@ -34,7 +36,9 @@ A Meeting SDK bot **joins a meeting as a user**. RTMS **joins the same meeting a
  7 OPERATE     Dashboard, capacity, tenants, consent, versions, going live
 ```
 
-Every folder sits directly in the repository root and its number is its step: `00-design` holds the production architecture reading, `10-integration-advisor` is step 1, `20-configure`, `30-publish` and `40-prepare` are the no-code steps, `50-start-and-approval` is step 5, `60-stream-lifecycle-client` and `61-media-and-participants` are step 6, `70-reporting-dashboard` is step 7. Every folder carries a readme that says how to run it and, in Adapting this sample, exactly where to adapt it to your product.
+Every folder sits directly in the repository root, and its number is its step. `00-design` holds the production architecture reading. `10-integration-advisor` is step 1. `20-configure`, `30-publish` and `40-prepare` are the no-code steps. `50-start-and-approval` is step 5. `60-stream-lifecycle-client` and `61-media-and-participants` are step 6. `70-reporting-dashboard` is step 7.
+
+Every folder carries a readme that says how to run it and, in Adapting this sample, exactly where to adapt it to your product.
 
 ## Before you try anything
 
@@ -62,7 +66,7 @@ One honest caveat. The connection code follows the library in `library/javascrip
 ---
 ## The readmes, one per step
 
-Each step lives in its own folder, and each folder's readme is both the guide for that step and the documentation for the code in it: what to do, why, the questions people ask at that point, and the files, tests and settings. Start at the top. Read a folder's readme when you reach that step.
+Each step lives in its own folder, and each folder's readme is both the guide for that step and the documentation for the code in it. It carries what to do, why, the questions people ask at that point, and the files, tests and settings. Start at the top. Read a folder's readme when you reach that step.
 
 | Step | Folder | What is in it |
 |---|---|---|

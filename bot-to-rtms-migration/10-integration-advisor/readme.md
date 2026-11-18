@@ -1,6 +1,6 @@
 # 10 Integration advisor
 
-Meeting SDK bots keep working, but Zoom now steers new integrations to RTMS, so moving is not a decision you weigh, it is the destination. This folder is information for developers doing that move:
+Meeting SDK bots keep working, but Zoom now steers new integrations to RTMS, so moving is not a decision you weigh, it is the destination. This folder is information for developers doing that move. It covers the differences, the feature mapping and the sample to start from.
 
 - what changes between the two models
 - which of your bot's features have an RTMS equivalent
@@ -17,7 +17,7 @@ Meeting SDK bots keep working, but Zoom now steers new integrations to RTMS, so 
 
 ## Start from an existing sample
 
-Do not write the RTMS flow from scratch. Each of these works today. Pick the closest to your product and build on it:
+Do not write the RTMS flow from scratch. Each of these works today, so pick the closest to your product and build on it.
 
 | Your bot does | Start from |
 |---|---|
@@ -38,12 +38,12 @@ Paths are relative to the repository root (`rtms-samples/`). The folders in this
 
 | A Meeting SDK bot | RTMS |
 |---|---|
-| Joins from a meeting ID and passcode. | Joins the same meeting as a service: an installed app, an eligible app user, admin policy and any host approval authorize the feed. |
+| Joins from a meeting ID and passcode. | Joins the same meeting as a service, where an installed app, an eligible app user, admin policy and any host approval authorize the feed. |
 | Appears as a participant tile. | No tile. Zoom still shows the app in the active-app indicator. |
 | Can speak, chat, mute, admit, record. | Receive only. Those actions need the Meeting SDK, a host integration or REST. |
 | Gets raw frames for every participant it can see. | Gets negotiated formats, one active-speaker or one selected camera at a time. |
 
-## Optional: check your gaps first
+## Check your gaps first, optionally
 
 [src/advisor.js](src/advisor.js) is a gap-checker, not a decision maker: you tell it what your bot does, it tells you which parts of your current feature set have an RTMS equivalent and which need a companion surface. It exists because the expensive mistake is finding a gap late, not choosing wrong.
 
@@ -54,7 +54,7 @@ npm run advise -- --requirements                              # every flag and i
 npm run advise -- --capabilities | --media | --assumptions | --belongs
 ```
 
-It reads as a checklist, in this order:
+It reads as a checklist, in this order, one item per row.
 
 1. **No live action needed, or CRM archive only** → recording webhooks plus the Recording REST API are enough. Do not pull RTMS in just as a downloader.
 2. **A blocker for RTMS** (approval flow unacceptable, external customers cannot authorize, ad hoc join, raw capture gaps, every camera at once) → that part of the product needs a companion while RTMS carries the rest.
@@ -156,7 +156,7 @@ Meeting SDK bots keep working. RTMS is where new builds end up. Before you write
 ### The gaps, in order
 
 1. **Nothing has to happen during the meeting** (or you only archive finished meetings to a CRM): recording webhooks and the Recording REST API cover it. Do not pull RTMS in just as a downloader.
-2. **Something blocks RTMS**: that part stays on the Meeting SDK for now. Blockers are an approval flow your product cannot accept, customers who cannot install and authorize the app, joining any meeting from only an ID and passcode, raw capture RTMS does not cover, or every camera at once.
+2. **Something blocks RTMS.** That part stays on the Meeting SDK for now. Blockers are an approval flow your product cannot accept, customers who cannot install and authorize the app, joining any meeting from only an ID and passcode, raw capture RTMS does not cover, or every camera at once.
 3. **Something RTMS lacks** (a visible bot, speech, chat, host controls, recording control): plan the companion surface for it. Add RTMS as well only if you also want an independent analytics or compliance feed. That combination needs one identity, consent and audit service across both.
 4. **Everything else moves to RTMS.** Add a Zoom App if users need a panel inside the meeting. Contact Center voice RTMS needs its own entitlement.
 
@@ -172,7 +172,7 @@ Everything outside that set needs a companion surface, today on the Meeting SDK,
 
 RTMS is deliberately narrow, only authorized inbound media and metadata. It has no participant runtime and no control surface, so do not force it to own presence, injection or controls. Use RTMS for the data plane, and the Meeting SDK or a Zoom App only for the specific control or UI gap.
 
-Which surface owns what:
+The table below shows which surface owns what.
 
 | Capability | RTMS | Meeting SDK | Zoom Apps | Webhooks and REST |
 |---|---|---|---|---|
@@ -188,7 +188,7 @@ Which surface owns what:
 
 **Gain**
 
-1. No participant join flow to automate: no passcode, waiting room or sign-in handling.
+1. No participant join flow to automate, so no passcode, waiting room or sign-in handling.
 2. Auto-start when a user owns or joins a meeting, including meetings that are not on a calendar.
 3. Admin rollout to users and groups, with defaults.
 4. A host can approve once and have it persist (**Always allow in my meetings**).
@@ -197,7 +197,7 @@ Which surface owns what:
 
 **Give up or rebuild** — speaking, posting chat and host controls. Meetings where no authorized user is present. Capture that does not depend on permission (a host can deny). And the WebSocket lifecycle, reconnect and deduplication, which become yours.
 
-Not covered yet, as of 2026-11-05. "Not documented" means Zoom's published docs do not say it is supported, so treat it as unsupported until Zoom confirms:
+Not covered yet, as of 2026-11-05. "Not documented" means Zoom's published docs do not say it is supported, so treat it as unsupported until Zoom confirms. The gaps follow.
 
 | You need | Today |
 |---|---|
@@ -210,7 +210,7 @@ Not covered yet, as of 2026-11-05. "Not documented" means Zoom's published docs 
 
 ### Common questions
 
-**Can RTMS join a meeting from a meeting ID and passcode?** No. A meeting ID and passcode authenticate a participant. RTMS is an authorized data feed, and it needs all of these:
+**Can RTMS join a meeting from a meeting ID and passcode?** No. A meeting ID and passcode authenticate a participant. RTMS is an authorized data feed, and it needs all of the following.
 
 - an installed app and an eligible app user
 - policy, plus any required host approval
@@ -232,13 +232,13 @@ If your product's contract is "join any meeting", keep the Meeting SDK, or first
 | Transcript | Yes, from Zoom, or send the audio to your own speech recognition |
 | Chat | Receive only |
 
-**How do I replace raw PCM and YUV?** Audio: pick the codec your pipeline supports. L16 (PCM) is common, and stereo needs Opus. Video and screen share: H.264, or image frames where that fits. Keep sequence, timestamp and user metadata, and do not assume frame order survives a reconnect.
+**How do I replace raw PCM and YUV?** For audio, pick the codec your pipeline supports. L16 (PCM) is common, and stereo needs Opus. For video and screen share use H.264, or image frames where that fits. Keep sequence, timestamp and user metadata, and do not assume frame order survives a reconnect.
 
 **Can I capture every participant's camera at once?** Not with unlimited individual streams. Use active-speaker video, or the one-selected-participant pattern. If you truly need every camera, check the current limit or keep the Meeting SDK's raw video. For webinars, design around panelist media first and test attendee visibility before you promise it.
 
-**Is RTMS cheaper than a bot?** Usually for receive-only work, because there is no full client. It is not free: the Developer Pack or RTMS entitlement applies, concurrent streams are limited, and media transfer, decoding, storage and AI still cost money. Several media sockets per stream raise the real stream count, so meter per tenant and per stream.
+**Is RTMS cheaper than a bot?** Usually for receive-only work, because there is no full client. It is not free, because the Developer Pack or RTMS entitlement applies, concurrent streams are limited, and media transfer, decoding, storage and AI still cost money. Several media sockets per stream raise the real stream count, so meter per tenant and per stream.
 
-**RTMS or cloud recordings?** Use RTMS when the product must act during the meeting (agent assist, compliance prompts, live dashboards, translation). Use recordings when minutes of delay is fine, or when you need Zoom's canonical file. A hybrid is common: live transcript for action, the recording as evidence.
+**RTMS or cloud recordings?** Use RTMS when the product must act during the meeting (agent assist, compliance prompts, live dashboards, translation). Use recordings when minutes of delay is fine, or when you need Zoom's canonical file. A hybrid is common, live transcript for action and the recording as evidence.
 
 **What latency should I expect?** Expect about 40 to 200 ms on average, depending on how far your server sits from Zoom's signaling and media servers. RTMS removes the bot's join and capture overhead but adds a webhook hop and WebSocket hops. Do not promise real-time guarantees. Measure four things separately:
 
@@ -251,9 +251,9 @@ If your product's contract is "join any meeting", keep the Meeting SDK, or first
 
 ## Elsewhere in the guide
 
-Every part, one click away. The [overview](../readme.md) holds the map.
+All nine parts link below. Start from the [overview](../readme.md).
 
-- [00 Design](../00-design/readme.md) - Production architecture: failure drills, media choices, observability, the webhook SLO
+- [00 Design](../00-design/readme.md) - Production architecture. Failure drills, media choices, observability, the webhook SLO
 - [20 Configure](../20-configure/readme.md) - Step 2. The Marketplace app: manifest, scopes, events, credentials
 - [30 Publish](../30-publish/readme.md) - Step 3. Review, evidence and the rejections to avoid
 - [40 Prepare](../40-prepare/readme.md) - Step 4. Admin enablement, host approval, consent, the status codes

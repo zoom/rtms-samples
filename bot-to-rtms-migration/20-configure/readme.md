@@ -1,10 +1,10 @@
 # 20 Configure the Marketplace app
 
-Step 2 of 7. There is no code here. This step is Marketplace settings. The full instructions are in the root readme, section **Step 2**. In short:
+Step 2 of 7. There is no code here. This step is Marketplace settings. The full instructions are in the root readme, section **Step 2**. In short, do the following.
 
 1. Create the app and fill in the manifest, display and developer information.
 2. Add the RTMS scopes, one per media type you capture, for example `meeting:read:meeting_audio` and `meeting:read:meeting_transcript`.
-3. Subscribe to the lifecycle events: `meeting.rtms_started`, `rtms_stopped`, `rtms_interrupted` and `rtms.request_status`.
+3. Subscribe to the lifecycle events `meeting.rtms_started`, `rtms_stopped`, `rtms_interrupted` and `rtms.request_status`.
 4. Note the client ID and secret. They only sign the handshake. Installation, policy and approval do the authorizing.
 
 **Contents**
@@ -21,7 +21,7 @@ Step 2 of 7. There is no code here. This step is Marketplace settings. The full 
 
 ## Step 2. Configure the Marketplace app
 
-Most of the work in this step is configuration: `manifest.json`, scopes, event subscriptions and URLs.
+Most of the work in this step is configuration. It covers `manifest.json`, scopes, event subscriptions and URLs.
 
 ### What you create
 
@@ -31,12 +31,12 @@ A **General App** in the Zoom Marketplace (Develop, Build App, General App). Thr
 - RTMS scopes must be granular (new apps have them, an older app may need them turned on) and cannot be marked optional, so request only the media you use.
 - Event subscription changes take 1-2 minutes to take effect.
 
-What a Meeting SDK bot did not need, and RTMS does:
+A Meeting SDK bot did not need the pieces below. RTMS does.
 
 | Piece | Why |
 |---|---|
 | Event subscription | The webhooks are the trigger. No `meeting.rtms_started` subscription means no stream |
-| One media scope per media type | RTMS carries five media types: audio, video, screen share, chat and transcript, each gated by its own scope. The signaling handshake returns one media URL per type, and it only lists the types your app's scopes cover. Skip the chat scope, for example, and the response has no chat URL, so there is no chat socket to open and no chat to subscribe to |
+| One media scope per media type | RTMS carries five media types (audio, video, screen share, chat and transcript), each gated by its own scope. The signaling handshake returns one media URL per type, and it only lists the types your app's scopes cover. Skip the chat scope, for example, and the response has no chat URL, so there is no chat socket to open and no chat to subscribe to |
 | A public HTTPS webhook URL | Zoom calls it, and it must verify the signature and answer fast |
 | Client ID, Client Secret, webhook Secret Token | The secret token verifies webhooks. The client secret signs the handshakes with Zoom's RTMS servers |
 
@@ -123,11 +123,11 @@ No scope name for screen share is documented in this repo. Add it by hand in the
 
 ### An app that already has users
 
-Adding RTMS to an app that people already installed has three consequences:
+Adding RTMS to an app that people already installed has three consequences, as follows.
 
 1. **Users MUST authorize again.** When you update scopes or webhook settings, Zoom requires each user to authorize again before it issues a new code. There is no silent upgrade.
 
-   Plan a reauthorization campaign: an in-product prompt, an email, and admin outreach, and track completion per tenant. Zoom does not document whether existing users are notified, so send your own notice. After you change OAuth or webhook settings, regenerate the authorization URL instead of reusing old links (Zoom support guidance).
+   Plan a reauthorization campaign. An in-product prompt, an email and admin outreach, with completion tracked per tenant. Zoom does not document whether existing users are notified, so send your own notice. After you change OAuth or webhook settings, regenerate the authorization URL instead of reusing old links (Zoom support guidance).
 2. **Tokens.** Access tokens last one hour. Refresh tokens last 90 days and rotate, so always store the newest one. If a refresh is rejected, or the token lacks a new scope, only a new authorization fixes it. The start-and-approval sample does this bookkeeping per user.
 3. **Many users.** An admin can add the app for users and groups (Marketplace, Manage, Apps on account, Users & Groups). The RTMS docs list no API of who authorized, or webhook for users added to a group later. So reconcile against your customer's group list on a schedule and show "authorized N of M seats" in your admin screen.
 
@@ -137,7 +137,7 @@ When a user removes a production app, Zoom posts a deauthorization event to the 
 
 ### Two ways to put it into Marketplace
 
-- **The UI at marketplace.zoom.us.** Features, Access: enable Event Subscription, add the events, set the development and production webhook URLs. Scopes: Add Scopes, search "RTMS". Surface (only for in-meeting start): Meetings and Webinars, enable the Zoom App SDK and add the JS APIs.
+- **The UI at marketplace.zoom.us.** Under Features, Access, enable Event Subscription, add the events, and set the development and production webhook URLs. Under Scopes, choose Add Scopes and search "RTMS". Under Surface (only for in-meeting start), pick Meetings and Webinars, enable the Zoom App SDK and add the JS APIs.
 - **The Marketplace API.** Validate (`POST /marketplace/apps/manifest/validate`), create (`POST /marketplace/apps`, which also needs top-level `company_name`, `contact_name` and `contact_email`), export (`GET /marketplace/apps/{appId}/manifest`) and replace (`PUT /marketplace/apps/{appId}/manifest`). Use a user or admin OAuth token with the Marketplace app-management scopes, and confirm the current base URL and scopes in Zoom's API reference. A validate call can return HTTP 200 for an invalid manifest, so read its `ok` and `errors`. A successful `PUT` is not proof of a valid manifest, so export it and read the exported manifest back.
 
 ### Common questions
@@ -169,9 +169,9 @@ Everything in this step is your product's configuration. Keep a copy of the fina
 
 ## Elsewhere in the guide
 
-Every part, one click away. The [overview](../readme.md) holds the map.
+All nine parts link below. Start from the [overview](../readme.md).
 
-- [00 Design](../00-design/readme.md) - Production architecture: failure drills, media choices, observability, the webhook SLO
+- [00 Design](../00-design/readme.md) - Production architecture. Failure drills, media choices, observability, the webhook SLO
 - [10 Integration Advisor](../10-integration-advisor/readme.md) - Step 1. What changes, which sample to start from, the gap-checker
 - [30 Publish](../30-publish/readme.md) - Step 3. Review, evidence and the rejections to avoid
 - [40 Prepare](../40-prepare/readme.md) - Step 4. Admin enablement, host approval, consent, the status codes

@@ -3,7 +3,7 @@
 Step 3 of 7. There is no code here. This step is review and evidence. The full instructions are in the root readme, section **Step 3**. The rules that matter:
 
 - Keep every representation of the product consistent. The Marketplace configuration, the scopes, the production OAuth behavior, the docs, the test plan, the screenshots and the listing copy. If two of them disagree, the review stalls.
-- Keep the reviewer test plan concrete: starting state, install, each start path, host approval, one test per scope, stop, removal, reinstall.
+- Keep the reviewer test plan concrete, covering starting state, install, each start path, host approval, one test per scope, stop, removal and reinstall.
 
 **Contents**
 
@@ -33,14 +33,13 @@ If two of them disagree, the review stalls.
 
 Private, Beta, Unlisted or Published. It decides who can install and what Zoom asks you to prove.
 
-- Zoom's RTMS page: approval is required before users outside your account can add the app.
-- The general review page: Private and Beta apps do not go through review, but a Beta app can be shared outside your account only after Zoom approves the authorization URL (3-4 business days, and the first sharing period is 4 weeks, renewable).
+Zoom's RTMS page states that approval is required before users outside your account can add the app.
+
+- Private and Beta apps skip the general review page, but a Beta app can be shared outside your account only after Zoom approves the authorization URL (3-4 business days, and the first sharing period is 4 weeks, renewable).
 - Do not ask for Beta sharing unless you need external testers and can supply security evidence.
 - Definitions and requirements change, so read Zoom's "Sharing Private and Beta apps" and "App review process" pages before you decide.
 
-**Test outside your own account before you submit.** Use a second Zoom account on a different tenant, and a Beta authorization URL if you need outside testers. Submit as soon as webhooks, scopes and any SDK paths work, not at the rollout date:
-
-- the technical design and security documentation take the longest
+**Test outside your own account before you submit.** Use a second Zoom account on a different tenant, and a Beta authorization URL if you need outside testers. Submit as soon as webhooks, scopes and any SDK paths work, not at the rollout date. The longest items are the technical design and security documentation, the test plan, the screenshots and the listing copy.
 - compliance review happens before security testing
 - reviewers authorize the app with a test account that simulates an external user, and check that each declared scope is used
 - you also need Developer Pack credits to get an RTMS app approved
@@ -48,7 +47,7 @@ Private, Beta, Unlisted or Published. It decides who can install and what Zoom a
 ### 3.2 Production infrastructure
 
 - Stable production URLs on a domain you control. HTTPS only. Zoom supports TLS 1.2 and above only. TLS 1.0 and 1.1 are not supported and must be refused.
-- If a CDN or proxy sits in front, check both hops: viewer to CDN, and CDN to origin.
+- If a CDN or proxy sits in front, check both hops, viewer to CDN and CDN to origin.
 - Do not use a generated CDN hostname such as `d123example.cloudfront.net` as the production domain. You cannot add Zoom's verification record under it and you do not control its certificate settings. On CloudFront use a custom domain, an ACM certificate in `us-east-1`, a `TLSv1.2_2021` or newer policy, and an HTTPS-only origin allowing only TLS 1.2.
 - Verify every Marketplace domain with Zoom. A DNS TXT record is the most reliable check. A verification file must be served at the exact path and content, with no redirect, no authentication and no single-page-app rewrite.
 - Production OAuth uses the production Client ID and the registered production redirect URI.
@@ -74,10 +73,10 @@ Say plainly that Zoom shows the app in the active-app indicator, that admin and 
 
 | Item | Notes |
 |---|---|
-| Reviewer test plan | A numbered plan: starting state, install, each start path, host approval, one test per scope, stop, removal, reinstall |
+| Reviewer test plan | A numbered plan covering starting state, install, each start path, host approval, one test per scope, stop, removal and reinstall |
 | Reviewer accounts | A host and an app user. Dummy data only. A way through 2FA. Credentials go in the private reviewer fields, never in public docs or ordinary replies |
 | Screenshots | Your integration, current branding, production-like URLs, no tokens or personal data. A consent screen alone is not evidence of a working product |
-| Security evidence | Whatever your path requires: secure development lifecycle, SAST, DAST, privacy policy, TLS proof. Current and reachable |
+| Security evidence | Whatever your path requires, such as secure development lifecycle, SAST, DAST and privacy policy, TLS proof. Current and reachable |
 | Architecture statement | A hosted service, no participant, no desktop installer unless you ship one |
 
 Have someone who did not build the app run the whole plan from a clean browser and machine, and fix whatever they trip over.
@@ -130,13 +129,13 @@ It sends the same `endpoint.url_validation` challenge Zoom sends and checks that
 ---
 ## Adapting this sample
 
-Store your reviewer-facing evidence in this folder as you produce it: the test plan, the security documents, the listing copy. When review comes back with a note, change the actual configuration first, then the copy here, so the two never drift.
+Store your reviewer-facing evidence in this folder as you produce it. The test plan, the security documents, the listing copy. When review comes back with a note, change the actual configuration first, then the copy here, so the two never drift.
 
 ---
 
 ## Elsewhere in the guide
 
-Every part, one click away. The [overview](../readme.md) holds the map.
+All nine parts link below. Start from the [overview](../readme.md).
 
 - [00 Design](../00-design/readme.md) - Production architecture: failure drills, media choices, observability, the webhook SLO
 - [10 Integration Advisor](../10-integration-advisor/readme.md) - Step 1. What changes, which sample to start from, the gap-checker

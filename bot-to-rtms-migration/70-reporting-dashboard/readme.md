@@ -1,6 +1,6 @@
 # 70 Reporting dashboard
 
-Turns the event trace into the numbers a migration needs after go-live: is the start funnel healthy, how fast is the first packet, how often do sockets recover, why do streams stop, how close are you to the concurrency limit, and is every artifact tied to a consent reference.
+Turns the event trace into the numbers a migration needs after go-live. Is the start funnel healthy, how fast is the first packet, how often do sockets recover, why do streams stop, how close are you to the concurrency limit, and is every artifact tied to a consent reference.
 
 **Contents**
 
@@ -22,7 +22,7 @@ No environment is required. The demo writes nothing by default and prints the re
 
 | A Meeting SDK bot | RTMS |
 |---|---|
-| One number mattered: did the bot join. | Four hops matter and fail separately: Zoom to webhook, webhook to signaling, handshake to first packet, packet to your result. |
+| One number mattered, whether the bot joined. | Four hops matter and fail separately, Zoom to webhook, webhook to signaling, handshake to first packet, packet to your result. |
 | Averages were fine. | Alert on p95 and p99. A mean hides the slow starts. |
 | Capacity was your own compute. | Concurrency is an entitlement. You must see peak against the limit before `rtms.concurrency_limited` blocks new streams. |
 | Usage meant bot minutes. | Meter per tenant and per stream. Multiple media sockets raise the operational stream count. |
@@ -46,7 +46,7 @@ No environment is required. The demo writes nothing by default and prints the re
 
 ### The `crm_sync` event
 
-The CRM step belongs to your pipeline, so it writes its own events. Append one per status change:
+The CRM step belongs to your pipeline, so it writes its own events. Append one per status change, as below.
 
 ```json
 { "v": 1, "type": "crm_sync", "streamId": "rtms-1004", "tenantId": "acme", "status": "pending" }
@@ -67,7 +67,7 @@ node 70-reporting-dashboard/cli.js --sample --json
 
 `npm run live` (and `npm run demo:03 -- --write-trace`) append to the same trace, so the page shows your own real streams. The page is one static HTML file: no scripts, no external assets. Every value from the trace is escaped. `GET /api/report` returns the same data as JSON.
 
-With a verified live run behind it, the dashboard shows the real streams and their phases, latency panels filled, and the stop reasons your meetings actually produced:
+With a verified live run behind it, the dashboard shows the real streams and their phases, latency panels filled, and the stop reasons your meetings actually produced, as below.
 
 ![Dashboard serving the real trace: both streams, latency panels, stop reasons](../docs/screenshots/15-dashboard-live.png)
 
@@ -84,7 +84,7 @@ A small committed file, [sample-data/events.sample.jsonl](sample-data/events.sam
 
 ## Production
 
-The report builder is a pure function over events. In production compute the same panels from your own logging or analytics store, and alert from there. Keep the event names and fields: they are the contract between the samples. Percentiles use nearest rank.
+The report builder is a pure function over events. In production compute the same panels from your own logging or analytics store, and alert from there. Keep the event names and fields, because they are the contract between the samples. Percentiles use nearest rank.
 
 ## Adapting this sample
 
@@ -108,17 +108,17 @@ npm run demo:70            # a dashboard from seeded sample data: .data/report.h
 npm run start:70           # your own streams: http://127.0.0.1:4806/
 ```
 
-The dashboard is one static page: start funnel, first-packet latency at p50, p95 and p99, concurrency against your limit, reconnects, pauses and gaps, stop reasons, duplicates dropped by layer, usage per tenant, artifacts with their versions and consent reference, CRM sync status, and alerts.
+The dashboard is one static page with the start funnel, first-packet latency at p50, p95 and p99, concurrency against your limit, reconnects, pauses and gaps, stop reasons, duplicates dropped by layer, usage per tenant, artifacts with their versions and consent reference, CRM sync status, and alerts.
 
 - Run it on a trace file written by `npm run live`, with `--sample` for seeded data.
 - The real streams write their events to `.data/events.jsonl`.
 - In production compute the same panels from your own logging, keeping the event names.
 
-Alert on: p95 and p99 first-packet latency, reconnect failures, started webhooks that never arrived, `rtms.request_status` failures, concurrency near the limit, any artifact with no consent reference, and any revoked stream. For CRM sync, your pipeline writes `crm_sync` events with a `status` and the dashboard shows the latest per stream, plus finalized artifacts that never reached the CRM.
+For alerting, watch p95 and p99 first-packet latency, reconnect failures, started webhooks that never arrived, `rtms.request_status` failures, concurrency near the limit, any artifact with no consent reference, and any revoked stream. For CRM sync, your pipeline writes `crm_sync` events with a `status` and the dashboard shows the latest per stream, plus finalized artifacts that never reached the CRM.
 
 ### Multi-tenant isolation
 
-A bot ran under one service account. RTMS is policy heavy, so store per tenant:
+A bot ran under one service account. RTMS is policy heavy, so store per tenant the following.
 
 - the app installation and user
 - the admin policy snapshot
@@ -140,7 +140,7 @@ Gate every stream and every artifact write on "does this account have a tenant t
 | 6 | Normalize joins, renames, duplicate names, roles | The participant registry | A source for roles, identity resolution |
 | 7 | Isolate tenants, credentials, policy and retention | The tenant gate, tenant paths, audit snapshot | Per-tenant credentials, retention jobs, deletion on revoke |
 | 8 | Log IDs and state, never secrets or raw media | Trace events carry IDs and state names only | Redaction and access control in your logging |
-| 9 | Test host absence, denial, cohost change, waiting room, lock, webinar, pause, resume, revoke | Request status handling and revoke | Live tests on real accounts: cohost change, waiting room, lock and webinar are not simulated |
+| 9 | Test host absence, denial, cohost change, waiting room, lock, webinar, pause, resume, revoke | Request status handling and revoke | Live tests on real accounts, where cohost change, waiting room, lock and webinar are not simulated |
 | 10 | Load test concurrent streams and per-socket recovery | Not covered | A load test against real Zoom with your entitlement, killing sockets on purpose |
 | 11 | Negotiate TLS 1.2 or 1.3 (required from 2026-11-15) | `ws` on a current Node release does by default | Your proxy and runtime settings |
 | 12 | Per-user tokens, reauthorization and deauthorization | [`src/oauth.js`](../50-start-and-approval/src/oauth.js): refresh, rotation, reauthorization flag, verified deauthorization | A secret store for tokens, deleting the rest of a user's data, a reauthorization campaign |
@@ -160,7 +160,7 @@ Gate every stream and every artifact write on "does this account have a tenant t
 
 ### Roll out to your customers
 
-Moving users and organizations takes longer than changing code. A pattern that works (a recommendation, not a Zoom process):
+Moving users and organizations takes longer than changing code. The staged pattern below works, as a recommendation and not a Zoom process.
 
 1. **Build and review.** A separate user-managed RTMS app, submitted early.
 2. **Dogfood.** Your own account plus one external test tenant.
@@ -191,7 +191,7 @@ To compare with running bots, multiply meetings per day by average minutes, by t
 
 ### When you contact Zoom support
 
-Collect before you open a case:
+Collect the following before you open a case.
 
 - your client ID and the account ID
 - the meeting UUID and ID, the `rtms_stream_id` and the `operator_id`
@@ -203,28 +203,28 @@ Zoom's published routes are the Developer Forum and Premier Developer Support. Z
 
 ### What changes in the November release (preview, not shipped)
 
-From Zoom's release preview. Plan for it, but do not promise it to customers:
+From Zoom's release preview. Plan for it, but do not promise it to customers.
 
 1. **V2 protocol:** protobuf wire format (JSON messages keep working), SRT as a data transport next to WSS, `event_code` in place of `event_type`, standard definition video becoming 640x360 and PNG no longer available for video or screen share. The handshake `protocol_version` defaults to `1`. Zoom does not document a pinning or advance-notice policy.
 2. **Transcript rewind.** Corrections to sentences already delivered. The first delivery is a NEW event (`attribute: 1`), and revisions are UPDATE events (`attribute: 2`) with the same `sentence_id` and the full replacement text. Replace the sentence, do not append. The sample writer now does this when `RTMS_SAVE_TRANSCRIPT=true`. Verify it against a real meeting with corrections.
 3. **`REQUEST_ERROR_RESP`, `MEDIA_DATA_USER_INFO`, an audio `source` field**, application-layer AEAD media encryption (approved per app, by request), and **Zoom Phone** audio and transcript.
 4. **TLS 1.2 or 1.3 required on every connection from 2026-11-15.** The `ws` client on a current Node release negotiates TLS 1.2 or newer by default. Check your own proxy or runtime if you changed it.
 
-Zoom documents two caveats: closing an app from the app menu fires no callback and can leave an orphaned stream (watch for stale connections and close them after a timeout), and switching to phone audio while computer audio stays connected stops transcripts until the user hangs up the phone or chooses "Leave computer audio" first.
+Zoom documents two caveats. Closing an app from the app menu fires no callback and can leave an orphaned stream (watch for stale connections and close them after a timeout), and switching to phone audio while computer audio stays connected stops transcripts until the user hangs up the phone or chooses "Leave computer audio" first.
 
 ### Before you go live
 
 1. Run `npm run live:check -- --public-url https://<your-host>/webhook` against your production URL (step 3).
 2. Give your customers step 4's admin and host instructions. RTMS does not start until their admin enables it.
 3. Subscribe to `rtms.request_status` and both concurrency events, and alert on them.
-4. Rehearse a purge: stop reason 8 means delete the assets and confirm. Walk the service purge flag, the deletion confirmations and the dashboard alert together.
+4. Rehearse a purge. Stop reason 8 means delete the assets and confirm. Walk the service purge flag, the deletion confirmations and the dashboard alert together.
 5. Run a real meeting through `npm run live` and watch every phase, a reconnect, and a stop.
 
 ---
 
 ## Elsewhere in the guide
 
-Every part, one click away. The [overview](../readme.md) holds the map.
+All nine parts link below. Start from the [overview](../readme.md).
 
 - [00 Design](../00-design/readme.md) - Production architecture: failure drills, media choices, observability, the webhook SLO
 - [10 Integration Advisor](../10-integration-advisor/readme.md) - Step 1. What changes, which sample to start from, the gap-checker

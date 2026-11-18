@@ -18,7 +18,7 @@ npm run test:61    # the same components plus edge cases
 
 No environment is required. `demo:61` feeds a fixed event and media sequence through the participant registry and video-subscription manager, negotiates audio and video parameters, translates an example Meeting SDK configuration, and prints the attributions. Expect two participants, two subscription requests, selected and unselected frames, speaker-derived audio attribution, and the numeric RTMS media parameters.
 
-Maps what a Meeting SDK bot consumed (raw PCM and YUV, a participant roster, per-person video) onto what RTMS delivers: negotiated media formats, a stream-scoped participant registry, mixed-audio speaker attribution, and one camera at a time.
+Maps what a Meeting SDK bot consumed (raw PCM and YUV, a participant roster, per-person video) onto what RTMS delivers, namely negotiated media formats, a stream-scoped participant registry, mixed-audio speaker attribution, and one camera at a time.
 
 ## Meeting SDK bot vs RTMS
 
@@ -31,7 +31,7 @@ Maps what a Meeting SDK bot consumed (raw PCM and YUV, a participant roster, per
 
 ### What actually changes in your pipeline
 
-The SDK hands you decoded, ready-to-use data: raw PCM samples and YUV frames, one callback per participant, no container. RTMS hands you encoded chunks: L16 or Opus audio and H.264 video bitstreams on type-scoped sockets, plus the muxing problem the SDK never gave you. Three shifts follow.
+The SDK hands you decoded, ready-to-use data, raw PCM samples and YUV frames, one callback per participant, no container. RTMS hands you encoded chunks instead, L16 or Opus audio and H.264 video bitstreams on type-scoped sockets, plus the muxing problem the SDK never gave you. Three shifts follow.
 
 1. **You own decoding.** Pick codecs your pipeline can decode and lock them with `fromSdkRaw()` before the first byte.
 2. **YUV becomes H.264.** No more per-frame pixels. You receive a bitstream with keyframes only where the encoder put them, so do not expect to cut or seek on any frame.
@@ -39,7 +39,7 @@ The SDK hands you decoded, ready-to-use data: raw PCM samples and YUV frames, on
     - An I frame stands alone and starts a new group.
     - A P frame depends on the frames before it, so segment starts, dropped stretches and post-gap recovery all wait for an I frame.
     - The upside is bandwidth a raw or intra-only pipeline cannot match.
-    - The cost is that dependency chain: a corrupted or missing P frame does not just lose that frame, it smears into everything built on it until the next I frame resets the picture.
+    - The cost is that dependency chain. A corrupted or missing P frame does not just lose that frame, it smears into everything built on it until the next I frame resets the picture.
 3. **Attribution becomes your bookkeeping.** Match audio frames to active-speaker intervals and video frames to the current subscription, both covered above.
 
 The stream client records segment boundaries, parameter changes, gaps and dedupes replays. The writer that turns packets into a file stays yours, hooking `onPacket` in 60-stream-lifecycle-client.
@@ -79,7 +79,7 @@ RTMS_MEDIA=audio,video RTMS_VIDEO_MODE=individual npm run live         # one cam
 - With `RTMS_VIDEO_MODE=individual` the live session selects the first person whose video is on, switches to another when that person turns video off or leaves, and subscribes again if the video socket reconnects. The log carries the subscription outcomes as `video_subscription_*` trace events.
 - `RTMS_AUDIO_*`, `RTMS_VIDEO_*` and `RTMS_TRANSCRIPT_*` set the negotiated formats. [src/mediaProfile.js](src/mediaProfile.js) refuses invalid combinations before anything connects, and `fromSdkRaw()` maps what your bot consumed today onto RTMS parameters.
 
-Two things to confirm on your first real run, because they depend on Zoom's behavior and not on this code: whether a given meeting actually sends the individual-video events, and what status Zoom returns for a refused subscription. The subscription manager treats any non-zero status as a failure and cleans up, so it does not depend on a specific code.
+Two things to confirm on your first real run, because they depend on Zoom's behavior and not on this code. One is whether a given meeting actually sends the individual-video events. The other is what status Zoom returns for a refused subscription. The subscription manager treats any non-zero status as a failure and cleans up, so it does not depend on a specific code.
 
 ## Adapting this sample
 
@@ -103,17 +103,17 @@ Design around panelist media first. Attendee streams may not be individually ava
 ### Participants and cameras
 
 - **Identify people by their RTMS user ID, never by display name.** Names repeat and change. Keep a registry per stream, closed intervals for presence, video-on and speaking, all on the stream clock (the event and packet timestamps).
-- **Mixed audio:** attribute a frame to the active-speaker interval that covers its timestamp. Do not guess from silence: with no active speaker the answer is "nobody".
-- **Per-participant audio:** bind the socket and channel metadata to the registry, not to a guess. For a Zoom App user, keep an explicit map from the Zoom App participant UUID to the RTMS user ID. RTMS does not replace your identity resolution, so duplicate names and renames need your own handling.
+- **Mixed audio.** Attribute a frame to the active-speaker interval that covers its timestamp. Do not guess from silence, because with no active speaker the answer is "nobody".
+- **Per-participant audio.** Bind the socket and channel metadata to the registry, not to a guess. For a Zoom App user, keep an explicit map from the Zoom App participant UUID to the RTMS user ID. RTMS does not replace your identity resolution, so duplicate names and renames need your own handling.
 - **One camera at a time.** To switch, unsubscribe the current person, then subscribe the next. Keep one request in flight. If the selected person turns video off or leaves, clear the selection (Zoom already ended it) and carry on. If the video socket reconnects, subscribe again. Never attribute a frame to someone who is not the current subscription.
 - **If a subscribed participant leaves,** only that person's video interval ends. Close it, remove them from the selection and keep the stream.
-- **Formats:** `RTMS_AUDIO_*`, `RTMS_VIDEO_*` and `RTMS_TRANSCRIPT_*` set what you negotiate, and invalid combinations (stereo without Opus, an fps out of range) are refused before anything connects.
+- **Formats.** `RTMS_AUDIO_*`, `RTMS_VIDEO_*` and `RTMS_TRANSCRIPT_*` set what you negotiate, and invalid combinations (stereo without Opus, an fps out of range) are refused before anything connects.
 
 ---
 
 ## Elsewhere in the guide
 
-Every part, one click away. The [overview](../readme.md) holds the map.
+All nine parts link below. Start from the [overview](../readme.md).
 
 - [00 Design](../00-design/readme.md) - Production architecture: failure drills, media choices, observability, the webhook SLO
 - [10 Integration Advisor](../10-integration-advisor/readme.md) - Step 1. What changes, which sample to start from, the gap-checker

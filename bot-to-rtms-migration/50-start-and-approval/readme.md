@@ -72,14 +72,14 @@ The 65-minute key retention exists for the rare slow start, where it makes dedup
 
 ## Two users, one meeting
 
-Every user who has your app can start it, and each started webhook carries the starter's `operator_id`. The three deduplication layers remove repeats of **one** stream. They do not remove a second user's separate stream, so the service also decides at meeting level. Set `MEETING_POLICY`:
+Every user who has your app can start it, and each started webhook carries the starter's `operator_id`. The three deduplication layers remove repeats of **one** stream. They do not remove a second user's separate stream, so the service also decides at meeting level. Set `MEETING_POLICY` to one of the values the table below lists.
 
 | Policy | What happens |
 |---|---|
 | `first_wins` (default) | The first stream opens. A different user's stream for the same tenant, product and meeting is declined while the first is live. |
 | `keep_both` | Every stream opens. Each one uses a concurrent stream and credits. |
 
-How it behaves:
+Its behaviour follows the table below.
 
 - The same user starting again (a restart with a new stream ID) is not a rival, even if the old claim has not been released yet.
 - Without an `operator_id` the service cannot tell users apart, so it does not refuse.
@@ -91,7 +91,7 @@ How it behaves:
 
 ## Should we process this meeting?
 
-Auto-start works by category (meetings I own, internally hosted, externally hosted), not by meeting. A rule such as "only meetings on a customer calendar" cannot be expressed there, so accept the webhook, decide, and stop the stream. Point `CAPTURE_FILTER_MODULE` at a file with a default export:
+Auto-start works by category (meetings I own, internally hosted, externally hosted), not by meeting. A rule such as "only meetings on a customer calendar" cannot be expressed there, so accept the webhook, decide, and stop the stream. Point `CAPTURE_FILTER_MODULE` at a file with a default export, like the one below.
 
 ```js
 // my-filter.js
@@ -102,19 +102,19 @@ export default async function capture({ tenantId, meetingId, meetingNumericId, o
 ```
 
 - It returns `true`, `false` or `{ capture, reason }`, and may be async.
-- It runs after the tenant gate and before any claim. A declined stream is handled like a duplicate: `stream_refused` with the reason `filtered_out` and your `filterReason`, then `onStreamDeclined`.
+- It runs after the tenant gate and before any claim. A declined stream is handled like a duplicate. The service emits `stream_refused` with the reason `filtered_out` and your `filterReason`, then `onStreamDeclined`.
 - It is not run again for a refresh webhook of a stream that is already live, so a live stream is never re-judged or stopped by it.
 - A filter that throws does **not** drop the meeting. The stream is captured, `capture_filter_failed` is traced, and an alert is raised.
 - Whether a stream that is stopped right after it started is billed differently is not documented. Measure it before you rely on this for cost control.
 
 ## Starting on purpose
 
-`requestStart({ meetingId, participantUserId, accountId, policy })`:
+`requestStart({ meetingId, participantUserId, accountId, policy })` does the following.
 
 1. Tenant and consent gate. A refused tenant never reaches Zoom.
-2. Capacity gate: paused by a scheduled server update, shedding near the concurrency limit, or blocked at the limit.
-3. Builds an **audit snapshot** and writes it with the attempt: meeting, target user, app client ID, the policy snapshot you passed, authorization result, tenant, consent reference, media requested, time.
-4. `PATCH /live_meetings/{meetingId}/rtms_app/status` with `{ action: "start", settings: { client_id, participant_user_id? } }`, using that user's token. The outcome code says what happened:
+2. The capacity gate, which pauses on a scheduled server update, sheds near the concurrency limit or blocks at the limit.
+3. Builds an **audit snapshot** and writes it with the attempt, covering meeting, target user, app client ID, the policy snapshot you passed, authorization result, tenant, consent reference, media requested and time.
+4. `PATCH /live_meetings/{meetingId}/rtms_app/status` with `{ action: "start", settings: { client_id, participant_user_id? } }`, using that user's token. The outcome code says what happened, and the table below decodes it.
 
    - `204` - accepted (still only "accepted", not started)
    - `3000` / `4927` - meeting not started
@@ -129,7 +129,7 @@ export default async function capture({ tenantId, meetingId, meetingNumericId, o
 
 5. Arms a **watchdog** (default 60 s). If the started webhook does not arrive, it records the audit order to follow (installation, attendee-side policy, invite list, host presence, host approval, host tools, `rtms.request_status`) and raises an alert. A matching started webhook or `rtms.request_status` cancels it.
 
-With neither `ZOOM_REDIRECT_URI` (per-user tokens) nor `ZOOM_ACCESS_TOKEN` (one token) it runs in dry-run mode: the same flow, no network.
+With neither `ZOOM_REDIRECT_URI` (per-user tokens) nor `ZOOM_ACCESS_TOKEN` (one token) it runs in dry-run mode with the same flow and no network.
 
 Stop, pause and resume use the same endpoint with `action: "stop"`, `"pause"` or `"resume"` (`requestStop`, `requestControl`). They are the building block for your own pause button where a client has none, for example a browser client. The stream state messages tell you when a pause or resume took effect.
 
@@ -144,7 +144,7 @@ REST call for a user -> that user's token, refreshed shortly before it expires
 user removes the app -> POST /oauth/deauthorize -> tokens deleted (you must delete the user's other data too)
 ```
 
-What it does:
+Its work, step by step, follows.
 
 - **Refresh.** Access tokens last one hour. The service refreshes a minute early, shares one refresh between callers that arrive together, and stores the newest refresh token every time because Zoom rotates it. Refresh tokens last 90 days.
 - **Reauthorization.** If a refresh is rejected, or the token lacks a scope listed in `OAUTH_REQUIRED_SCOPES`, the user is marked `reauthorization_required`. Calls for that user answer `reauthorization_required` at once, without a network call and without a retry. Scopes you add to the app later are not on tokens issued earlier, so existing users land here until they authorize again. A transient refresh failure (for example a 503) does not flag anyone.
@@ -160,7 +160,7 @@ Set `ZOOM_REDIRECT_URI` to the public URL of `/oauth/callback` and use the same 
 - `OAUTH_STORE=memory` holds them in memory only.
 - Without `ZOOM_REDIRECT_URI` the server keeps the single `ZOOM_ACCESS_TOKEN` shortcut, or runs as a dry run.
 
-Two authorization entry points both work, and they behave differently:
+Two authorization entry points both work, and they behave differently, as follows.
 
 - `GET /oauth/authorize` on this server mints a single-use state and redirects to Zoom. The callback carries that state and is verified against the server's own record.
 - The **Authorize button inside Marketplace** sends the user back with a code but **no state at all**, because the state is this server's own CSRF value. The callback accepts that too and exchanges the code directly (logged as `marketplace-initiated authorization`).
@@ -171,10 +171,10 @@ Scopes are granted at authorize time. A scope added to the app later appears on 
 
 ## Connect to real Zoom
 
-`npm run live` is this server with the lifecycle client attached: a verified, claimed `rtms_started` webhook opens real signaling and media sockets to Zoom's RTMS servers.
+`npm run live` is this server with the lifecycle client attached. A verified, claimed `rtms_started` webhook opens real signaling and media sockets to Zoom's RTMS servers.
 
 1. **Credentials.** `cp .env.example .env` and set `ZOOM_SECRET_TOKEN`, `ZOOM_CLIENT_ID` and `ZOOM_CLIENT_SECRET` from your Marketplace app. The client secret signs the handshakes. They stay in `.env`, which is ignored by git.
-2. **Which account.** Set `TENANT_ACCOUNT_IDS` to your Zoom account ID. Not sure of it? Leave it empty, start a stream once, and copy `accountId` from the `stream_refused` line the server logs, then set it and restart. This is the tenant and consent gate at work: an account you have not listed never gets a connection.
+2. **Which account.** Set `TENANT_ACCOUNT_IDS` to your Zoom account ID. Not sure of it? Leave it empty, start a stream once, and copy `accountId` from the `stream_refused` line the server logs, then set it and restart. This is the tenant and consent gate at work. An account you have not listed never gets a connection.
 3. **What to receive.** `RTMS_MEDIA` (default `audio,transcript`). For video choose `RTMS_VIDEO_MODE=activeSpeaker` or `individual`. See `.env.example` at the sample root for formats, reconnect windows and output.
 4. **Check the setup.** `npm run live:check` verifies the settings without printing them. After you expose the server, `npm run live:check -- --public-url https://<your-host>/webhook` sends Zoom's URL-validation challenge to that public URL, so you know the path reaches this server and the secret matches.
 5. **Expose the webhook.** Zoom must reach `POST <WEBHOOK_PATH>` on `PORT_03` over HTTPS. Put a reverse proxy or tunnel in front, and keep `HOST=127.0.0.1` so the server itself is not public.
@@ -182,9 +182,9 @@ Scopes are granted at authorize time. A scope added to the app later appears on 
    Set the same URL as your app's development webhook URL in Marketplace, subscribed to the six meeting RTMS events: `meeting.rtms_started`, `meeting.rtms_stopped`, `meeting.rtms_interrupted`, `rtms.request_status`, `rtms.concurrency_near_limit` and `rtms.concurrency_limited`. Then wait for the green validation tick - a saved-but-unvalidated URL receives nothing.
 6. **Run it.** `npm run live`, then start a meeting with RTMS enabled for your app (the account admin must have enabled RTMS for it first, and the app's Meetings surface must be enabled in Marketplace), or use `/api/start`.
 
-   The verified sequence end to end: user authorizes (tokens stored), a live meeting with the user present, `PATCH .../rtms_app/status` returns 204, `rtms_started` arrives within seconds, sockets connect, and `phase streaming` follows.
+   The verified sequence end to end has the user authorize (tokens stored), a live meeting with the user present, `PATCH .../rtms_app/status` returns 204, `rtms_started` arrives within seconds, sockets connect, and `phase streaming` follows.
 
-What the log shows, one JSON line each:
+The log shows one JSON line per event, in this shape.
 
 `listening for Zoom webhooks`, then for a stream `connecting to the RTMS signaling server`, `phase signaling_connected`, `media_connected`, `client_ready_sent`, `streaming`, a `stats` line every 10 seconds, `participant join`, and at the end `stream finished` with the stop reason and the path of `manifest.json`.
 
@@ -192,16 +192,16 @@ What the log shows, one JSON line each:
 
 Transcript text is content, so it is not logged by default. `RTMS_PRINT_TRANSCRIPT=true` prints it and `RTMS_SAVE_TRANSCRIPT=true` appends it to `transcript.jsonl` next to the manifest. The same applies to anything else you add to `onPacket`.
 
-If a stream does not appear, work down this list - each item below was observed live:
+If a stream does not appear, work down this list. Each item below was observed live.
 
 - **The meeting already ended.** A start request for a dead meeting stays pending, blocks retries for that meeting with `already_pending`, and its watchdog fires with no webhook ever coming. Clear it by restarting the service (pending starts are in-memory) and start against a live meeting ID.
-- **`started_webhook_missing` alert.** The PATCH was accepted (or dry-run) but no started webhook arrived. Causes seen in practice: dry-run mode with no token, the meeting ended before the webhook, the account is not in `TENANT_ACCOUNT_IDS`, or the webhook secret went stale after a rotation so Zoom's probes bounce with 401.
+- **`started_webhook_missing` alert.** The PATCH was accepted (or dry-run) but no started webhook arrived. Its causes in practice are dry-run mode with no token, the meeting ended before the webhook, the account is not in `TENANT_ACCOUNT_IDS`, or the webhook secret went stale after a rotation so Zoom's probes bounce with 401.
 - **Immediate restart race.** A stop and immediate restart are two accepted requests, not one atomic handoff. The replacement `started` webhook can be missed while the prior generation finishes. The watchdog can then fire with no matching `rtms.request_status`. A later bounded retry can succeed with a new stream ID. Treat one missed webhook after an immediate restart as a retryable race, not proof that the meeting is dead.
 - **Meeting ID form.** Use the numeric meeting ID in the live-meeting status path. The URL-encoded meeting-UUID form returned Zoom code `300`, `Invalid meeting id`, on a lifecycle stop. Retrying with the numeric ID was accepted.
 - **Surface disabled.** The Marketplace app's Meetings surface checkbox must be on, or Zoom accepts every start and emits nothing.
-- **Webhook endpoint changed.** A webhook URL edit is not transparent: in development the authorization URL must be regenerated and the app added again, and in production the app must be resubmitted for approval. A missed step here silences every event, not only `rtms_started`.
-- **Delivery evidence.** The Marketplace dashboard logs successful and failed webhook deliveries. Check it before assuming a webhook was never sent: a delivered-but-unhandled event is our bug, an undelivered one is configuration.
-- **Credentials for the media path.** A fired webhook is not success: the signaling and media handshakes still need correct client credentials, and a wrong secret fails there, after the webhook. The 60-second windows make this look like a missing stream, not an auth error.
+- **Webhook endpoint changed.** A webhook URL edit is not transparent. In development the authorization URL must be regenerated and the app added again, and in production the app must be resubmitted for approval. A missed step here silences every event, not only `rtms_started`.
+- **Delivery evidence.** The Marketplace dashboard logs successful and failed webhook deliveries. Check it before assuming a webhook was never sent. A delivered-but-unhandled event is our bug. An undelivered one is configuration.
+- **Credentials for the media path.** A fired webhook is not success, because the signaling and media handshakes still need correct client credentials, and a wrong secret fails there, after the webhook. The 60-second windows make this look like a missing stream, not an auth error.
 ![Marketplace Surface page with Meetings enabled for the RTMS app](../docs/screenshots/21-surface-meetings-enabled.png)
 - **Validation green but silent.** Re-run URL validation from the marketplace UI after any secret or deployment change, and watch your access log for the `Zoom Marketplace/1.0a` user agent - your own signed probes returning 200 do not prove Zoom's side.
 
@@ -225,7 +225,7 @@ The server binds to `127.0.0.1`. The operator API takes an optional bearer token
 
 | In the sample | In production |
 |---|---|
-| Dedupe set and claim registry live in memory, per process | One shared store: an atomic unique-key insert in your database, or Redis `SET key owner NX PX`, so every instance sees the same claims. Without it, two instances can both open the same stream. |
+| Dedupe set and claim registry live in memory, per process | One shared store, an atomic unique-key insert in your database or Redis `SET key owner NX PX`, so every instance sees the same claims. Without it, two instances can both open the same stream. |
 | Lease renewed by `heartbeat()` every `CLAIM_LEASE_MS / 3` | Same contract. A fenced worker (claim taken over) stops using the stream. |
 | Trace file | Your logging or event pipeline |
 | [tenants.sample.json](tenants.sample.json) | Your install and consent records |
@@ -254,7 +254,7 @@ A bot joined once. RTMS webhooks are retried, and a retry can open a second conn
 
 ### What the started webhook contains
 
-The event name depends on the product: `meeting.rtms_started`, `webinar.rtms_started` or `session.rtms_started` (Video SDK). Contact Center voice has its own started event, and the code here accepts it too. Persist the whole object.
+The event name depends on the product. A meeting uses `meeting.rtms_started`, `webinar.rtms_started` or `session.rtms_started` (Video SDK). Contact Center voice has its own started event, and the code here accepts it too. Persist the whole object.
 
 For a meeting expect:
 
@@ -269,7 +269,7 @@ The stream ID plus your signed credentials authorize the signaling handshake, an
 
 ### The flow
 
-The full diagram is in **The flow** above. The contract in words: verify the signature on the raw body, parse, answer URL validation, deduplicate, return 200 before any work, and only then act on the event.
+The full diagram is in **The flow** above. In words, the contract is to verify the signature on the raw body, parse, answer URL validation, deduplicate, return 200 before any work, and only then act on the event.
 
 ### Three layers of deduplication
 
@@ -283,7 +283,7 @@ On top of the three layers sits a meeting-level rule, because the three remove r
 
 - `MEETING_POLICY=first_wins` (default) declines a different user's stream while the first is live.
 - `keep_both` opens every stream.
-- A rule auto-start cannot express (for example "only meetings on a customer calendar") belongs in a capture filter: accept the webhook, decide, and stop the stream by REST.
+- A rule auto-start cannot express (for example "only meetings on a customer calendar") belongs in a capture filter. Accept the webhook, decide, and stop the stream by REST.
 
 Both policies are in the start-and-approval sample (50-start-and-approval/readme.md) and covered by tests.
 
@@ -297,7 +297,7 @@ Both policies are in the start-and-approval sample (50-start-and-approval/readme
 
 ### Starting on purpose, and the missing webhook
 
-The mechanics are in **Starting on purpose** above: the gates, the audit snapshot, the outcome classification and the watchdog. Two things the guide adds.
+The mechanics are in **Starting on purpose** above, the gates, the audit snapshot, the outcome classification and the watchdog. Two things the guide adds.
 
 The call acts for one Zoom user, so it needs **that user's** access token, not a service credential. Keep one record per user, refresh before expiry, store the newest refresh token, and mark a user who must authorize again instead of retrying.
 
@@ -305,7 +305,7 @@ And you cannot recover a missing lifecycle webhook by polling. Do not connect fr
 
 **What happens at the concurrency events?**
 
-- `rtms.concurrency_near_limit` is a capacity action: shed or defer noncritical starts, warn tenant admins, protect active meetings.
+- `rtms.concurrency_near_limit` is a capacity action. Shed or defer noncritical starts, warn tenant admins and protect active meetings.
 - `rtms.concurrency_limited` is a hard stop for new streams. Retry only after capacity frees, with jitter, and do not open speculative connections for every media type.
 - Record the number, the limit, the tenant and the time.
 - If limits are hit often, ask Zoom support or your Zoom sales representative to raise the account's concurrency limit, so the shedding never becomes routine.
@@ -326,7 +326,7 @@ The setup steps are in **Connect to real Zoom** above. Once live, the log shows,
 
 ## Elsewhere in the guide
 
-Every part, one click away. The [overview](../readme.md) holds the map.
+All nine parts link below. Start from the [overview](../readme.md).
 
 - [00 Design](../00-design/readme.md) - Production architecture: failure drills, media choices, observability, the webhook SLO
 - [10 Integration Advisor](../10-integration-advisor/readme.md) - Step 1. What changes, which sample to start from, the gap-checker
