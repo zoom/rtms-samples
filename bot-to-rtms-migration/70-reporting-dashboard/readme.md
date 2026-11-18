@@ -175,7 +175,7 @@ Measure the start success rate (started webhooks against the meetings you expect
 
 ### Cost and concurrency accounting
 
-1. RTMS needs Zoom Developer Pack credits. Volume discounts and commitments above 500 credits go through sales. Basic accounts are not supported: webhooks do not fire and API calls fail with `2310`.
+1. RTMS needs Zoom Developer Pack credits. Volume discounts and commitments above 500 credits go through sales. Basic accounts are not supported. Their webhooks do not fire and API calls fail with `2310`.
 2. The default limit is **2,000** concurrent streams on a Developer Pack (5 on the free trial), and higher limits are available by request.
 3. A concurrent stream is one RTMS **session ID**, not one meeting. A new session appears when you start RTMS in a new meeting, and again per extra media type socket in that meeting. Audio and video on separate sockets count as **two**. Plan capacity as the sum, over live meetings, of the media types you open.
 4. `rtms.concurrency_near_limit` arrives periodically above 80 percent of the limit, and `rtms.concurrency_limited` when the limit is reached. Request status `5` means no limit is set on the account.

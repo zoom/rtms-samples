@@ -27,7 +27,7 @@ Most of the work in this step is configuration. It covers `manifest.json`, scope
 
 A **General App** in the Zoom Marketplace (Develop, Build App, General App). Three constraints shape the rest of this step.
 
-- RTMS events and scopes require a **user-managed** app (`USER_OPERATION`): installed by the person whose meetings it receives, or added by an admin for users and groups. An admin-managed app (`ADMIN_MANAGEMENT`) cannot use the RTMS scopes, so a bot vendor running one needs a separate user-managed app for RTMS.
+- RTMS events and scopes require a **user-managed** app (`USER_OPERATION`), installed by the person whose meetings it receives or added by an admin for users and groups. An admin-managed app (`ADMIN_MANAGEMENT`) cannot use the RTMS scopes, so a bot vendor running one needs a separate user-managed app for RTMS.
 - RTMS scopes must be granular (new apps have them, an older app may need them turned on) and cannot be marked optional, so request only the media you use.
 - Event subscription changes take 1-2 minutes to take effect.
 

@@ -32,7 +32,7 @@ Do not write the RTMS flow from scratch. Each of these works today, so pick the 
 | Start/stop controls from a Zoom App or REST | `zoom_apps/start_stop_rtms_control_js`, `rtms_api/manual_start_stop_using_js` |
 | Reconnection and chaos testing | `rtms_api/reconnection_and_chaos_mode_js` |
 
-Paths are relative to the repository root (`rtms-samples/`). The folders in this repository add the migration-specific parts those samples do not have: the webhook hardening, the tenant and consent gate, deduplication and the audit trail.
+Paths are relative to the repository root (`rtms-samples/`). The folders in this repository add the migration-specific parts those samples do not have. They cover the webhook hardening, the tenant and consent gate, deduplication and the audit trail.
 
 ## What actually changes
 
@@ -155,9 +155,9 @@ Meeting SDK bots keep working. RTMS is where new builds end up. Before you write
 
 ### Gap assessment order
 
-1. **Nothing has to happen during the meeting** (or you only archive finished meetings to a CRM): recording webhooks and the Recording REST API cover it. Do not pull RTMS in just as a downloader.
+1. **Nothing has to happen during the meeting.** If you only archive finished meetings to a CRM, recording webhooks and the Recording REST API cover it. Do not pull RTMS in just as a downloader.
 2. **Something blocks RTMS.** That part stays on the Meeting SDK for now. Blockers are an approval flow your product cannot accept, customers who cannot install and authorize the app, joining any meeting from only an ID and passcode, raw capture RTMS does not cover, or every camera at once.
-3. **Something RTMS lacks** (a visible bot, speech, chat, host controls, recording control): plan the companion surface for it. Add RTMS as well only if you also want an independent analytics or compliance feed. That combination needs one identity, consent and audit service across both.
+3. **Something RTMS lacks** (a visible bot, speech, chat, host controls, recording control). Plan the companion surface for it. Add RTMS as well only if you also want an independent analytics or compliance feed. That combination needs one identity, consent and audit service across both.
 4. **Everything else moves to RTMS.** Add a Zoom App if users need a panel inside the meeting. Contact Center voice RTMS needs its own entitlement.
 
 RTMS fits the parts of your product where all of these hold.

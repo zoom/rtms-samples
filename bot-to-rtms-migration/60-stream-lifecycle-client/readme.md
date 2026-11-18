@@ -128,7 +128,7 @@ The local protocol mock is part of the folder now. It is a test harness, not a Z
 
 ## Step 6. Stay connected
 
-With a bot the SDK kept the connection. RTMS keeps the connection alive the same way, but the machinery is yours: you answer the server's keep-alive pings, run reconnect with backoff, and deduplicate anything that arrives twice around a reconnect. The connection code is in `60-stream-lifecycle-client`, with participants and cameras in `61-media-and-participants`.
+With a bot the SDK kept the connection. RTMS keeps the connection alive the same way, but the machinery is yours. You answer the server's keep-alive pings, run reconnect with backoff, and deduplicate anything that arrives twice around a reconnect. The connection code is in `60-stream-lifecycle-client`, with participants and cameras in `61-media-and-participants`.
 
 ### The connection sequence
 
@@ -202,7 +202,7 @@ The decision rule behind both tables is to classify the stop reason before you r
 - Network-class reasons (10, 11, and the 12 to 26 connection failures) justify an automatic retry under the reconnect rules above.
 - Policy-class reasons (1, 4, 5, 8, 9) mean a human or admin gate is closed, so no retry until it clears.
 
-Zoom sends no "gate is open again" event: the first sign of recovery is a fresh `rtms_started`. Treat any silent no-prompt-no-webhook stretch after a policy stop as the gate still being shut, not as a lost request.
+Zoom sends no "gate is open again" event. The first sign of recovery is a fresh `rtms_started`. Treat any silent no-prompt-no-webhook stretch after a policy stop as the gate still being shut, not as a lost request.
 
 ### Missed audio and duplicates
 
@@ -249,7 +249,7 @@ Plan for these. None change the V1 client today.
 - An SRT transport option for data connections (`srt_passphrase` and `srt_pbkey_length` in the handshake response), AEAD payload encryption by request only, and a `REQUEST_ERROR_RESP` message with `status_code` and `reason` for failed requests.
 - Multiple individual video streams, up to four concurrent 720p subscriptions per stream, as a server feature enabled by request.
 - SD video becomes 640x360 and PNG goes away for video and screen share.
-- Transcript rewind sends UPDATE events with the same `sentence_id` and full replacement text whenever `enable_lid` is on: replace the sentence, do not append.
+- Transcript rewind sends UPDATE events with the same `sentence_id` and full replacement text whenever `enable_lid` is on. Replace the sentence, do not append.
 - `MEDIA_DATA_USER_INFO` arrives unsubscriptioned on the event channel with `user_id`, `user_name` and `participant_uuid` (Meetings only). `MEDIA_DATA_AUDIO` gains `content.source` (1 microphone, 2 shared content).
 - Audio boundaries change to one frame per message for RTP and raw Opus/G711/G722, and variable frames up to 128 KiB for L16.
 
