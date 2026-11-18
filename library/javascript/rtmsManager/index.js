@@ -34,6 +34,8 @@ export { RTMSConfigHelper } from './utils/RTMSConfigHelper.js';
 export { RTMS_MEDIA_PARAMS } from './utils/rtmsMediaParams.js';
 export { RTMS_PROTOCOL_DEFINITIONS } from './utils/rtmsProtocolDefinitions.js';
 export { RTMSFlagHelper, TYPE_FLAGS } from './utils/RTMSFlagHelper.js';
+export { isAllowedRtmsCallbackUrl, selectAllowedRtmsCallbackUrl } from './utils/rtmsUrlPolicy.js';
+export { RTMS_EVENT_CODES } from './signalingSocketMessageHandler.js';
 
 // Lookup helpers
 export {

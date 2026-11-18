@@ -88,7 +88,57 @@ await RTMSManager.init({ ...RTMSManager.PRESETS.TRANSCRIPTION, credentials });
 
 // Audio + video (recording)
 await RTMSManager.init({ ...RTMSManager.PRESETS.VIDEO_RECORDING, credentials });
+
+// Zoom Phone: per-channel call audio + transcript over protocol V2
+await RTMSManager.init({ ...RTMSManager.PRESETS.PHONE, credentials });
 ```
+
+## Zoom Phone
+
+RTMSManager handles [Zoom Phone RTMS](https://developers.zoom.us/docs/rtms/phone/)
+with the same API as meetings. Subscribe your General app to
+`phone.call_rtms_started`, `phone.call_rtms_stopped`, and
+`phone.call_rtms_interrupted`, add the `phone:read:voice_call_audio` and
+`phone:read:voice_call_transcript` scopes, and forward the webhooks to
+`RTMSManager.handleEvent()`.
+
+```javascript
+await RTMSManager.init({
+  ...RTMSManager.PRESETS.PHONE,
+  credentials: {
+    phone: { clientId: '...', clientSecret: '...', secretToken: '...' }
+  }
+});
+
+// Phone speakers are identified by channelId (also exposed as userId).
+// Names are filled from CALL_INFO_UPDATED when available.
+RTMSManager.on('transcript', ({ productType, rtmsId, channelId, userName, sentenceId, isUpdate, text }) => {
+  // Key sentences by (channelId, sentenceId). isUpdate means "replace the
+  // sentence text"; 0 is a valid sentenceId.
+});
+RTMSManager.on('audio', ({ channelId, buffer }) => {}); // raw PCM per channel
+
+RTMSManager.on('phone_call_info_updated', ({ hostChannelId, participants }) => {});
+RTMSManager.on('phone_call_hold', ({ rtmsId }) => {});
+RTMSManager.on('phone_call_resume', ({ rtmsId }) => {});
+RTMSManager.on('phone_call_transfer_completed', ({ transferType, transferResult }) => {});
+
+RTMSManager.getPhoneCallInfo(streamId); // { hostChannelId, participants: [{ channelId, name, number }] }
+```
+
+The manager applies the Phone protocol details automatically:
+
+- Signs and handshakes with `call_id` and RTMS protocol V2.
+- Selects the `wss://` entry when `server_urls` also lists `srt://` URLs.
+- Opens separate audio (`1`) and transcript (`8`) sockets without
+  meeting-style `media_params`, then sends a client-ready ACK for each.
+- Rebuilds the stream when `phone.call_rtms_started` repeats for an active
+  stream (server failover), and reconnects with stored URLs on
+  `phone.call_rtms_interrupted`.
+
+`rtmsId` is the Phone `call_id`. See
+[`phone/print_phone_transcript_js`](../../phone/print_phone_transcript_js/)
+for a runnable sample.
 
 ## Events
 

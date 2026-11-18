@@ -78,6 +78,14 @@ const PRESETS = Object.freeze({
         fps: 25
       }
     }
+  },
+  /**
+   * Zoom Phone - per-channel call audio and transcript over RTMS protocol V2.
+   * Phone media handshakes send no meeting-style media_params, so none are set.
+   */
+  PHONE: {
+    mediaTypes: MEDIA.AUDIO | MEDIA.TRANSCRIPT,
+    protocolVersion: 2
   }
 });
 
@@ -173,6 +181,22 @@ export class RTMSManager extends EventEmitter {
       return handler?.currentVideoSubscriptionUserId ?? null;
     } catch (error) {
       FileLogger.warn(`[RTMSManager] getCurrentVideoSubscription failed: ${error.message}`);
+      return null;
+    }
+  }
+
+  /**
+   * Latest Zoom Phone call metadata (participants and host channel) for a stream,
+   * populated from CALL_INFO_UPDATED events.
+   * @param {string} streamId
+   * @returns {{hostChannelId: string|null, participants: Array<{channelId: string|null, name: string|null, number: string|null}>}|null}
+   */
+  static getPhoneCallInfo(streamId) {
+    try {
+      const handler = RTMSManager.instance.connectionManager.get(streamId);
+      return handler?.getPhoneCallInfo ? handler.getPhoneCallInfo() : null;
+    } catch (error) {
+      FileLogger.warn(`[RTMSManager] getPhoneCallInfo failed: ${error.message}`);
       return null;
     }
   }
@@ -429,11 +453,16 @@ export class RTMSManager extends EventEmitter {
 
     this.on('contact_center.voice_rtms_started', handleContactCenterStart);
 
-    this.on('phone.rtms_started', (payload) => {
+    // Zoom Phone webhooks are phone.call_rtms_*; phone.rtms_* is kept as an alias.
+    // A repeated start for an active Phone stream signals RTMS server failover,
+    // so the stream is rebuilt even when server_urls are unchanged.
+    const handlePhoneStart = (payload) => {
       const { call_id, rtms_stream_id, server_urls, event_ts } = payload;
       const creds = RTMSConfigHelper.getCredentialsForProduct('phone', this.config);
-      this.onStreamStart(call_id, 'phone', rtms_stream_id, server_urls, creds, event_ts);
-    });
+      this.onStreamStart(call_id, 'phone', rtms_stream_id, server_urls, creds, event_ts, { restartIfActive: true });
+    };
+    this.on('phone.call_rtms_started', handlePhoneStart);
+    this.on('phone.rtms_started', handlePhoneStart);
 
     this.on('meeting.rtms_stopped', (payload) => {
       const { rtms_stream_id } = payload;
@@ -477,15 +506,18 @@ export class RTMSManager extends EventEmitter {
     this.on('contact_center.voice_rtms_stopped', handleContactCenterStop);
     this.on('contact_center.voice_rtms_interrupted', handleContactCenterInterrupted);
 
-    this.on('phone.rtms_stopped', (payload) => {
+    const handlePhoneStop = (payload) => {
       const { rtms_stream_id } = payload;
       this.onStreamStop(rtms_stream_id);
-    });
-
-    this.on('phone.rtms_interrupted', (payload) => {
+    };
+    const handlePhoneInterrupted = (payload) => {
       const { rtms_stream_id } = payload;
       this.onStreamInterrupted(rtms_stream_id);
-    });
+    };
+    this.on('phone.call_rtms_stopped', handlePhoneStop);
+    this.on('phone.rtms_stopped', handlePhoneStop);
+    this.on('phone.call_rtms_interrupted', handlePhoneInterrupted);
+    this.on('phone.rtms_interrupted', handlePhoneInterrupted);
 
     this.on('stream_state_changed', ({ state, streamId }) => {
       if (state === 4 && streamId) {
@@ -544,7 +576,7 @@ export class RTMSManager extends EventEmitter {
     return this._stopPromise;
   }
 
-  async onStreamStart(rtmsId, rtmsType, streamId, serverUrls, creds, startTime = null) {
+  async onStreamStart(rtmsId, rtmsType, streamId, serverUrls, creds, startTime = null, { restartIfActive = false } = {}) {
     if (this._state !== 'STARTED') {
       this.logger.warn(`[RTMSManager] Ignoring ${rtmsType} stream ${streamId} while manager state is ${this._state}`);
       return true;
@@ -553,9 +585,9 @@ export class RTMSManager extends EventEmitter {
     const existingByRtmsId = this.connectionManager.findByRtmsId(rtmsId);
     if (existingByRtmsId) {
       if (existingByRtmsId.streamId === streamId) {
-        if (hasChangedServerUrls(existingByRtmsId.serverUrls, serverUrls)) {
+        if (restartIfActive || hasChangedServerUrls(existingByRtmsId.serverUrls, serverUrls)) {
           this.logger.warn(
-            `[RTMSManager] Refreshing ${rtmsType} ${rtmsId} stream ${streamId} with new signaling server URLs`
+            `[RTMSManager] Refreshing ${rtmsType} ${rtmsId} stream ${streamId} after a repeated start (server failover or new signaling URLs)`
           );
           await this.onStreamStop(streamId);
         } else {

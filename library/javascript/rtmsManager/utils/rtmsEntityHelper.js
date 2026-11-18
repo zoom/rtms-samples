@@ -1,3 +1,5 @@
+import { selectAllowedRtmsCallbackUrl } from './rtmsUrlPolicy.js';
+
 const RTMS_ENTITY_KEYS = Object.freeze({
   meeting: 'meeting_uuid',
   webinar: 'webinar_uuid',
@@ -23,9 +25,17 @@ export function getRtmsIdFromPayload(rtmsType, payload = {}) {
   return payload[entityKey] || null;
 }
 
+// Prefer the allowed ws/wss entry from a possibly comma-separated value
+// (`wss://...,srt://...`). Fall back to the raw value so the caller's
+// allowlist check still reports a clear error instead of an empty URL.
+function pickWebSocketUrl(value) {
+  if (typeof value !== 'string') return value;
+  return selectAllowedRtmsCallbackUrl(value) || value;
+}
+
 export function getPreferredMediaUrl(rtmsType, serverUrls, preferredType = null) {
   if (typeof serverUrls === 'string') {
-    return serverUrls;
+    return pickWebSocketUrl(serverUrls);
   }
 
   if (!serverUrls || typeof serverUrls !== 'object') {
@@ -33,14 +43,14 @@ export function getPreferredMediaUrl(rtmsType, serverUrls, preferredType = null)
   }
 
   if (preferredType && serverUrls[preferredType]) {
-    return serverUrls[preferredType];
+    return pickWebSocketUrl(serverUrls[preferredType]);
   }
 
   if (rtmsType === 'contactCenter' && serverUrls.audio) {
-    return serverUrls.audio;
+    return pickWebSocketUrl(serverUrls.audio);
   }
 
-  return (
+  return pickWebSocketUrl(
     serverUrls.audio ||
     Object.values(serverUrls).find((url) => typeof url === 'string' && url.startsWith('ws')) ||
     ''

@@ -93,6 +93,12 @@ export class RTMSMessageHandler {
     this.emit = (eventName, ...args) => this.mediaEventDispatcher.dispatch(eventName, ...args);
     this.mediaTypesFlag = mediaTypesFlag;
     this.config = config;
+    // Zoom Phone requires RTMS protocol V2 or later. Other products keep V1
+    // unless the caller opts in with config.protocolVersion.
+    const configuredProtocolVersion = Number(config.protocolVersion) || 0;
+    this.protocolVersion = rtmsType === 'phone'
+      ? Math.max(2, configuredProtocolVersion)
+      : (configuredProtocolVersion || 1);
     this.protocolDefinitions = getProtocolDefinitions(config);
     this.shouldReconnect = true;
     this.signaling = { socket: null, state: 'connecting', lastKeepAlive: null };
@@ -117,6 +123,8 @@ export class RTMSMessageHandler {
     this.signalingStatus8Failures = 0;
     this.videoOnParticipants = new Map();
     this.currentVideoSubscriptionUserId = null;
+    // Zoom Phone call metadata from CALL_INFO_UPDATED (event_code 3000).
+    this.phoneCallInfo = { hostChannelId: null, participants: [] };
 
     this.audioFiller = null;
     this.videoFiller = null;
@@ -307,6 +315,28 @@ export class RTMSMessageHandler {
 
   getVideoOnParticipants() {
     return Array.from(this.videoOnParticipants.values()).map((participant) => ({ ...participant }));
+  }
+
+  setPhoneCallInfo({ hostChannelId = null, participants = [] } = {}) {
+    this.phoneCallInfo = {
+      hostChannelId,
+      participants: participants.map((participant) => ({ ...participant }))
+    };
+  }
+
+  getPhoneCallInfo() {
+    return {
+      hostChannelId: this.phoneCallInfo.hostChannelId,
+      participants: this.phoneCallInfo.participants.map((participant) => ({ ...participant }))
+    };
+  }
+
+  getPhoneParticipantName(channelId) {
+    if (channelId == null) return null;
+    const match = this.phoneCallInfo.participants.find(
+      (participant) => String(participant.channelId) === String(channelId)
+    );
+    return match?.name ?? null;
   }
 
   isIndividualVideoSubscriptionEnabled() {

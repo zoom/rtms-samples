@@ -1,0 +1,17 @@
+{
+  "name": "rtms-phone-transcript-js",
+  "version": "1.0.0",
+  "type": "module",
+  "engines": {
+    "node": ">=20"
+  },
+  "scripts": {
+    "start": "node index.js",
+    "check": "node --check index.js && node --check phoneTranscript.js",
+    "test": "node --test"
+  },
+  "dependencies": {
+    "dotenv": "^17.4.2",
+    "express": "^4.21.2"
+  }
+}

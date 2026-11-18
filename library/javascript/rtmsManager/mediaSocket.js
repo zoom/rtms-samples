@@ -126,7 +126,12 @@ export function connectToMediaWebSocket(
       }
     };
 
-    const mediaParams = buildMediaParamsForSocket(configuredMediaParams, mediaType);
+    // Zoom Phone media is per-channel and the official Phone quickstart sends
+    // no media_params; meeting-style mixed-audio options do not apply. Callers
+    // can still pass explicit Phone parameters through config.phoneMediaParams.
+    const mediaParams = conn.rtmsType === 'phone'
+      ? buildMediaParamsForSocket(conn.config?.phoneMediaParams || {}, mediaType)
+      : buildMediaParamsForSocket(configuredMediaParams, mediaType);
 
     if (mediaParams.transcript?.content_type) {
       const language = mediaParams.transcript.language;
@@ -141,13 +146,13 @@ export function connectToMediaWebSocket(
 
     const handshakeMsg = {
       msg_type: 3, // DATA_HAND_SHAKE_REQ
-      protocol_version: 1,
+      protocol_version: conn.protocolVersion || 1,
       ...buildRtmsEntityPayload(conn.rtmsType, meetingUuid),
       rtms_stream_id: streamId,
       signature,
       media_type: mediaTypeFlag,
       payload_encryption: false,
-      media_params: mediaParams
+      ...(Object.keys(mediaParams).length > 0 ? { media_params: mediaParams } : {})
     };
     FileLogger.log(
       `[Media] [${conn.rtmsType},${meetingUuid},${streamId}] ${mediaType} handshake summary: ${JSON.stringify({

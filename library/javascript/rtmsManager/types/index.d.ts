@@ -218,6 +218,17 @@ export interface RTMSConfig {
   mediaTypes: number;
   /** @deprecated Use mediaTypes instead */
   mediaTypesFlag?: number;
+  /**
+   * RTMS protocol version for signaling and media handshakes. Defaults to 1;
+   * Zoom Phone streams always use 2 or later.
+   */
+  protocolVersion?: number;
+  /**
+   * Optional media_params sent only on Zoom Phone media handshakes. Omitted by
+   * default, matching Zoom's Phone quickstart. Keys use wire names, e.g.
+   * `{ audio: { send_rate: 20 } }`.
+   */
+  phoneMediaParams?: Record<string, Record<string, unknown>>;
   
   // Gap filler settings
   /** Enable real-time audio/video gap filling */
@@ -417,6 +428,8 @@ export interface AudioEvent extends BaseEvent {
   type: 'audio';
   /** Audio buffer (PCM/encoded) */
   buffer: Buffer;
+  /** Zoom Phone participant channel; also used as userId for Phone streams */
+  channelId?: string | null;
 }
 
 /** Video event */
@@ -446,6 +459,15 @@ export interface TranscriptEvent extends BaseEvent {
   language: number | string;
   /** Raw attribute value */
   attribute: string | number;
+  /** Zoom Phone participant channel; also used as userId for Phone streams */
+  channelId?: string | null;
+  /**
+   * Zoom Phone sentence ID. Revisions reuse it; key sentences by
+   * (channelId, sentenceId). 0 is a valid ID.
+   */
+  sentenceId?: number | null;
+  /** True when attribute is 2 (replace the existing sentence text) */
+  isUpdate?: boolean;
 }
 
 /** Chat event */
@@ -485,8 +507,10 @@ export interface SignalingEventData {
 /** Signaling event (object format) */
 export interface SignalingEvent {
   type: 'event';
-  /** Event type code */
-  eventType: number;
+  /** Legacy V1 event type code; null for V2 events */
+  eventType: number | null;
+  /** V2 RTMS_EVENT_CODE (for example Zoom Phone 3000-3003); null for V1 events */
+  eventCode?: number | null;
   /** Raw event data */
   data: SignalingEventData;
   /** Product-specific RTMS identifier (meeting/session/engagement/call) */
@@ -614,6 +638,51 @@ export interface SessionStateEvent {
   timestamp: number;
 }
 
+/** Zoom Phone participant from CALL_INFO_UPDATED */
+export interface PhoneParticipant {
+  channelId: string | null;
+  name: string | null;
+  /** PSTN phone number or extension number */
+  number: string | null;
+}
+
+/** Zoom Phone call metadata */
+export interface PhoneCallInfo {
+  hostChannelId: string | null;
+  participants: PhoneParticipant[];
+}
+
+interface PhoneEventBase {
+  eventCode: number;
+  data: Record<string, any>;
+  rtmsId: string;
+  meetingId: string;
+  streamId: string;
+  productType: ProductType;
+  timestamp: number;
+}
+
+/** CALL_INFO_UPDATED (event_code 3000) */
+export interface PhoneCallInfoUpdatedEvent extends PhoneEventBase, PhoneCallInfo {
+  type: 'phone_call_info_updated';
+}
+
+/** CALL_HOLD (3001) or CALL_RESUME (3002) */
+export interface PhoneCallHoldStateEvent extends PhoneEventBase {
+  type: 'phone_call_hold' | 'phone_call_resume';
+}
+
+/** TRANSFER_COMPLETED (event_code 3003) */
+export interface PhoneCallTransferCompletedEvent extends PhoneEventBase {
+  type: 'phone_call_transfer_completed';
+  transferType: 'MEETING' | 'EXTENSION' | 'PSTN' | string | null;
+  transferResult: {
+    meeting_uuid?: string;
+    extension_number?: string;
+    phone_number?: string;
+  } | null;
+}
+
 // =============================================================================
 // Presets
 // =============================================================================
@@ -622,6 +691,7 @@ export interface SessionStateEvent {
 export interface Preset {
   mediaTypes: number;
   mediaParams?: MediaParams;
+  protocolVersion?: number;
 }
 
 /** Available presets */
@@ -632,6 +702,8 @@ export interface Presets {
   TRANSCRIPTION: Preset;
   /** Video recording - audio + video */
   VIDEO_RECORDING: Preset;
+  /** Zoom Phone - per-channel audio + transcript over protocol V2 */
+  PHONE: Preset;
 }
 
 // =============================================================================
@@ -651,6 +723,9 @@ export type VideoSubscriptionResponseHandler = (event: VideoSubscriptionResponse
 export type StreamCloseResponseHandler = (event: StreamCloseResponseEvent) => void;
 export type StreamStateHandler = (event: StreamStateEvent) => void;
 export type SessionStateHandler = (event: SessionStateEvent) => void;
+export type PhoneCallInfoUpdatedHandler = (event: PhoneCallInfoUpdatedEvent) => void;
+export type PhoneCallHoldStateHandler = (event: PhoneCallHoldStateEvent) => void;
+export type PhoneCallTransferCompletedHandler = (event: PhoneCallTransferCompletedEvent) => void;
 export type ErrorHandler = (error: RTMSError) => void;
 
 /**
@@ -721,6 +796,8 @@ export class RTMSManager extends EventEmitter {
   static getActiveConnections(): any[];
   static getVideoOnParticipants(streamId: string): VideoParticipant[];
   static getCurrentVideoSubscription(streamId: string): number | string | null;
+  /** Latest Zoom Phone participants and host channel for a stream */
+  static getPhoneCallInfo(streamId: string): PhoneCallInfo | null;
   static subscribeToIndividualVideo(streamId: string, userId: number | string, subscribe?: boolean): void;
   static requestStreamClose(streamId: string): void;
 
@@ -739,6 +816,10 @@ export class RTMSManager extends EventEmitter {
   static on(event: 'stream_close_response', handler: StreamCloseResponseHandler): void;
   static on(event: 'stream_state_changed', handler: StreamStateHandler): void;
   static on(event: 'session_state_changed', handler: SessionStateHandler): void;
+  static on(event: 'phone_call_info_updated', handler: PhoneCallInfoUpdatedHandler): void;
+  static on(event: 'phone_call_hold', handler: PhoneCallHoldStateHandler): void;
+  static on(event: 'phone_call_resume', handler: PhoneCallHoldStateHandler): void;
+  static on(event: 'phone_call_transfer_completed', handler: PhoneCallTransferCompletedHandler): void;
   static on(event: 'error', handler: ErrorHandler): void;
 
   // Stream metadata accessors

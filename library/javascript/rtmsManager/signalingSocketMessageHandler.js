@@ -15,6 +15,95 @@ import { getProtocolDefinitions } from './utils/rtmsProtocolDefinitions.js';
 const MAX_DUPLICATE_SIGNAL_RETRIES = 3;
 const INITIAL_DUPLICATE_SIGNAL_RETRY_DELAY_MS = 1500;
 
+// RTMS protocol V2 event codes (RTMS_EVENT_CODE). V2 streams such as Zoom
+// Phone report events with event_code instead of the legacy event_type.
+export const RTMS_EVENT_CODES = Object.freeze({
+  FIRST_PACKET_TIMESTAMP: 1,
+  MEDIA_CONNECTION_INTERRUPTED: 2,
+  ZP_CALL_INFO_UPDATED: 3000,
+  ZP_CALL_HOLD: 3001,
+  ZP_CALL_RESUME: 3002,
+  ZP_CALL_TRANSFER_COMPLETED: 3003
+});
+
+const PHONE_EVENT_NAMES = Object.freeze({
+  [RTMS_EVENT_CODES.ZP_CALL_INFO_UPDATED]: 'phone_call_info_updated',
+  [RTMS_EVENT_CODES.ZP_CALL_HOLD]: 'phone_call_hold',
+  [RTMS_EVENT_CODES.ZP_CALL_RESUME]: 'phone_call_resume',
+  [RTMS_EVENT_CODES.ZP_CALL_TRANSFER_COMPLETED]: 'phone_call_transfer_completed'
+});
+
+function normalizePhoneParticipant(participant = {}) {
+  return {
+    channelId: participant.channel_id ?? null,
+    name: participant.name ?? null,
+    // The published payload names this field "phone_number/extension_number".
+    number: participant.phone_number
+      ?? participant.extension_number
+      ?? participant['phone_number/extension_number']
+      ?? null
+  };
+}
+
+function handleEventCode(msg, meetingUuid, streamId, conn, emit) {
+  const event = msg.event;
+  const base = {
+    eventCode: event.event_code,
+    data: event,
+    rtmsId: meetingUuid,
+    meetingId: meetingUuid,
+    streamId,
+    productType: conn.rtmsType || 'meeting',
+    timestamp: event.timestamp || Date.now()
+  };
+
+  switch (event.event_code) {
+    case RTMS_EVENT_CODES.FIRST_PACKET_TIMESTAMP:
+      FileLogger.log(`[Signaling] [${conn.rtmsType},${meetingUuid},${streamId}] FIRST_PACKET_TIMESTAMP: ${event.timestamp}`);
+      conn.setFirstPacketTimestamp(event.timestamp);
+      return;
+
+    case RTMS_EVENT_CODES.MEDIA_CONNECTION_INTERRUPTED:
+      FileLogger.log(`[Signaling] [${conn.rtmsType},${meetingUuid},${streamId}] MEDIA_CONNECTION_INTERRUPTED (media_type ${event.media_type ?? 'unknown'})`);
+      emit('media_connection_interrupted', { type: 'media_connection_interrupted', mediaType: event.media_type ?? null, ...base });
+      return;
+
+    case RTMS_EVENT_CODES.ZP_CALL_INFO_UPDATED: {
+      const participants = Array.isArray(event.participants)
+        ? event.participants.map(normalizePhoneParticipant)
+        : [];
+      conn.setPhoneCallInfo?.({ hostChannelId: event.host_channel_id ?? null, participants });
+      FileLogger.log(`[Signaling] [${conn.rtmsType},${meetingUuid},${streamId}] CALL_INFO_UPDATED: ${participants.map((p) => p.name || p.channelId).join(', ')}`);
+      emit(PHONE_EVENT_NAMES[event.event_code], {
+        type: PHONE_EVENT_NAMES[event.event_code],
+        hostChannelId: event.host_channel_id ?? null,
+        participants,
+        ...base
+      });
+      return;
+    }
+
+    case RTMS_EVENT_CODES.ZP_CALL_HOLD:
+    case RTMS_EVENT_CODES.ZP_CALL_RESUME:
+      FileLogger.log(`[Signaling] [${conn.rtmsType},${meetingUuid},${streamId}] ${PHONE_EVENT_NAMES[event.event_code]}`);
+      emit(PHONE_EVENT_NAMES[event.event_code], { type: PHONE_EVENT_NAMES[event.event_code], ...base });
+      return;
+
+    case RTMS_EVENT_CODES.ZP_CALL_TRANSFER_COMPLETED:
+      FileLogger.log(`[Signaling] [${conn.rtmsType},${meetingUuid},${streamId}] TRANSFER_COMPLETED: ${event.transfer_type || 'unknown'}`);
+      emit(PHONE_EVENT_NAMES[event.event_code], {
+        type: PHONE_EVENT_NAMES[event.event_code],
+        transferType: event.transfer_type ?? null,
+        transferResult: event.transfer_result ?? null,
+        ...base
+      });
+      return;
+
+    default:
+      FileLogger.log(`[Signaling] [${conn.rtmsType},${meetingUuid},${streamId}] Unhandled event_code: ${event.event_code}`);
+  }
+}
+
 function getVideoParticipants(event = {}) {
   if (Array.isArray(event.participants) && event.participants.length > 0) {
     return event.participants.map((participant) => ({
@@ -179,6 +268,10 @@ export function handleSignalingMessage(data, meetingUuid, streamId, signalingWs,
     return;
   }
 
+  // The Phone event reference shows msg_type as the string "EVENT_UPDATE";
+  // normalize it to the integer used by the universal protocol.
+  if (msg.msg_type === 'EVENT_UPDATE') msg.msg_type = 6;
+
   switch (msg.msg_type) {
     case 2: // SIGNALING_HAND_SHAKE_RESP
       {
@@ -247,9 +340,18 @@ export function handleSignalingMessage(data, meetingUuid, streamId, signalingWs,
           }
         }
 
-        conn.pendingEventSubscriptionPayload = buildEventSubscriptionPayload(conn, mediaTypesFlag);
-        conn.eventSubscriptionsSent = false;
-        if (shouldSubscribeToIndividualVideoEvents(conn, mediaTypesFlag)) {
+        // Zoom Phone delivers call events (event_code 3000-3003) without a
+        // subscription, and V2 rejects legacy event_type subscriptions.
+        if (conn.rtmsType === 'phone') {
+          conn.pendingEventSubscriptionPayload = null;
+          conn.eventSubscriptionsSent = true;
+        } else {
+          conn.pendingEventSubscriptionPayload = buildEventSubscriptionPayload(conn, mediaTypesFlag);
+          conn.eventSubscriptionsSent = false;
+        }
+        if (conn.rtmsType === 'phone') {
+          // No event subscription to send for Phone streams.
+        } else if (shouldSubscribeToIndividualVideoEvents(conn, mediaTypesFlag)) {
           FileLogger.log(
             `[Signaling] [${conn.rtmsType},${meetingUuid},${streamId}] Deferring event subscription until individual video stream is active`
           );
@@ -316,7 +418,9 @@ export function handleSignalingMessage(data, meetingUuid, streamId, signalingWs,
       }
 
     case 6: // Events
-      if (msg.event) {
+      if (msg.event && msg.event.event_code != null && msg.event.event_type == null) {
+        handleEventCode(msg, meetingUuid, streamId, conn, emit);
+      } else if (msg.event) {
         switch (msg.event.event_type) {
           case 0: // UNDEFINED
             FileLogger.log(`[Signaling] [${conn.rtmsType},${meetingUuid},${streamId}] UNDEFINED event`);
@@ -424,13 +528,14 @@ export function handleSignalingMessage(data, meetingUuid, streamId, signalingWs,
       // Emit event object
       emit('event', {
         type: 'event',
-        eventType: msg.event.event_type,
+        eventType: msg.event?.event_type ?? null,
+        eventCode: msg.event?.event_code ?? null,
         data: msg.event,
         rtmsId: meetingUuid,
         meetingId: meetingUuid,
         streamId,
         productType: conn.rtmsType || 'meeting',
-        timestamp: msg.event.timestamp || Date.now()
+        timestamp: msg.event?.timestamp || Date.now()
       });
       break;
 

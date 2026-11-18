@@ -12,6 +12,15 @@ remain under **Unreleased** until a repository release is published.
 
 - Added `zoom_apps/zoom_decisions_compliance_risk_copilot_js`, a Zoom App that uses typed
   decisions to review live transcripts for compliance gaps and risk.
+- Added Zoom Phone RTMS support to the JavaScript `RTMSManager`:
+  `phone.call_rtms_started`, `phone.call_rtms_stopped`, and
+  `phone.call_rtms_interrupted` webhooks, protocol V2 handshakes, `wss://`
+  selection from comma-separated `server_urls`, per-channel audio and
+  transcript events (`channelId`, `sentenceId`, `isUpdate`), Phone call events
+  (`phone_call_info_updated`, `phone_call_hold`, `phone_call_resume`,
+  `phone_call_transfer_completed`), `RTMSManager.PRESETS.PHONE`, and
+  `RTMSManager.getPhoneCallInfo()`.
+- Added `phone/print_phone_transcript_js`, a Zoom Phone transcript sample.
 
 ### Changed
 

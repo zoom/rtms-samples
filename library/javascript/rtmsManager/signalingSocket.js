@@ -4,7 +4,7 @@ import { buildRtmsEntityPayload } from './utils/rtmsEntityHelper.js';
 import { handleSignalingMessage } from './signalingSocketMessageHandler.js';
 import { FileLogger } from './utils/FileLogger.js';
 import { RTMSError } from './utils/RTMSError.js';
-import { isAllowedRtmsCallbackUrl } from './utils/rtmsUrlPolicy.js';
+import { selectAllowedRtmsCallbackUrl } from './utils/rtmsUrlPolicy.js';
 
 function releaseSignalingConnectLock(conn, socket) {
   if (conn._signalingConnectSocket === socket) {
@@ -132,7 +132,11 @@ export function connectToSignalingWebSocket(
     conn._duplicateSignalRetryTimer = null;
   }
 
-  if (!isAllowedRtmsCallbackUrl(serverUrls)) {
+  // Zoom Phone and other V2 streams may send `wss://...,srt://...`; signaling
+  // must use the WebSocket entry. conn.serverUrls keeps the original value so
+  // reconnects reselect from the stored webhook URLs.
+  const signalingUrl = selectAllowedRtmsCallbackUrl(serverUrls);
+  if (!signalingUrl) {
     const error = RTMSError.fromCode('CONNECTION_FAILED', {
       meetingId: meetingUuid,
       streamId
@@ -146,7 +150,7 @@ export function connectToSignalingWebSocket(
   let signalingWs;
   try {
     conn._signalingConnectLocked = true;
-    signalingWs = new WebSocket(serverUrls);
+    signalingWs = new WebSocket(signalingUrl);
     conn._signalingConnectSocket = signalingWs;
   } catch (err) {
     conn._signalingConnectLocked = false;
@@ -174,7 +178,7 @@ export function connectToSignalingWebSocket(
       }
 
       FileLogger.log(`[Signaling] [${conn.rtmsType},${meetingUuid},${streamId}] Connected, sending handshake`);
-      measureSignalingPingRtt(signalingWs, meetingUuid, streamId, serverUrls, conn, emit);
+      measureSignalingPingRtt(signalingWs, meetingUuid, streamId, signalingUrl, conn, emit);
       
       if (!conn.shouldReconnect) {
         FileLogger.warn(`[Signaling] [${conn.rtmsType},${meetingUuid},${streamId}] Aborting - RTMS stopped`);
@@ -186,7 +190,7 @@ export function connectToSignalingWebSocket(
 
       const handshakeMsg = {
         msg_type: 1,
-        protocol_version: 1,
+        protocol_version: conn.protocolVersion || 1,
         ...buildRtmsEntityPayload(conn.rtmsType, meetingUuid),
         rtms_stream_id: streamId,
         sequence: Math.floor(Math.random() * 1e9),

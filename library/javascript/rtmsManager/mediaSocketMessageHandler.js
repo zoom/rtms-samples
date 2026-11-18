@@ -99,13 +99,16 @@ export function handleMediaMessage(data, {
 
       case 14: // AUDIO
         if (msg.content?.data) {
-          const { user_id, user_name, data: audioData, timestamp } = msg.content;
+          const { user_id, user_name, channel_id, data: audioData, timestamp } = msg.content;
           const buffer = Buffer.from(audioData, 'base64');
-          
+
+          // Zoom Phone identifies speakers by channel_id; map it to userId so
+          // product-agnostic handlers keep working, and expose channelId.
           processAudio({
             buffer,
-            userId: user_id,
-            userName: user_name,
+            userId: user_id ?? channel_id,
+            userName: user_name ?? conn.getPhoneParticipantName?.(channel_id) ?? null,
+            channelId: channel_id ?? null,
             timestamp,
             rtmsId: meetingUuid,
             meetingId: meetingUuid,
@@ -153,13 +156,31 @@ export function handleMediaMessage(data, {
 
       case 17: // TRANSCRIPT
         if (msg.content?.data) {
-          const { user_id, user_name, data: transcriptData, timestamp, start_time, end_time, language, attribute } = msg.content;
-          FileLogger.log(`[Media] [${conn.rtmsType},${meetingUuid},${streamId}] Transcript packet from ${user_name || user_id}: ${String(transcriptData).slice(0, 120)}`);
-          
+          const {
+            user_id,
+            user_name,
+            channel_id,
+            sentence_id,
+            data: transcriptData,
+            timestamp,
+            start_time,
+            end_time,
+            language,
+            attribute
+          } = msg.content;
+          const resolvedUserId = user_id ?? channel_id;
+          const resolvedUserName = user_name ?? conn.getPhoneParticipantName?.(channel_id) ?? null;
+          FileLogger.log(`[Media] [${conn.rtmsType},${meetingUuid},${streamId}] Transcript packet from ${resolvedUserName || resolvedUserId}: ${String(transcriptData).slice(0, 120)}`);
+
           processTranscript({
             text: transcriptData,
-            userId: user_id,
-            userName: user_name,
+            userId: resolvedUserId,
+            userName: resolvedUserName,
+            channelId: channel_id ?? null,
+            // Phone sends revisions with attribute 2 for the same
+            // (channel_id, sentence_id); 0 is a valid sentence ID.
+            sentenceId: sentence_id ?? null,
+            isUpdate: attribute === 2,
             timestamp,
             rtmsId: meetingUuid,
             meetingId: meetingUuid,
