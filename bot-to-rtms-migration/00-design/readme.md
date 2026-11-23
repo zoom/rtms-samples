@@ -69,7 +69,7 @@ From Zoom's [Failover and reconnection](https://developers.zoom.us/docs/rtms/mee
 | # | Scenario | Trigger | Recover by |
 |---|---|---|---|
 | 1 | RTMS server failure | `meeting.rtms_started` arrives for an **already-active** stream | Tear down all sockets, reconnect everything to the (possibly new) `server_urls`. The `meeting_uuid` and `rtms_stream_id` are unchanged |
-| 2 | Signaling dropped | `meeting.rtms_interrupted` webhook | Reconnect signaling **and** media, with exponential backoff. Server allows ~60 s before ending the stream |
+| 2 | Signaling dropped | `meeting.rtms_interrupted` webhook | Reconnect signaling **and** media, with exponential backoff. Observed live: the interrupted event lands ~58 s into the silence and the terminal `await_reconnection_timeout` (19) follows about 60 s later, so the whole kill takes ~2 min - but treat 60 s as the working budget (see B9) |
 | 3 | One media leg dropped | `MEDIA_CONNECTION_INTERRUPTED` signal on that socket | Reconnect **only** the affected media connection(s). The rest keep running |
 | 4 | Stream terminated | `meeting.rtms_stopped` with `stop_reason` 10-19 or 24 | Full restart: a fresh `rtms_started` is required. Do not reconnect onto a dead stream |
 

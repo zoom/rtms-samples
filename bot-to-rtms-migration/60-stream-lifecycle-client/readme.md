@@ -156,7 +156,7 @@ Both sockets get keep-alive requests. Three unanswered requests and the server c
 | What breaks | What Zoom does | What you do |
 |---|---|---|
 | A Zoom RTMS server fails | A replacement starts and Zoom sends a **new** `rtms_started` webhook with fresh `server_urls` for the same stream | Move the stream to the new URLs. Close the old sockets quietly. Do not open a second stream |
-| Your signaling socket drops | Zoom interrupts signaling **and** media, and sends `rtms_interrupted`. It waits about 60 seconds | Reconnect signaling first, then media |
+| Your signaling socket drops | Zoom interrupts signaling **and** media, and sends `rtms_interrupted` about 60 s into the silence; the terminal `await_reconnection_timeout` follows roughly one more window later. Plan for 60 s, expect ~2 min to full teardown | Reconnect signaling first, then media |
 | Only a media socket drops | Zoom sends the `MEDIA_CONNECTION_INTERRUPTED` event on the live signaling socket | Reconnect only that media socket |
 
 The rules follow.
