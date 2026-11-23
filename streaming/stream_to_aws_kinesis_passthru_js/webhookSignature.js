@@ -85,4 +85,22 @@ function isAllowedRtmsCallbackUrl(value, allowedHosts) {
   return suffixes.some((suffix) => host === suffix || host.endsWith(`.${suffix}`));
 }
 
-module.exports = { authenticateZoomWebhook, captureRawBody, buildUrlValidationResponse, normalizeWebhookPlainToken, isAllowedRtmsCallbackUrl };
+// RTMS protocol V2 can return several URLs for one endpoint, separated by
+// commas (for example "wss://host/ws,srt://host:port"). WebSocket connections
+// must use the ws/wss entry, so return the first allowed one.
+function selectAllowedRtmsCallbackUrl(value, allowedHosts) {
+  if (typeof value !== 'string' || value.length === 0) return undefined;
+  return value
+    .split(',')
+    .map((url) => url.trim())
+    .find((url) => isAllowedRtmsCallbackUrl(url, allowedHosts));
+}
+
+module.exports = {
+  authenticateZoomWebhook,
+  captureRawBody,
+  buildUrlValidationResponse,
+  normalizeWebhookPlainToken,
+  isAllowedRtmsCallbackUrl,
+  selectAllowedRtmsCallbackUrl
+};

@@ -13,7 +13,7 @@ import {
   authenticateZoomWebhook,
   captureRawBody,
   buildUrlValidationResponse,
-  isAllowedRtmsCallbackUrl,
+  selectAllowedRtmsCallbackUrl,
 } from './webhookSignature.js';
 
 // Load environment variables from a .env file
@@ -195,12 +195,15 @@ function connectToSignalingWebSocket(meetingUuid, streamId, serverUrl) {
     clearSignalingTimers(conn);
     conn._signalingConnectLocked = true;
 
-    if (!isAllowedRtmsCallbackUrl(serverUrl)) {
-        console.warn(`[Signaling] Refusing signaling URL outside allowlist: ${serverUrl}`);
+    // RTMS V2 server_urls can list wss:// and srt:// entries; signaling uses wss://.
+    const signalingUrl = selectAllowedRtmsCallbackUrl(serverUrl);
+    if (!signalingUrl) {
+        conn._signalingConnectLocked = false;
+        console.warn(`[Signaling] No allowed wss:// signaling URL in: ${serverUrl}`);
         return;
     }
 
-    const ws = new WebSocket(serverUrl);
+    const ws = new WebSocket(signalingUrl);
     conn._signalingConnectSocket = ws;
 
     conn.signaling = ws;
@@ -223,7 +226,7 @@ function connectToSignalingWebSocket(meetingUuid, streamId, serverUrl) {
         // Send handshake message to the signaling server
         const handshake = {
             msg_type: 1, // SIGNALING_HAND_SHAKE_REQ
-            protocol_version: 1,
+            protocol_version: 2,
             meeting_uuid: meetingUuid,
             rtms_stream_id: streamId,
             sequence: Math.floor(Math.random() * 1e9),
@@ -256,7 +259,12 @@ function connectToSignalingWebSocket(meetingUuid, streamId, serverUrl) {
                 clearTimeout(conn._duplicateSignalRetryTimer);
                 conn._duplicateSignalRetryTimer = null;
             }
-            const mediaUrls = msg.media_server?.server_urls || {};
+            const rawMediaUrls = msg.media_server?.server_urls || {};
+            // V2 docs show an object keyed by media type, while the V2 blog describes one
+            // comma-separated string. Accept both by reusing a string for every type.
+            const mediaUrls = typeof rawMediaUrls === "string"
+                ? { audio: rawMediaUrls, video: rawMediaUrls }
+                : rawMediaUrls;
             for (const mediaType of ['audio', 'video']) {
                 if (mediaUrls[mediaType]) {
                     connectToMediaWebSocket(mediaUrls[mediaType], meetingUuid, streamId, ws, mediaType);
@@ -351,19 +359,21 @@ function connectToMediaWebSocket(mediaUrl, meetingUuid, streamId, signalingSocke
     conn.media ||= {};
     conn.mediaUrls[mediaType] = mediaUrl;
 
-    if (!isAllowedRtmsCallbackUrl(mediaUrl)) {
-        console.warn(`[Media] Refusing media URL outside allowlist: ${mediaUrl}`);
+    // RTMS V2 media URLs can also be comma-separated; connect to the wss:// entry.
+    const wsMediaUrl = selectAllowedRtmsCallbackUrl(mediaUrl);
+    if (!wsMediaUrl) {
+        console.warn(`[Media] No allowed wss:// media URL in: ${mediaUrl}`);
         return;
     }
 
-    const mediaWs = new WebSocket(mediaUrl, { rejectUnauthorized: false });
+    const mediaWs = new WebSocket(wsMediaUrl, { rejectUnauthorized: false });
     conn.media[mediaType] = mediaWs;
 
     mediaWs.on('open', () => {
         const signature = generateSignature(CLIENT_ID, meetingUuid, streamId, CLIENT_SECRET);
         const handshake = {
             msg_type: 3, 
-            protocol_version: 1,
+            protocol_version: 2,
             meeting_uuid: meetingUuid,
             rtms_stream_id: streamId,
             signature,

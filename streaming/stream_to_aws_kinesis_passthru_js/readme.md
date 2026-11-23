@@ -170,6 +170,14 @@ Run the build from the repository root because the Dockerfile uses repository-re
 
 The container supports the sample's default AWS PutMedia implementation. The optional `kvssink` implementation requires the Amazon Kinesis Video Streams GStreamer plugin to be built and supplied separately.
 
+## RTMS Protocol V2
+
+This sample uses RTMS protocol V2:
+
+- Both the signaling and media handshakes send `protocol_version: 2`.
+- Audio and video use separate media connections (`media_type` 1 and 2). V2 rejects `media_type: 32` (ALL) with status 48.
+- `server_urls` can be an object keyed by media type or a single string. Either form can hold a comma-separated list such as `wss://...,srt://...`. The sample connects to the first allowed `wss://` entry.
+
 ## Webhook Delivery Authentication
 
 Normal Zoom webhook deliveries are verified against the exact raw request body using

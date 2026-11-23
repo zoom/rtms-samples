@@ -111,6 +111,14 @@ docker run --rm --env-file streaming/stream_audio_and_video_to_custom_frontend_p
 
 Run the build from the repository root because the Dockerfile uses repository-relative paths. Runtime secrets are supplied with `--env-file` and are excluded from the image build context.
 
+## RTMS Protocol V2
+
+This sample uses RTMS protocol V2:
+
+- Both the signaling and media handshakes send `protocol_version: 2`.
+- Audio and video use separate media connections (`media_type` 1 and 2). V2 rejects `media_type: 32` (ALL) with status 48.
+- `server_urls` can be an object keyed by media type or a single string. Either form can hold a comma-separated list such as `wss://...,srt://...`. The sample connects to the first allowed `wss://` entry.
+
 ## Webhook Delivery Authentication
 
 Normal Zoom webhook deliveries are verified against the exact raw request body using
