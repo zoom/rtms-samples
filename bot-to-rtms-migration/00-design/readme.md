@@ -124,6 +124,12 @@ A design is resilient only after these drills have run against the real deployme
 - **Reconnect-on-timer.** Every reconnect is trigger-driven (webhook or socket event) with backoff. Timers only arm watchdogs that *detect*, never ones that *retry*.
 - **Silent lease steals.** A worker that loses its lease must close its sockets immediately. A grace period with two owners is the duplicate-connection defect with extra steps.
 
+**Trial versus paid behaves the same.** Nothing in the RTMS flow differs on a free-trial account - same webhooks, same reconnect windows, same event semantics. The only documented difference is capacity: the free trial allows 5 concurrent streams against 2,000 on a Developer Pack (see 70-reporting-dashboard). Prototype on the trial, load-plan against the paid limit.
+
+**A dead node ends the stream; a new stream needs a new `rtms_started`.** If the node holding the sockets dies - crash, kill -9, extended network outage - the graceful in-process close path never runs, so there is no receiver-requested close and no reuse of the old stream. Observed live (B9): the crash path ends in terminal `await_reconnection_timeout` (19) about two minutes after the silence starts, and a fresh `rtms_started` lands roughly 20 s later. Reconnect windows are for *socket* drops, not *host* death - after host death, plan for scenario 4 semantics. The restart columns in the stop-reason table are a reading of the reference library's lookup table, not Zoom policy - treat "new stream required" as the safe default after any host-level failure.
+
+**Node-death detection is your infrastructure, not the SDK's.** The websocket client detects its own break in about 1-2 s (B3: 1.2 s signaling, 2.1 s transcript/audio) and reconnects silently. What no SDK gives you is noticing that a *node* stopped answering while its sockets look fine from inside - the silent-partition case. That needs an external heartbeat or health checker watching each worker (process liveness, socket state, last sequence advance) with authority to kill and reassign. It is deployment plumbing, and the lease/heartbeat store in 01 is where it hangs off.
+
 ## 02 Media and codec planning
 
 What you subscribe to in the media handshake decides your bandwidth, your CPU, your storage, and how hard muxing is - per stream, multiplied by every concurrent stream you committed to in 01. Choose deliberately. The defaults are a starting point, not a spec.
@@ -265,6 +271,7 @@ The 50-start-and-approval service already implements this edge. Its green states
 ### Retry and duplicate mechanics
 
 - Zoom retries on non-200 and on timeout. Your dedupe key makes every retry idempotent. The 65-minute window covers the retry horizon. The rare slow-start case is why the window is generous, not the norm - a started webhook is usable for ~60 s, so retries usually arrive after the stream is live.
+- Retries are **ack-conditional and backoff-shaped**: a delivery that never got the HTTP 200 is re-delivered on a roughly 5 / 20 / 60-minute cadence (forum-confirmed, not in the official reference - keep the 65-minute dedupe window as the safe horizon). A delivery that got a 200 never comes back, so "answered but the enqueue failed" is the case your own reconcile watchdog covers, not Zoom's retry.
 - Duplicate `rtms_started` for a live stream is also **scenario 1 (server failover)**: same key, but the payload carries new `server_urls` and means reconnect, not a retry. The dedupe layer forwards it. The stream worker decides retry-vs-failover from its own state. A naive "duplicate, drop" at ingress deletes failover signals.
 - Reconcile missed deliveries with the watchdog. An accepted start with no webhook inside the window is an incident signal (audit order attached), not a queue to poll.
 
