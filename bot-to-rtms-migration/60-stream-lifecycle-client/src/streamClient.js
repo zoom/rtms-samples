@@ -1,6 +1,7 @@
 import WebSocket from 'ws';
 import {
-  backoffDelayMs, decideStop, EVENT_TYPE, MEDIA_MSG_FOR_TYPE, MEDIA_TYPE, MSG, STREAM_STATE, STREAM_STATE_NAME, TIMING
+  backoffDelayMs, decideStop, EVENT_CODE, eventCodeOf, MEDIA_MSG_FOR_TYPE, MEDIA_TYPE, MSG, RTMS_PROTOCOL_VERSION,
+  STREAM_STATE, STREAM_STATE_NAME, subscribableEventCode, TIMING
 } from '../../shared/codes.js';
 import { silentLogger } from '../../shared/log.js';
 import { entityKeyForProduct } from '../../shared/rtmsPayload.js';
@@ -23,24 +24,44 @@ const PARAM_KEY = { share: 'deskshare' };
 // The signaling response names the screen share URL "sharescreen". Accept the older spellings too.
 const URL_KEYS = { share: ['sharescreen', 'share', 'deskshare'] };
 
-/** Pick the URL for one concrete media type out of the signaling response's server_urls. */
+/**
+ * RTMS protocol V2 can list several URLs for one endpoint, separated by commas
+ * (for example `wss://host/ws,srt://host:port`). This client speaks WebSocket,
+ * so it uses the ws/wss entry.
+ */
+export function pickWebSocketUrl(value) {
+  if (typeof value !== 'string') return undefined;
+  return value.split(',').map((url) => url.trim()).find((url) => /^wss?:\/\//.test(url));
+}
+
+/**
+ * Pick the URL for one concrete media type out of the signaling response's server_urls.
+ * server_urls is usually keyed by media type; V2 may return one string that serves every type.
+ */
 export function pickMediaUrl(serverUrls, type) {
-  for (const key of URL_KEYS[type] || [type]) if (serverUrls?.[key]) return serverUrls[key];
+  if (typeof serverUrls === 'string') return pickWebSocketUrl(serverUrls);
+  for (const key of URL_KEYS[type] || [type]) if (serverUrls?.[key]) return pickWebSocketUrl(serverUrls[key]);
   return undefined;
 }
 const TYPE_FOR_MSG = Object.fromEntries(Object.entries(MEDIA_MSG_FOR_TYPE).map(([type, msg]) => [msg, type]));
 
 /**
- * Event subscription (msg 5). Without it the server sends no participant, speaker or video events.
- * Defaults match library/javascript/rtmsManager: active speaker, join, leave; plus sharing and
- * video on/off when individual video is requested; plus chat group events when chat is requested.
+ * Event subscription (msg 5), as RTMS protocol V2 event codes. Without it the server sends no
+ * participant, speaker or video events. Defaults match library/javascript/rtmsManager: active
+ * speaker, join, leave; plus sharing and video on/off when individual video is requested; plus
+ * chat group events when chat is requested.
  */
 export function defaultEventSubscriptions({ media, mediaParams }) {
-  const events = [EVENT_TYPE.ACTIVE_SPEAKER_CHANGE, EVENT_TYPE.PARTICIPANT_JOIN, EVENT_TYPE.PARTICIPANT_LEAVE];
+  const events = [EVENT_CODE.ACTIVE_SPEAKER_CHANGE, EVENT_CODE.PARTICIPANT_JOIN, EVENT_CODE.PARTICIPANT_LEAVE];
   if (media.includes('video') && mediaParams.video?.data_opt === 4) {
-    events.push(EVENT_TYPE.SHARING_START, EVENT_TYPE.SHARING_STOP, EVENT_TYPE.PARTICIPANT_VIDEO_ON, EVENT_TYPE.PARTICIPANT_VIDEO_OFF);
+    events.push(EVENT_CODE.SHARING_START, EVENT_CODE.SHARING_STOP, EVENT_CODE.PARTICIPANT_VIDEO_ON, EVENT_CODE.PARTICIPANT_VIDEO_OFF);
   }
-  if (media.includes('chat')) events.push(10, 11, 12, 13, 14); // chat group create, delete, members add, members delete, member status
+  if (media.includes('chat')) {
+    events.push(
+      EVENT_CODE.CHAT_GROUP_CREATE, EVENT_CODE.CHAT_GROUP_DELETE, EVENT_CODE.CHAT_GROUP_MEMBERS_ADD,
+      EVENT_CODE.CHAT_GROUP_MEMBERS_DELETE, EVENT_CODE.CHAT_GROUP_MEMBER_STATUS_UPDATE
+    );
+  }
   return events;
 }
 
@@ -89,7 +110,7 @@ export function createStreamClient({
   const window = { signalingMs: TIMING.signalingReconnectWindowMs, mediaMs: TIMING.mediaReconnectWindowMs, ...windows };
   const checkMs = keepAliveCheckMs ?? Math.max(10, Math.floor(keepAliveSilenceLimitMs / 5));
   const entityKey = entityKeyForProduct(envelope.product);
-  let signalingUrl = typeof envelope.serverUrls === 'string' ? envelope.serverUrls : envelope.serverUrls?.signaling;
+  let signalingUrl = pickWebSocketUrl(typeof envelope.serverUrls === 'string' ? envelope.serverUrls : envelope.serverUrls?.signaling);
 
   const sockets = { signaling: newSocket('signaling', 'signaling') };
   for (const type of media) sockets[type] = newSocket(type, 'media', type);
@@ -191,7 +212,7 @@ export function createStreamClient({
         pingForRtt(ws);
         send(sock, {
           msg_type: MSG.SIGNALING_HAND_SHAKE_REQ,
-          protocol_version: 1,
+          protocol_version: RTMS_PROTOCOL_VERSION,
           [entityKey]: envelope.meetingId,
           rtms_stream_id: envelope.streamId,
           sequence: Math.floor(random() * 1e9),
@@ -202,12 +223,11 @@ export function createStreamClient({
         const key = PARAM_KEY[sock.mediaType] || sock.mediaType;
         send(sock, {
           msg_type: MSG.DATA_HAND_SHAKE_REQ,
-          protocol_version: 1,
+          protocol_version: RTMS_PROTOCOL_VERSION,
           [entityKey]: envelope.meetingId,
           rtms_stream_id: envelope.streamId,
           signature: rtmsHandshakeSignature(clientId, envelope.meetingId, envelope.streamId, clientSecret),
           media_type: MEDIA_TYPE[sock.mediaType],
-          payload_encryption: false,
           media_params: { [key]: { ...mediaParams[key] } }
         });
       }
@@ -241,10 +261,14 @@ export function createStreamClient({
     if (finalized || sockets.signaling.state !== 'ready' || eventsSentFor === sockets.signaling.seq) return;
     const individualVideo = subscribeEvents === null && media.includes('video') && mediaParams.video?.data_opt === 4;
     if (individualVideo && sockets.video?.state !== 'ready') return;
-    const types = subscribeEvents ?? defaultEventSubscriptions({ media, mediaParams });
-    if (send(sockets.signaling, { msg_type: MSG.EVENT_SUBSCRIPTION, events: types.map((event_type) => ({ event_type, subscribe: true })) })) {
+    // V2 subscribes with event_code only (an entry with both fields is rejected with status 6).
+    // Legacy event_type numbers passed in subscribeEvents are converted.
+    const codes = [...new Set((subscribeEvents ?? defaultEventSubscriptions({ media, mediaParams }))
+      .map(subscribableEventCode)
+      .filter((code) => code != null))];
+    if (send(sockets.signaling, { msg_type: MSG.EVENT_SUBSCRIPTION, events: codes.map((event_code) => ({ event_code, subscribe: true })) })) {
       eventsSentFor = sockets.signaling.seq;
-      trace?.append('events_subscribed', { streamId: envelope.streamId, events: types });
+      trace?.append('events_subscribed', { streamId: envelope.streamId, events: codes });
     }
   }
 
@@ -359,10 +383,11 @@ export function createStreamClient({
   }
 
   function onSignalingEvent(event) {
-    if (event.event_type === EVENT_TYPE.MEDIA_CONNECTION_INTERRUPTED) {
+    const code = eventCodeOf(event);
+    if (code === EVENT_CODE.MEDIA_CONNECTION_INTERRUPTED) {
       trace?.append('stream_interrupted', { streamId: envelope.streamId, meetingId: envelope.meetingId, source: 'rtms_event' });
       setPhase('degraded_or_paused', 'media connection interrupted');
-    } else if (event.event_type === EVENT_TYPE.FIRST_PACKET_TIMESTAMP) {
+    } else if (code === EVENT_CODE.FIRST_PACKET_TIMESTAMP) {
       trace?.append('first_packet_timestamp', { streamId: envelope.streamId, timestamp: event.timestamp });
     }
     onEvent({ type: 'event', event });
@@ -575,7 +600,7 @@ export function createStreamClient({
    */
   function refresh(serverUrls) {
     if (finalized) return { applied: false, reason: 'finalized' };
-    const nextSignaling = typeof serverUrls === 'string' ? serverUrls : serverUrls?.signaling;
+    const nextSignaling = pickWebSocketUrl(typeof serverUrls === 'string' ? serverUrls : serverUrls?.signaling);
     if (!nextSignaling) return { applied: false, reason: 'no_signaling_url' };
     if (nextSignaling === signalingUrl && sockets.signaling.state === 'ready') return { applied: false, reason: 'same_server' };
     signalingUrl = nextSignaling;

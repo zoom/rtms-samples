@@ -137,6 +137,38 @@ static bool IsValidPlainToken(string? plainToken)
     return true;
 }
 
+// RTMS protocol V2 can list several comma-separated URLs for one endpoint,
+// for example "wss://host/ws,srt://host:port". WebSocket connections use the
+// first ws/wss entry.
+static string? SelectWebSocketUrl(string? value)
+{
+    if (string.IsNullOrWhiteSpace(value)) return null;
+    foreach (var entry in value.Split(','))
+    {
+        var url = entry.Trim();
+        if (url.StartsWith("wss://", StringComparison.OrdinalIgnoreCase) ||
+            url.StartsWith("ws://", StringComparison.OrdinalIgnoreCase))
+        {
+            return url;
+        }
+    }
+    return null;
+}
+
+// media_server.server_urls is usually keyed by media type. V2 may return one
+// comma-separated string that serves every media type.
+static string? GetMediaServerUrl(JsonElement serverUrls, string mediaName)
+{
+    if (serverUrls.ValueKind == JsonValueKind.String) return serverUrls.GetString();
+    if (serverUrls.ValueKind == JsonValueKind.Object &&
+        serverUrls.TryGetProperty(mediaName, out var mediaUrl) &&
+        mediaUrl.ValueKind == JsonValueKind.String)
+    {
+        return mediaUrl.GetString();
+    }
+    return null;
+}
+
 static bool VerifyZoomWebhook(HttpRequest request, string rawBody, string secretToken)
 {
     if (string.IsNullOrWhiteSpace(secretToken)) return false;
@@ -163,8 +195,17 @@ static bool VerifyZoomWebhook(HttpRequest request, string rawBody, string secret
 
 async Task ConnectToSignalingWebSocket(string meetingUuid, string streamId, string serverUrl, ILogger logger)
 {
+    // RTMS V2 server_urls can list wss:// and srt:// entries; signaling uses wss://.
+    var signalingUrl = SelectWebSocketUrl(serverUrl);
+    if (signalingUrl is null)
+    {
+        signalingInFlight.TryRemove(streamId, out _);
+        logger.LogError("No WebSocket signaling URL in server_urls {serverUrl}", serverUrl);
+        return;
+    }
+
     var ws = new ClientWebSocket();
-    await ws.ConnectAsync(new Uri(serverUrl), CancellationToken.None);
+    await ws.ConnectAsync(new Uri(signalingUrl), CancellationToken.None);
 
     var meetingConnections = activeConnections.GetOrAdd(
         meetingUuid, _ => new ConcurrentDictionary<string, ClientWebSocket>());
@@ -174,7 +215,7 @@ async Task ConnectToSignalingWebSocket(string meetingUuid, string streamId, stri
     var handshake = new
     {
         msg_type = 1,
-        protocol_version = 1,
+        protocol_version = 2, // RTMS protocol V2; must match the data handshake
         meeting_uuid = meetingUuid,
         rtms_stream_id = streamId,
         sequence = new Random().Next(1, int.MaxValue),
@@ -219,14 +260,15 @@ async Task ConnectToSignalingWebSocket(string meetingUuid, string streamId, stri
                         if ((mediaTypesFlag & media.Flag) == 0)
                             continue;
 
-                        if (!serverUrls.TryGetProperty(media.Name, out var mediaUrlElement))
+                        var mediaUrl = GetMediaServerUrl(serverUrls, media.Name);
+                        if (string.IsNullOrWhiteSpace(mediaUrl))
                         {
                             logger.LogWarning("No {mediaName} media URL returned for stream {streamId}", media.Name, streamId);
                             continue;
                         }
 
                         mediaConnections.Add(ConnectToMediaWebSocket(
-                            mediaUrlElement.GetString(), meetingUuid, streamId, ws, media.Name, media.Flag, logger));
+                            mediaUrl, meetingUuid, streamId, ws, media.Name, media.Flag, logger));
                     }
                     await Task.WhenAll(mediaConnections);
                     break;
@@ -247,14 +289,16 @@ async Task ConnectToSignalingWebSocket(string meetingUuid, string streamId, stri
 
 async Task ConnectToMediaWebSocket(string? mediaUrl, string meetingUuid, string streamId, ClientWebSocket signalingSocket, string mediaName, int mediaType, ILogger logger)
 {
-    if (string.IsNullOrWhiteSpace(mediaUrl))
+    // RTMS V2 media URLs can list wss:// and srt:// entries; use the wss:// one.
+    var wsMediaUrl = SelectWebSocketUrl(mediaUrl);
+    if (wsMediaUrl is null)
     {
         logger.LogWarning("No {mediaName} media URL returned for stream {streamId}", mediaName, streamId);
         return;
     }
 
     var ws = new ClientWebSocket();
-    await ws.ConnectAsync(new Uri(mediaUrl), CancellationToken.None);
+    await ws.ConnectAsync(new Uri(wsMediaUrl), CancellationToken.None);
 
     var meetingConnections = activeConnections.GetOrAdd(
         meetingUuid, _ => new ConcurrentDictionary<string, ClientWebSocket>());
@@ -273,12 +317,11 @@ async Task ConnectToMediaWebSocket(string? mediaUrl, string meetingUuid, string 
     var handshake = new
     {
         msg_type = 3,
-        protocol_version = 1,
+        protocol_version = 2,
         meeting_uuid = meetingUuid,
         rtms_stream_id = streamId,
         signature,
         media_type = mediaType,
-        payload_encryption = false,
         media_params = mediaParams
     };
     Console.WriteLine($"DEBUG - Sending {mediaName} media handshake: {JsonSerializer.Serialize(handshake)}");

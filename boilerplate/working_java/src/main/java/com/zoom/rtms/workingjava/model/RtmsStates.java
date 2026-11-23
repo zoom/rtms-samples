@@ -93,16 +93,17 @@ public class RtmsStates {
     }
 
     public enum EventType {
-        UNDEFINED(0, "UNDEFINED event received"),
+        // RTMS protocol V2 event codes (event_code)
         FIRST_PACKET_TIMESTAMP(1, "FIRST_PACKET_TIMESTAMP — first media packet at"),
-        ACTIVE_SPEAKER_CHANGE(2, "ACTIVE_SPEAKER_CHANGE"),
-        PARTICIPANT_JOIN(3, "PARTICIPANT_JOIN"),
-        PARTICIPANT_LEAVE(4, "PARTICIPANT_LEAVE"),
-        CHAT_GROUP_CREATE(10, "CHAT_GROUP_CREATE"),
-        CHAT_GROUP_DELETE(11, "CHAT_GROUP_DELETE"),
-        CHAT_GROUP_MEMBERS_ADD(12, "CHAT_GROUP_MEMBERS_ADD"),
-        CHAT_GROUP_MEMBERS_DELETE(13, "CHAT_GROUP_MEMBERS_DELETE"),
-        CHAT_GROUP_MEMBER_STATUS_UPDATE(14, "CHAT_GROUP_MEMBER_STATUS_UPDATE");
+        MEDIA_CONNECTION_INTERRUPTED(2, "MEDIA_CONNECTION_INTERRUPTED"),
+        ACTIVE_SPEAKER_CHANGE(1000, "ACTIVE_SPEAKER_CHANGE"),
+        PARTICIPANT_JOIN(1001, "PARTICIPANT_JOIN"),
+        PARTICIPANT_LEAVE(1002, "PARTICIPANT_LEAVE"),
+        CHAT_GROUP_CREATE(1007, "CHAT_GROUP_CREATE"),
+        CHAT_GROUP_DELETE(1008, "CHAT_GROUP_DELETE"),
+        CHAT_GROUP_MEMBERS_ADD(1009, "CHAT_GROUP_MEMBERS_ADD"),
+        CHAT_GROUP_MEMBERS_DELETE(1010, "CHAT_GROUP_MEMBERS_DELETE"),
+        CHAT_GROUP_MEMBER_STATUS_UPDATE(1011, "CHAT_GROUP_MEMBER_STATUS_UPDATE");
 
         private final int code;
         private final String description;
@@ -118,7 +119,7 @@ public class RtmsStates {
                     return event.description;
                 }
             }
-            return "Unknown event_type: " + code;
+            return "Unknown event_code: " + code;
         }
     }
 }

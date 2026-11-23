@@ -1,5 +1,49 @@
 from dataclasses import dataclass, field
-from typing import Dict, Any
+from typing import Dict, Any, Optional
+
+
+# RTMS protocol V2 is the default. Set protocol_version=1 in the manager
+# options to fall back to V1 (Zoom Phone always uses V2 or later).
+DEFAULT_RTMS_PROTOCOL_VERSION = 2
+
+# V2 replaces the legacy event_type with event_code, in both event
+# subscriptions (msg_type 5) and event updates (msg_type 6).
+# Keys are legacy RTMS_EVENT_TYPE values; values are RTMS_EVENT_CODE values.
+LEGACY_EVENT_TYPE_TO_EVENT_CODE = {
+    1: 1,      # FIRST_PACKET_TIMESTAMP (sent automatically)
+    2: 1000,   # ACTIVE_SPEAKER_CHANGE
+    3: 1001,   # PARTICIPANT_JOIN
+    4: 1002,   # PARTICIPANT_LEAVE
+    5: 1003,   # SHARING_START
+    6: 1004,   # SHARING_STOP
+    7: 2,      # MEDIA_CONNECTION_INTERRUPTED (sent automatically)
+    8: 1005,   # PARTICIPANT_VIDEO_ON
+    9: 1006,   # PARTICIPANT_VIDEO_OFF
+    10: 1007,  # CHAT_GROUP_CREATE
+    11: 1008,  # CHAT_GROUP_DELETE
+    12: 1009,  # CHAT_GROUP_MEMBERS_ADD
+    13: 1010,  # CHAT_GROUP_MEMBERS_DELETE
+    14: 1011,  # CHAT_GROUP_MEMBER_STATUS_UPDATE
+    15: 3,     # VIDEO_SUBSCRIPTION_TERMINATED_BY_USER_LEAVE (sent automatically)
+}
+
+EVENT_CODE_TO_LEGACY_EVENT_TYPE = {code: event_type for event_type, code in LEGACY_EVENT_TYPE_TO_EVENT_CODE.items()}
+
+
+def is_subscribable_event_code(code: Optional[int]) -> bool:
+    """Only session events 1000-1011 can be subscribed to through JSON in V2."""
+    return isinstance(code, int) and 1000 <= code <= 1011
+
+
+def resolve_protocol_version(rtms_type: Optional[str], configured: Any = None) -> int:
+    try:
+        version = int(configured) if configured is not None else 0
+    except (TypeError, ValueError):
+        version = 0
+    version = version or DEFAULT_RTMS_PROTOCOL_VERSION
+    if rtms_type == 'phone':
+        return max(2, version)
+    return version
 
 
 @dataclass

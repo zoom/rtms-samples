@@ -24,12 +24,10 @@ public class RtmsMessages {
                         @JsonProperty("status_code") int statusCode,
                         @JsonProperty("media_server") MediaServer mediaServer,
                         Integer reason) {
+                // server_urls is an object keyed by media type, or in RTMS protocol V2
+                // possibly one comma-separated string. The service reads it as JSON.
                 public record MediaServer(
-                                @JsonProperty("server_urls") ServerUrls serverUrls) {
-                        public record ServerUrls(
-                                        String all,
-                                        String audio) {
-                        }
+                                @JsonProperty("server_urls") com.fasterxml.jackson.databind.JsonNode serverUrls) {
                 }
         }
 
@@ -41,7 +39,6 @@ public class RtmsMessages {
                         @JsonProperty("rtms_stream_id") String rtmsStreamId,
                         String signature,
                         @JsonProperty("media_type") int mediaType,
-                        @JsonProperty("payload_encryption") boolean payloadEncryption,
                         @JsonProperty("media_params") MediaParams mediaParams) {
         }
 
@@ -56,8 +53,9 @@ public class RtmsMessages {
         public record EventSubscriptionRequest(
                         @JsonProperty("msg_type") int msgType, // 5
                         List<Event> events) {
+                // RTMS protocol V2 subscribes with event_code (session events 1000-1011).
                 public record Event(
-                                @JsonProperty("event_type") int eventType,
+                                @JsonProperty("event_code") int eventCode,
                                 boolean subscribe) {
                 }
         }
@@ -68,7 +66,7 @@ public class RtmsMessages {
                         @JsonProperty("timestamp") long timestamp,
                         ZoomEvent event) {
                 public record ZoomEvent(
-                                @JsonProperty("event_type") int eventType,
+                                @JsonProperty("event_code") int eventCode,
                                 @JsonProperty("user_id") String userId,
                                 @JsonProperty("user_name") String userName,
                                 Long timestamp) {

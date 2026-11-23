@@ -1,5 +1,7 @@
 from typing import Any, Dict, Optional
 
+from .url_policy import select_websocket_url
+
 
 RTMS_ENTITY_KEYS = {
     'meeting': 'meeting_uuid',
@@ -35,24 +37,33 @@ def get_rtms_id_from_payload(rtms_type: Optional[str], payload: Dict[str, Any]) 
     return payload.get(get_rtms_entity_key(normalized_type))
 
 
+def _pick_websocket_url(value: Any) -> str:
+    # V2 values can be comma-separated (wss://...,srt://...). Prefer the
+    # WebSocket entry, falling back to the raw value for error reporting.
+    if not isinstance(value, str):
+        return ''
+    return select_websocket_url(value) or value
+
+
 def get_preferred_media_url(rtms_type: Optional[str], server_urls: Any, preferred_type: Optional[str] = None) -> str:
     if isinstance(server_urls, str):
-        return server_urls
+        return _pick_websocket_url(server_urls)
 
     if not isinstance(server_urls, dict):
         return ''
 
     if preferred_type and server_urls.get(preferred_type):
-        return server_urls[preferred_type]
+        return _pick_websocket_url(server_urls[preferred_type])
 
     if normalize_rtms_type(rtms_type) == 'contact_center' and server_urls.get('audio'):
-        return server_urls['audio']
+        return _pick_websocket_url(server_urls['audio'])
 
     if server_urls.get('audio'):
-        return server_urls['audio']
+        return _pick_websocket_url(server_urls['audio'])
 
     for value in server_urls.values():
-        if isinstance(value, str) and value.startswith('ws'):
-            return value
+        url = select_websocket_url(value)
+        if url:
+            return url
 
     return ''

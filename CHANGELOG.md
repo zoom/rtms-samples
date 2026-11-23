@@ -21,9 +21,28 @@ remain under **Unreleased** until a repository release is published.
   `phone_call_transfer_completed`), `RTMSManager.PRESETS.PHONE`, and
   `RTMSManager.getPhoneCallInfo()`.
 - Added `phone/print_phone_transcript_js`, a Zoom Phone transcript sample.
+- Added `RTMSManager.EVENT_CODES`, the V2 status codes `44`, `45` and `48` to
+  `58`, `REQUEST_ERROR_RESP` handling, and the `video_subscription_terminated`
+  and `media_data_user_info` events to the JavaScript `RTMSManager`, with
+  matching events in the Python library.
 
 ### Changed
 
+- Moved the samples to RTMS protocol V2. The JavaScript and Python
+  `RTMSManager` libraries default to `protocol_version: 2` (set
+  `protocolVersion: 1` or `protocol_version=1` to opt out), subscribe with
+  `event_code`, map incoming `event_code` values to the existing handlers, and
+  report both `eventCode` and the legacy `eventType` on `'event'`. The raw
+  JavaScript, Python, Go, C++, .NET and Java samples send `protocol_version: 2`
+  in both handshakes, use `event_code`, and drop the data handshake
+  `payload_encryption` flag.
+- Every sample now accepts comma-separated `server_urls` values
+  (`wss://...,srt://...`) and connects to the `wss://` entry. A single
+  `media_server.server_urls` string is also accepted for every media type.
+- `boilerplate/working_python_wss_zoom_room_screenshot` opens a video data
+  connection instead of requesting `media_type: 32`.
+- `RTMS_CONNECTION_FLOW.md` documents the V2 handshakes, the `event_type` to
+  `event_code` mapping, and the new message types.
 - RTMS media connections now use split mode exclusively. Clients open a
   separate data connection for each required media type and send one concrete
   `media_type` per data handshake: audio (`1`), video (`2`), screen share (`4`),
@@ -48,6 +67,15 @@ remain under **Unreleased** until a repository release is published.
   environment settings from generic sample configuration.
 - Removed the JavaScript `MEDIA.ALL`, Python `MediaType.ALL`, and JavaScript
   `PRESETS.FULL_MEDIA` public helpers.
+
+### Fixed
+
+- `video-sdk/vsdk_working_java` compiles again: URL validation returns a
+  `400` response instead of writing to an undefined servlet response.
+- The Java samples store the signaling socket before sending the handshake, so
+  the event subscription is no longer lost when the response arrives first.
+- The Python `RTMSManager` now connects Zoom Phone streams, which require
+  protocol V2.
 
 ### Migration
 

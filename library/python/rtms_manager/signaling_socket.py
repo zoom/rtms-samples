@@ -8,7 +8,14 @@ from websockets.client import WebSocketClientProtocol
 from .utils.signature import generate_rtms_signature
 from .utils.logger import FileLogger
 from .utils.rtms_entity import build_rtms_entity_payload, get_preferred_media_url
-from .utils.protocol_definitions import merge_protocol_definitions
+from .utils.protocol_definitions import (
+    DEFAULT_RTMS_PROTOCOL_VERSION,
+    EVENT_CODE_TO_LEGACY_EVENT_TYPE,
+    LEGACY_EVENT_TYPE_TO_EVENT_CODE,
+    is_subscribable_event_code,
+    merge_protocol_definitions,
+)
+from .utils.url_policy import select_websocket_url
 
 
 STATUS_TEXT = {
@@ -24,8 +31,22 @@ STATUS_TEXT = {
     40: 'INVALID_RTMS_SESSION_ID',
     41: 'INVALID_CLIENT_READY_ACK',
     42: 'INVALID_EVENT_SUBSCRIBE',
+    44: 'DUPLICATE_VIDEO_SUBSCRIPTION',
+    45: 'INTERNAL_EXCEPTION',
     46: 'INVALID_MEDIA_TRANSCRIPT_TARGET_LANGUAGE',
     47: 'CHAT_SESSION_KEY_NOT_AVAILABLE',
+    # RTMS protocol V2 status codes
+    48: 'MEDIA_DATA_TYPE_ALL_NOT_SUPPORTED',
+    49: 'PROTOCOL_V2_REQUIRED',
+    50: 'PROTOBUF_V2_REQUIRED',
+    51: 'DATA_HANDSHAKE_REQUIRES_ACTIVE_SIGNAL',
+    52: 'HANDSHAKE_MESSAGE_FORMAT_MISMATCH',
+    53: 'INVALID_VIDEO_SUBSCRIPTION_USER',
+    54: 'INVALID_MEDIA_CONNECTION_ID',
+    55: 'VIDEO_SUBSCRIPTION_CAP_EXCEEDED',
+    56: 'FEATURE_NOT_SUPPORTED',
+    57: 'INVALID_EVENT_CODE',
+    58: 'MEDIA_PNG_NOT_SUPPORTED_IN_V2',
 }
 
 MAX_DUPLICATE_SIGNAL_RETRIES = 3
@@ -34,6 +55,10 @@ INITIAL_DUPLICATE_SIGNAL_RETRY_DELAY_SECONDS = 1.5
 
 def _get_protocol(conn: Dict[str, Any]):
     return merge_protocol_definitions(conn.get('config', {}).get('protocol_definitions', {}))
+
+
+def get_protocol_version(conn: Dict[str, Any]) -> int:
+    return conn.get('config', {}).get('protocol_version') or DEFAULT_RTMS_PROTOCOL_VERSION
 
 
 def _cancel_task(conn: Dict[str, Any], key: str):
@@ -88,7 +113,20 @@ def _build_event_subscription_payload(conn: Dict[str, Any], media_types_flag: in
             {'event_type': protocol.event_types.CHAT_GROUP_MEMBERS_DELETE, 'subscribe': True},
             {'event_type': protocol.event_types.CHAT_GROUP_MEMBER_STATUS_UPDATE, 'subscribe': True},
         ])
-    return {'msg_type': 5, 'events': events}
+    if get_protocol_version(conn) < 2:
+        return {'msg_type': 5, 'events': events}
+
+    # V2 subscribes with event_code only (an entry with both fields returns
+    # status 6), and only session events 1000-1011 are subscribable.
+    v2_events = []
+    seen = set()
+    for entry in events:
+        code = LEGACY_EVENT_TYPE_TO_EVENT_CODE.get(entry['event_type'])
+        if not is_subscribable_event_code(code) or code in seen:
+            continue
+        seen.add(code)
+        v2_events.append({'event_code': code, 'subscribe': entry['subscribe']})
+    return {'msg_type': 5, 'events': v2_events}
 
 
 async def send_deferred_event_subscriptions(
@@ -178,7 +216,9 @@ async def connect_to_signaling_websocket(
     if 'media_types_flag' not in conn:
         conn['media_types_flag'] = media_types_flag
 
-    if not server_url or not server_url.startswith('ws'):
+    # conn['server_url'] keeps the original value so reconnects reselect from it.
+    signaling_url = select_websocket_url(server_url)
+    if not signaling_url:
         FileLogger.error(f"[Signaling] [{rtms_type},{meeting_uuid},{stream_id}] Invalid server URL: {server_url}")
         emit('error', {'message': 'Invalid server URL', 'meeting_id': meeting_uuid, 'rtms_id': meeting_uuid, 'stream_id': stream_id})
         conn['should_reconnect'] = False
@@ -198,7 +238,7 @@ async def connect_to_signaling_websocket(
     conn['_signaling_connect_locked'] = True
 
     try:
-        ws = await websockets.connect(server_url)
+        ws = await websockets.connect(signaling_url)
     except Exception as e:
         conn['_signaling_connect_locked'] = False
         conn['_signaling_connect_ws'] = None
@@ -221,7 +261,7 @@ async def connect_to_signaling_websocket(
 
     handshake_msg = {
         'msg_type': 1,
-        'protocol_version': 1,
+        'protocol_version': get_protocol_version(conn),
         **build_rtms_entity_payload(rtms_type, meeting_uuid),
         'rtms_stream_id': stream_id,
         'sequence': random.randint(0, 10**9),
@@ -364,8 +404,54 @@ async def _handle_signaling_messages(
 
             elif msg_type == 6:
                 event = msg.get('event', {})
+                # V2 reports event_code. Session events (1000-1011) map onto
+                # the legacy event_type handling below.
+                raw_event_code = event.get('event_code')
                 event_type = event.get('event_type')
+                if event_type is None and raw_event_code is not None:
+                    event_type = EVENT_CODE_TO_LEGACY_EVENT_TYPE.get(raw_event_code)
+                event_code = raw_event_code if raw_event_code is not None else LEGACY_EVENT_TYPE_TO_EVENT_CODE.get(event_type)
                 protocol = _get_protocol(conn)
+
+                if event_code == 2:
+                    FileLogger.log(f"[Signaling] [{rtms_type},{meeting_uuid},{stream_id}] MEDIA_CONNECTION_INTERRUPTED (media_type {event.get('media_type', 'unknown')})")
+                    emit('media_connection_interrupted', {
+                        'type': 'media_connection_interrupted',
+                        'mediaType': event.get('media_type'),
+                        'eventCode': event_code,
+                        'data': event,
+                        'rtmsId': meeting_uuid,
+                        'meetingId': meeting_uuid,
+                        'streamId': stream_id,
+                        'productType': rtms_type,
+                        'timestamp': event.get('timestamp'),
+                    })
+                elif event_code == 3:
+                    conn['current_video_subscription_user_id'] = None
+                    emit('video_subscription_terminated', {
+                        'type': 'video_subscription_terminated',
+                        'connectionId': event.get('connection_id'),
+                        'eventCode': event_code,
+                        'data': event,
+                        'rtmsId': meeting_uuid,
+                        'meetingId': meeting_uuid,
+                        'streamId': stream_id,
+                        'productType': rtms_type,
+                        'timestamp': event.get('timestamp'),
+                    })
+                elif event_code == 4:
+                    emit('media_data_user_info', {
+                        'type': 'media_data_user_info',
+                        'mediaType': event.get('media_type'),
+                        'participants': event.get('participants', []),
+                        'eventCode': event_code,
+                        'data': event,
+                        'rtmsId': meeting_uuid,
+                        'meetingId': meeting_uuid,
+                        'streamId': stream_id,
+                        'productType': rtms_type,
+                        'timestamp': event.get('timestamp'),
+                    })
 
                 if event_type == 4:
                     removed = _remove_video_participants(conn, _extract_participants(event))
@@ -447,6 +533,7 @@ async def _handle_signaling_messages(
                     emit(chat_event_name, {
                         'type': chat_event_name,
                         'eventType': event_type,
+                        'eventCode': event_code,
                         'data': event,
                         'rtmsId': meeting_uuid,
                         'meetingId': meeting_uuid,
@@ -459,7 +546,10 @@ async def _handle_signaling_messages(
                     'event',
                     {
                         'type': 'event',
+                        # eventCode is the V2 identifier; eventType is the
+                        # equivalent legacy V1 number, kept for listeners.
                         'eventType': event_type,
+                        'eventCode': event_code,
                         'data': event,
                         'rtmsId': meeting_uuid,
                         'meetingId': meeting_uuid,
@@ -529,6 +619,22 @@ async def _handle_signaling_messages(
                         'timestamp': msg.get('timestamp'),
                     },
                 )
+
+            elif msg_type == 30:
+                # REQUEST_ERROR_RESP, e.g. a rejected event subscription.
+                status = msg.get('status_code')
+                status_text = STATUS_TEXT.get(status, f'STATUS_{status}')
+                FileLogger.error(
+                    f"[Signaling] [{rtms_type},{meeting_uuid},{stream_id}] Request rejected (request msg_type {msg.get('request_msg_type', 'unknown')}): status={status} ({status_text})"
+                )
+                emit('error', {
+                    'message': f'Request rejected: status={status} ({status_text})',
+                    'status_code': status,
+                    'request_msg_type': msg.get('request_msg_type'),
+                    'meeting_id': meeting_uuid,
+                    'rtms_id': meeting_uuid,
+                    'stream_id': stream_id,
+                })
 
             elif msg_type == _get_protocol(conn).message_types.STREAM_CLOSE_RESP:
                 emit(

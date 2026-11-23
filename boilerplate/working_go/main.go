@@ -77,9 +77,40 @@ func writeSignalingJSON(streamID string, conn *websocket.Conn, payload interface
 	return conn.WriteJSON(payload)
 }
 
+// selectWebSocketURL returns the first ws/wss entry. RTMS protocol V2 can list
+// several comma-separated URLs for one endpoint, for example
+// "wss://host/ws,srt://host:port".
+func selectWebSocketURL(value string) string {
+	for _, candidate := range strings.Split(value, ",") {
+		candidate = strings.TrimSpace(candidate)
+		if strings.HasPrefix(candidate, "wss://") || strings.HasPrefix(candidate, "ws://") {
+			return candidate
+		}
+	}
+	return ""
+}
+
+// mediaServerURL reads media_server.server_urls, which is usually keyed by
+// media type. V2 may instead return one string that serves every media type.
+func mediaServerURL(serverURLs interface{}, mediaName string) string {
+	switch urls := serverURLs.(type) {
+	case string:
+		return urls
+	case map[string]interface{}:
+		value, _ := urls[mediaName].(string)
+		return value
+	}
+	return ""
+}
+
 func connectToMediaWebSocket(mediaURL, meetingUUID, streamID, clientID, clientSecret string, signalingConn *websocket.Conn, mediaName string, mediaType int) {
-	log.Printf("Connecting to %s media WebSocket at %s", mediaName, mediaURL)
-	ws, _, err := websocket.DefaultDialer.Dial(mediaURL, nil)
+	wsMediaURL := selectWebSocketURL(mediaURL)
+	if wsMediaURL == "" {
+		log.Printf("No WebSocket URL in %s media URL %s", mediaName, mediaURL)
+		return
+	}
+	log.Printf("Connecting to %s media WebSocket at %s", mediaName, wsMediaURL)
+	ws, _, err := websocket.DefaultDialer.Dial(wsMediaURL, nil)
 	if err != nil {
 		log.Printf("Error connecting to media WS: %v", err)
 		return
@@ -93,14 +124,13 @@ func connectToMediaWebSocket(mediaURL, meetingUUID, streamID, clientID, clientSe
 
 	signature := generateSignature(clientID, meetingUUID, streamID, clientSecret)
 	handshake := map[string]interface{}{
-		"msg_type":           3,
-		"protocol_version":   1,
-		"meeting_uuid":       meetingUUID,
-		"rtms_stream_id":     streamID,
-		"signature":          signature,
-		"media_type":         mediaType,
-		"payload_encryption": false,
-		"media_params":       mediaParamsFor(mediaName),
+		"msg_type":         3,
+		"protocol_version": 2,
+		"meeting_uuid":     meetingUUID,
+		"rtms_stream_id":   streamID,
+		"signature":        signature,
+		"media_type":       mediaType,
+		"media_params":     mediaParamsFor(mediaName),
 	}
 	if err := ws.WriteJSON(handshake); err != nil {
 		log.Printf("Failed to send %s media handshake: %v", mediaName, err)
@@ -197,8 +227,17 @@ func connectToSignalingWebSocket(serverURL, meetingUUID, streamID, clientID, cli
 	signalingInFlight[streamID] = true
 	activeConnectionsMu.Unlock()
 
-	log.Printf("Connecting to signaling WebSocket at %s", serverURL)
-	ws, _, err := websocket.DefaultDialer.Dial(serverURL, nil)
+	// RTMS V2 server_urls can list wss:// and srt:// entries; signaling uses wss://.
+	signalingURL := selectWebSocketURL(serverURL)
+	if signalingURL == "" {
+		activeConnectionsMu.Lock()
+		delete(signalingInFlight, streamID)
+		activeConnectionsMu.Unlock()
+		log.Printf("No WebSocket signaling URL in server_urls %s", serverURL)
+		return
+	}
+	log.Printf("Connecting to signaling WebSocket at %s", signalingURL)
+	ws, _, err := websocket.DefaultDialer.Dial(signalingURL, nil)
 	if err != nil {
 		activeConnectionsMu.Lock()
 		delete(signalingInFlight, streamID)
@@ -216,7 +255,7 @@ func connectToSignalingWebSocket(serverURL, meetingUUID, streamID, clientID, cli
 	signature := generateSignature(clientID, meetingUUID, streamID, clientSecret)
 	handshake := map[string]interface{}{
 		"msg_type":         1,
-		"protocol_version": 1,
+		"protocol_version": 2, // RTMS protocol V2; must match the data handshake
 		"meeting_uuid":     meetingUUID,
 		"rtms_stream_id":   streamID,
 		"sequence":         rand.Intn(1e9),
@@ -254,13 +293,16 @@ func connectToSignalingWebSocket(serverURL, meetingUUID, streamID, clientID, cli
 				delete(signalingInFlight, streamID)
 				activeConnectionsMu.Unlock()
 				if parsed["status_code"].(float64) == 0 {
-					mediaURLs := parsed["media_server"].(map[string]interface{})["server_urls"].(map[string]interface{})
+					var serverURLs interface{}
+					if mediaServer, ok := parsed["media_server"].(map[string]interface{}); ok {
+						serverURLs = mediaServer["server_urls"]
+					}
 					for _, media := range mediaDefinitions {
 						if mediaTypesFlag&media.flag == 0 {
 							continue
 						}
-						mediaURL, ok := mediaURLs[media.name].(string)
-						if !ok || mediaURL == "" {
+						mediaURL := mediaServerURL(serverURLs, media.name)
+						if mediaURL == "" {
 							log.Printf("No %s media URL returned for stream %s", media.name, streamID)
 							continue
 						}

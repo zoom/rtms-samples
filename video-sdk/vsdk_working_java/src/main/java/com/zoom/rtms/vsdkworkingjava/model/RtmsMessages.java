@@ -10,6 +10,7 @@ public class RtmsMessages {
     @JsonInclude(JsonInclude.Include.NON_NULL)
     public record SignalingHandshakeRequest(
             @JsonProperty("msg_type") int msgType, // 1
+            @JsonProperty("protocol_version") int protocolVersion,
             @JsonProperty("meeting_uuid") String meetingUuid,
             @JsonProperty("session_id") String sessionId,
             @JsonProperty("rtms_stream_id") String rtmsStreamId,
@@ -24,17 +25,11 @@ public class RtmsMessages {
             @JsonProperty("media_server") MediaServer mediaServer,
             Integer reason
     ) {
+        // server_urls is an object keyed by media type, or in RTMS protocol V2
+        // possibly one comma-separated string. The service reads it as JSON.
         public record MediaServer(
-                @JsonProperty("server_urls") ServerUrls serverUrls
-        ) {
-            public record ServerUrls(
-                    String audio,
-                    String video,
-                    String deskshare,
-                    String transcript,
-                    String chat
-            ) {}
-        }
+                @JsonProperty("server_urls") com.fasterxml.jackson.databind.JsonNode serverUrls
+        ) {}
     }
 
     @JsonInclude(JsonInclude.Include.NON_NULL)
@@ -46,7 +41,6 @@ public class RtmsMessages {
             @JsonProperty("rtms_stream_id") String rtmsStreamId,
             String signature,
             @JsonProperty("media_type") int mediaType,
-            @JsonProperty("payload_encryption") boolean payloadEncryption,
             @JsonProperty("media_params") MediaParams mediaParams
     ) {}
 
@@ -62,8 +56,9 @@ public class RtmsMessages {
             @JsonProperty("msg_type") int msgType, // 5
             List<Event> events
     ) {
+        // RTMS protocol V2 subscribes with event_code (session events 1000-1011).
         public record Event(
-                @JsonProperty("event_type") int eventType,
+                @JsonProperty("event_code") int eventCode,
                 boolean subscribe
         ) {}
     }
@@ -75,7 +70,7 @@ public class RtmsMessages {
             ZoomEvent event
     ) {
         public record ZoomEvent(
-                @JsonProperty("event_type") int eventType,
+                @JsonProperty("event_code") int eventCode,
                 @JsonProperty("user_id") String userId,
                 @JsonProperty("user_name") String userName,
                 Long timestamp

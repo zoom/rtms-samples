@@ -98,6 +98,20 @@ const ZOOM_STATUS_CODES = {
   43: { code: 'STATUS_INVALID_MEDIA_TRANSCRIPT_SROUCE_LANGUAGE', message: 'Invalid transcript src_language', category: 'request' },
   46: { code: 'STATUS_INVALID_MEDIA_TRANSCRIPT_TARGET_LANGUAGE', message: 'Invalid transcript target language', category: 'request' },
   47: { code: 'STATUS_CHAT_SESSION_KEY_NOT_AVAILABLE', message: 'Chat session key is not available', category: 'server' },
+  // RTMS protocol V2 status codes
+  44: { code: 'STATUS_DUPLICATE_VIDEO_SUBSCRIPTION', message: 'Connection or participant already has an active video subscription', category: 'request' },
+  45: { code: 'STATUS_INTERNAL_EXCEPTION', message: 'RTMS internal exception', category: 'server' },
+  48: { code: 'STATUS_MEDIA_DATA_TYPE_ALL_NOT_SUPPORTED', message: 'media_type 32 (ALL) is not supported in protocol V2; open one connection per media type', category: 'request' },
+  49: { code: 'STATUS_PROTOCOL_V2_REQUIRED', message: 'This feature requires RTMS protocol V2', category: 'request' },
+  50: { code: 'STATUS_PROTOBUF_V2_REQUIRED', message: 'Protobuf framing requires RTMS protocol V2', category: 'request' },
+  51: { code: 'STATUS_DATA_HANDSHAKE_REQUIRES_ACTIVE_SIGNAL', message: 'Data handshake requires an active signaling connection', category: 'connection' },
+  52: { code: 'STATUS_HANDSHAKE_MESSAGE_FORMAT_MISMATCH', message: 'Data handshake format differs from the signaling connection format', category: 'request' },
+  53: { code: 'STATUS_INVALID_VIDEO_SUBSCRIPTION_USER', message: 'Video subscription user is invalid or not in the roster', category: 'request' },
+  54: { code: 'STATUS_INVALID_MEDIA_CONNECTION_ID', message: 'Invalid or closed media connection_id', category: 'request' },
+  55: { code: 'STATUS_VIDEO_SUBSCRIPTION_CAP_EXCEEDED', message: 'Video subscription capacity exceeded', category: 'media' },
+  56: { code: 'STATUS_FEATURE_NOT_SUPPORTED', message: 'Feature is not enabled for this service', category: 'config' },
+  57: { code: 'STATUS_INVALID_EVENT_CODE', message: 'Invalid event_code', category: 'request' },
+  58: { code: 'STATUS_MEDIA_PNG_NOT_SUPPORTED_IN_V2', message: 'PNG codec is not supported in protocol V2; use JPG or H.264', category: 'request' },
 };
 
 // Error causes and fixes by category

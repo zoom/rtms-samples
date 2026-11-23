@@ -1,5 +1,5 @@
 import WebSocket from 'ws';
-import { isAllowedRtmsCallbackUrl } from './urlPolicy.js';
+import { selectAllowedRtmsCallbackUrl, getRtmsMediaServerUrl } from './urlPolicy.js';
 import { generateSignature } from './utils/signature.js';
 import { connectToMediaWebSocket } from './mediaSocket.js';
 import {
@@ -14,23 +14,33 @@ const signalingLocksByStreamId = new Set();
 const duplicateSignalRetryCountByStreamId = new Map();
 const MAX_DUPLICATE_SIGNAL_RETRIES = Number(process.env.MAX_DUPLICATE_SIGNAL_RETRIES || 3);
 const INITIAL_DUPLICATE_SIGNAL_RETRY_DELAY_MS = Number(process.env.INITIAL_DUPLICATE_SIGNAL_RETRY_DELAY_MS || 1500);
-const CHAT_GROUP_EVENT_TYPES = Object.freeze({
-  CREATED: 10,
-  DELETED: 11,
-  MEMBERS_ADDED: 12,
-  MEMBERS_REMOVED: 13,
-  MEMBER_STATUS_UPDATED: 14
+// RTMS protocol V2 event codes (event_code). V2 replaces the legacy
+// event_type numbers shown in the comments, in subscriptions and events.
+const EVENT_CODES = Object.freeze({
+  FIRST_PACKET_TIMESTAMP: 1,          // legacy event_type 1; sent automatically
+  MEDIA_CONNECTION_INTERRUPTED: 2,    // legacy event_type 7; sent automatically
+  ACTIVE_SPEAKER_CHANGE: 1000,        // legacy event_type 2
+  PARTICIPANT_JOIN: 1001,             // legacy event_type 3
+  PARTICIPANT_LEAVE: 1002             // legacy event_type 4
+});
+
+const CHAT_GROUP_EVENT_CODES = Object.freeze({
+  CREATED: 1007,                      // legacy event_type 10
+  DELETED: 1008,                      // legacy event_type 11
+  MEMBERS_ADDED: 1009,                // legacy event_type 12
+  MEMBERS_REMOVED: 1010,              // legacy event_type 13
+  MEMBER_STATUS_UPDATED: 1011         // legacy event_type 14
 });
 
 function logChatGroupEvent(event) {
   const eventNames = {
-    [CHAT_GROUP_EVENT_TYPES.CREATED]: 'CHAT_GROUP_CREATE',
-    [CHAT_GROUP_EVENT_TYPES.DELETED]: 'CHAT_GROUP_DELETE',
-    [CHAT_GROUP_EVENT_TYPES.MEMBERS_ADDED]: 'CHAT_GROUP_MEMBERS_ADD',
-    [CHAT_GROUP_EVENT_TYPES.MEMBERS_REMOVED]: 'CHAT_GROUP_MEMBERS_DELETE',
-    [CHAT_GROUP_EVENT_TYPES.MEMBER_STATUS_UPDATED]: 'CHAT_GROUP_MEMBER_STATUS_UPDATE'
+    [CHAT_GROUP_EVENT_CODES.CREATED]: 'CHAT_GROUP_CREATE',
+    [CHAT_GROUP_EVENT_CODES.DELETED]: 'CHAT_GROUP_DELETE',
+    [CHAT_GROUP_EVENT_CODES.MEMBERS_ADDED]: 'CHAT_GROUP_MEMBERS_ADD',
+    [CHAT_GROUP_EVENT_CODES.MEMBERS_REMOVED]: 'CHAT_GROUP_MEMBERS_DELETE',
+    [CHAT_GROUP_EVENT_CODES.MEMBER_STATUS_UPDATED]: 'CHAT_GROUP_MEMBER_STATUS_UPDATE'
   };
-  console.log(`[Event] ${eventNames[event.event_type] || 'UNKNOWN_CHAT_GROUP_EVENT'}:`, event);
+  console.log(`[Event] ${eventNames[event.event_code] || 'UNKNOWN_CHAT_GROUP_EVENT'}:`, event);
 }
 
 
@@ -47,7 +57,9 @@ export function connectToSignalingWebSocket(
   console.log(`[Signaling] Connecting for meeting ${meetingUuid}`);
 
 
-  if (!isAllowedRtmsCallbackUrl(serverUrls)) {
+  // RTMS V2 server_urls can list wss:// and srt:// entries; signaling uses wss://.
+  const signalingUrl = selectAllowedRtmsCallbackUrl(serverUrls);
+  if (!signalingUrl) {
     console.error(`[Signaling] ❌ Invalid WebSocket URL:`, serverUrls);
 
     // Set shouldReconnect to false to prevent retry loop
@@ -108,7 +120,7 @@ export function connectToSignalingWebSocket(
 
    let signalingWs;
    try {
-     signalingWs = new WebSocket(serverUrls);
+     signalingWs = new WebSocket(signalingUrl);
    } catch (err) {
     signalingLocksByStreamId.delete(streamId);
     console.error(`[Signaling] ❌ Failed to connect WebSocket: ${err.message}`);
@@ -149,7 +161,7 @@ export function connectToSignalingWebSocket(
 
     //     {
     //   "msg_type": 1,
-    //   "protocol_version": 1,   //WebSockets, RTMP, UDP, or WebRTC. WebSockets only for developer preview.
+    //   "protocol_version": 2,
     //   "sequence": 0,
     //   "meeting_uuid": "4nYtdqLVTVqGJ+QB62ED7Q==",
     //   "rtms_stream_id": "03db704592624398931a588dd78200cb",
@@ -159,6 +171,7 @@ export function connectToSignalingWebSocket(
 
     const handshakeMsg = {
       msg_type: 1,
+      protocol_version: 2, // RTMS protocol V2; must match the data handshake
       meeting_uuid: meetingUuid,
       rtms_stream_id: streamId,
       signature,
@@ -187,7 +200,7 @@ export function connectToSignalingWebSocket(
 
       // {
       //   "msg_type": 2,
-      //   "protocol_version": 1,
+      //   "protocol_version": 2,
       //   "sequence": 0,
       //   "status_code": 0,
       //   "reason": "",
@@ -206,7 +219,7 @@ export function connectToSignalingWebSocket(
         console.log("case 2");
         if (msg.status_code === 0) {
           duplicateSignalRetryCountByStreamId.set(streamId, 0);
-          const mediaUrl = msg.media_server?.server_urls?.transcript;
+          const mediaUrl = getRtmsMediaServerUrl(msg.media_server?.server_urls, 'transcript');
           if (!mediaUrl) {
             throw new Error('Signaling response did not include server_urls.transcript');
           }
@@ -231,14 +244,15 @@ export function connectToSignalingWebSocket(
           const subscribePayload = {
             msg_type: 5,
             events: [
-              { event_type: 2, subscribe: true }, // ACTIVE_SPEAKER_CHANGE
-              { event_type: 3, subscribe: true }, // PARTICIPANT_JOIN
-              { event_type: 4, subscribe: true }, // PARTICIPANT_LEAVE
-              { event_type: CHAT_GROUP_EVENT_TYPES.CREATED, subscribe: true },
-              { event_type: CHAT_GROUP_EVENT_TYPES.DELETED, subscribe: true },
-              { event_type: CHAT_GROUP_EVENT_TYPES.MEMBERS_ADDED, subscribe: true },
-              { event_type: CHAT_GROUP_EVENT_TYPES.MEMBERS_REMOVED, subscribe: true },
-              { event_type: CHAT_GROUP_EVENT_TYPES.MEMBER_STATUS_UPDATED, subscribe: true }
+              // V2 subscribes with event_code only; session events 1000-1011.
+              { event_code: EVENT_CODES.ACTIVE_SPEAKER_CHANGE, subscribe: true },
+              { event_code: EVENT_CODES.PARTICIPANT_JOIN, subscribe: true },
+              { event_code: EVENT_CODES.PARTICIPANT_LEAVE, subscribe: true },
+              { event_code: CHAT_GROUP_EVENT_CODES.CREATED, subscribe: true },
+              { event_code: CHAT_GROUP_EVENT_CODES.DELETED, subscribe: true },
+              { event_code: CHAT_GROUP_EVENT_CODES.MEMBERS_ADDED, subscribe: true },
+              { event_code: CHAT_GROUP_EVENT_CODES.MEMBERS_REMOVED, subscribe: true },
+              { event_code: CHAT_GROUP_EVENT_CODES.MEMBER_STATUS_UPDATED, subscribe: true }
             ]
           };
 
@@ -283,37 +297,37 @@ export function connectToSignalingWebSocket(
         console.log("case 6");
         console.log(msg);
         if (msg.event) {
-          switch (msg.event.event_type) {
-            case 0: // UNDEFINED
-              console.log('[Event] UNDEFINED');
-              break;
-
-            case 1: // FIRST_PACKET_TIMESTAMP
+          switch (msg.event.event_code) {
+            case EVENT_CODES.FIRST_PACKET_TIMESTAMP:
               console.log(`[Event] FIRST_PACKET_TIMESTAMP — first media packet at ${msg.event.timestamp}`);
               break;
 
-            case 2: // ACTIVE_SPEAKER_CHANGE
+            case EVENT_CODES.MEDIA_CONNECTION_INTERRUPTED:
+              console.log(`[Event] MEDIA_CONNECTION_INTERRUPTED — media_type ${msg.event.media_type ?? 'unknown'}`);
+              break;
+
+            case EVENT_CODES.ACTIVE_SPEAKER_CHANGE:
               console.log(`[Event] ACTIVE_SPEAKER_CHANGE — ${msg.event.user_name} (ID: ${msg.event.user_id}) is now speaking`);
               break;
 
-            case 3: // PARTICIPANT_JOIN
+            case EVENT_CODES.PARTICIPANT_JOIN:
               console.log(`[Event] PARTICIPANT_JOIN — ${msg.event.user_name} (ID: ${msg.event.user_id}) joined`);
               break;
 
-            case 4: // PARTICIPANT_LEAVE
+            case EVENT_CODES.PARTICIPANT_LEAVE:
               console.log(`[Event] PARTICIPANT_LEAVE — ${msg.event.user_name} (ID: ${msg.event.user_id}) left`);
               break;
 
-            case CHAT_GROUP_EVENT_TYPES.CREATED:
-            case CHAT_GROUP_EVENT_TYPES.DELETED:
-            case CHAT_GROUP_EVENT_TYPES.MEMBERS_ADDED:
-            case CHAT_GROUP_EVENT_TYPES.MEMBERS_REMOVED:
-            case CHAT_GROUP_EVENT_TYPES.MEMBER_STATUS_UPDATED:
+            case CHAT_GROUP_EVENT_CODES.CREATED:
+            case CHAT_GROUP_EVENT_CODES.DELETED:
+            case CHAT_GROUP_EVENT_CODES.MEMBERS_ADDED:
+            case CHAT_GROUP_EVENT_CODES.MEMBERS_REMOVED:
+            case CHAT_GROUP_EVENT_CODES.MEMBER_STATUS_UPDATED:
               logChatGroupEvent(msg.event);
               break;
 
             default:
-              console.log(`[Event] Unknown event_type: ${msg.event.event_type}`);
+              console.log(`[Event] Unknown event_code: ${msg.event.event_code}`);
           }
         }
 

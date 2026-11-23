@@ -1,7 +1,8 @@
 import crypto from 'node:crypto';
+import { RTMS_PROTOCOL_VERSION } from '../../shared/codes.js';
 
+export { RTMS_PROTOCOL_VERSION };
 export const MANIFEST_SCHEMA_VERSION = 1;
-export const RTMS_PROTOCOL_VERSION = 1;
 export const ARTIFACT_WRITER_VERSION = '1';
 export const PARTICIPANT_SCHEMA_VERSION = '1';
 

@@ -1,4 +1,4 @@
-import { EVENT_TYPE } from '../shared/codes.js';
+import { EVENT_CODE } from '../shared/codes.js';
 import { createMemoryTrace } from '../shared/trace.js';
 import { createParticipantRegistry } from './src/participants.js';
 import { createVideoSubscriptionManager } from './src/videoSubscription.js';
@@ -24,13 +24,13 @@ export function runMediaDemo({ trace = createMemoryTrace(), now = () => 0 } = {}
   });
 
   const events = [
-    { event_type: EVENT_TYPE.PARTICIPANT_JOIN, timestamp: 1000, participants: [{ user_id: 1, user_name: 'Ana' }, { user_id: 2, user_name: 'Ben' }] },
-    { event_type: EVENT_TYPE.PARTICIPANT_VIDEO_ON, timestamp: 1010, participants: [{ user_id: 1, user_name: 'Ana' }] },
-    { event_type: EVENT_TYPE.PARTICIPANT_VIDEO_ON, timestamp: 1011, participants: [{ user_id: 2, user_name: 'Ben' }] },
-    { event_type: EVENT_TYPE.ACTIVE_SPEAKER_CHANGE, timestamp: 1020, user_id: 1, user_name: 'Ana' },
-    { event_type: EVENT_TYPE.ACTIVE_SPEAKER_CHANGE, timestamp: 1200, user_id: 2, user_name: 'Ben' },
-    { event_type: EVENT_TYPE.ACTIVE_SPEAKER_CHANGE, timestamp: 1300, user_id: 0 },
-    { event_type: EVENT_TYPE.PARTICIPANT_VIDEO_OFF, timestamp: 1400, participants: [{ user_id: 1, user_name: 'Ana' }] }
+    { event_code: EVENT_CODE.PARTICIPANT_JOIN, timestamp: 1000, participants: [{ user_id: 1, user_name: 'Ana' }, { user_id: 2, user_name: 'Ben' }] },
+    { event_code: EVENT_CODE.PARTICIPANT_VIDEO_ON, timestamp: 1010, participants: [{ user_id: 1, user_name: 'Ana' }] },
+    { event_code: EVENT_CODE.PARTICIPANT_VIDEO_ON, timestamp: 1011, participants: [{ user_id: 2, user_name: 'Ben' }] },
+    { event_code: EVENT_CODE.ACTIVE_SPEAKER_CHANGE, timestamp: 1020, user_id: 1, user_name: 'Ana' },
+    { event_code: EVENT_CODE.ACTIVE_SPEAKER_CHANGE, timestamp: 1200, user_id: 2, user_name: 'Ben' },
+    { event_code: EVENT_CODE.ACTIVE_SPEAKER_CHANGE, timestamp: 1300, user_id: 0 },
+    { event_code: EVENT_CODE.PARTICIPANT_VIDEO_OFF, timestamp: 1400, participants: [{ user_id: 1, user_name: 'Ana' }] }
   ];
 
   registry.subscribe((change) => {
@@ -54,7 +54,7 @@ export function runMediaDemo({ trace = createMemoryTrace(), now = () => 0 } = {}
       addAudio(1210);
     }
     if (event.timestamp === 1300) addAudio(1350);
-    if (event.event_type === EVENT_TYPE.PARTICIPANT_VIDEO_OFF) {
+    if (event.event_code === EVENT_CODE.PARTICIPANT_VIDEO_OFF) {
       addFrame(2, 1410);
       addFrame(1, 1420);
     }

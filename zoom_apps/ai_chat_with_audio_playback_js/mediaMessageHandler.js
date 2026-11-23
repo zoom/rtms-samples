@@ -34,7 +34,7 @@ export async function handleMediaMessage(data, {
 
       // {
       //   "msg_type": 4,
-      //   "protocol_version": 1,
+      //   "protocol_version": 2,
       //   "status_code": 0,
       //   "reason": "",
       //   "sequence": 0,

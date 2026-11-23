@@ -2,7 +2,8 @@ import test from 'node:test';
 import assert from 'node:assert/strict';
 import net from 'node:net';
 import { createMemoryTrace } from '../shared/trace.js';
-import { createStreamClient, defaultEventSubscriptions, DEFAULT_MEDIA_PARAMS, pickMediaUrl } from './src/streamClient.js';
+import { createStreamClient, defaultEventSubscriptions, DEFAULT_MEDIA_PARAMS, pickMediaUrl, pickWebSocketUrl } from './src/streamClient.js';
+import { eventCodeOf, subscribableEventCode } from '../shared/codes.js';
 import { chunkId, finalArtifactId, hashMediaParams } from './src/manifest.js';
 import { createGenerationIndex } from './src/generations.js';
 
@@ -70,13 +71,22 @@ test('an envelope with no signaling URL ends with an alertable stop instead of h
   assert.equal(trace.events.find((e) => e.type === 'handshake_rejected').reason, 'no_signaling_url');
 });
 
-test('event subscriptions match the reference manager: speaker, join, leave, plus video and chat extras when requested', () => {
+test('event subscriptions match the reference manager as V2 event codes: speaker, join, leave, plus video and chat extras when requested', () => {
   const base = { media: ['audio', 'transcript'], mediaParams: DEFAULT_MEDIA_PARAMS };
-  assert.deepEqual(defaultEventSubscriptions(base), [2, 3, 4]);
+  assert.deepEqual(defaultEventSubscriptions(base), [1000, 1001, 1002]);
   const individual = { media: ['audio', 'video'], mediaParams: { ...DEFAULT_MEDIA_PARAMS, video: { ...DEFAULT_MEDIA_PARAMS.video, data_opt: 4 } } };
-  assert.deepEqual(defaultEventSubscriptions(individual), [2, 3, 4, 5, 6, 8, 9]);
-  assert.deepEqual(defaultEventSubscriptions({ media: ['audio', 'video'], mediaParams: DEFAULT_MEDIA_PARAMS }), [2, 3, 4], 'active-speaker video needs no extra events');
-  assert.deepEqual(defaultEventSubscriptions({ media: ['chat'], mediaParams: DEFAULT_MEDIA_PARAMS }), [2, 3, 4, 10, 11, 12, 13, 14]);
+  assert.deepEqual(defaultEventSubscriptions(individual), [1000, 1001, 1002, 1003, 1004, 1005, 1006]);
+  assert.deepEqual(defaultEventSubscriptions({ media: ['audio', 'video'], mediaParams: DEFAULT_MEDIA_PARAMS }), [1000, 1001, 1002], 'active-speaker video needs no extra events');
+  assert.deepEqual(defaultEventSubscriptions({ media: ['chat'], mediaParams: DEFAULT_MEDIA_PARAMS }), [1000, 1001, 1002, 1007, 1008, 1009, 1010, 1011]);
+});
+
+test('V2 subscriptions use event_code only, map legacy types and drop automatic events', () => {
+  assert.equal(subscribableEventCode(3), 1001);
+  assert.equal(subscribableEventCode(1005), 1005);
+  assert.equal(subscribableEventCode(7), null, 'MEDIA_CONNECTION_INTERRUPTED is sent automatically');
+  assert.equal(subscribableEventCode(1), null, 'FIRST_PACKET_TIMESTAMP is sent automatically');
+  assert.equal(eventCodeOf({ event_code: 1002 }), 1002);
+  assert.equal(eventCodeOf({ event_type: 7 }), 2);
 });
 
 test('the screen share URL is read from the key the server actually uses', () => {
@@ -84,6 +94,13 @@ test('the screen share URL is read from the key the server actually uses', () =>
   assert.equal(pickMediaUrl({ deskshare: 'wss://a/old' }, 'share'), 'wss://a/old');
   assert.equal(pickMediaUrl({ audio: 'wss://a/audio' }, 'transcript'), undefined);
   assert.equal(pickMediaUrl(undefined, 'audio'), undefined);
+});
+
+test('V2 comma-separated server URLs resolve to the WebSocket entry', () => {
+  assert.equal(pickWebSocketUrl('srt://a:9000,wss://a/ws'), 'wss://a/ws');
+  assert.equal(pickWebSocketUrl('srt://a:9000'), undefined);
+  assert.equal(pickMediaUrl({ audio: 'wss://a/audio, srt://a:1' }, 'audio'), 'wss://a/audio');
+  assert.equal(pickMediaUrl('srt://a:1,wss://a/all', 'video'), 'wss://a/all', 'one string serves every media type');
 });
 
 test('chunk ids are stable per content and unique per stream, time and bytes', () => {

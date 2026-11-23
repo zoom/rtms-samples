@@ -8,7 +8,7 @@ from websockets.client import WebSocketClientProtocol
 from .utils.signature import generate_rtms_signature
 from .utils.logger import FileLogger
 from .utils.rtms_entity import build_rtms_entity_payload
-from .signaling_socket import send_deferred_event_subscriptions
+from .signaling_socket import send_deferred_event_subscriptions, get_protocol_version
 
 
 TYPE_FLAGS = {
@@ -158,16 +158,20 @@ async def connect_to_media_websocket(
             'transcript': transcript_params,
         }
 
+    protocol_version = get_protocol_version(conn)
     handshake_msg = {
         'msg_type': 3,
-        'protocol_version': 1,
+        'protocol_version': protocol_version,
         **build_rtms_entity_payload(rtms_type, meeting_uuid),
         'rtms_stream_id': stream_id,
         'signature': signature,
         'media_type': media_type_flag,
-        'payload_encryption': False,
         'media_params': media_params
     }
+    # V1 carried a payload_encryption flag on the data handshake. V2
+    # negotiates encryption only in the signaling handshake, so omit it.
+    if protocol_version < 2:
+        handshake_msg['payload_encryption'] = False
 
     FileLogger.log(
         f"[Media] [{rtms_type},{meeting_uuid},{stream_id}] {media_type} handshake summary: {json.dumps({'media_type': media_type_flag, 'media_params': media_params})}"

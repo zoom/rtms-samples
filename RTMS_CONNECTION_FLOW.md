@@ -21,6 +21,57 @@ This is the **exact same flow** that the SDK and RTMSManager library use interna
 
 If you need full control or are working in a language without SDK support, you can implement this flow directly using any WebSocket client.
 
+## RTMS Protocol V2
+
+The examples in this guide use RTMS protocol V2. Sending `protocol_version: 1`,
+or omitting it, still selects the legacy V1 protocol. V2 changes the flow in
+these ways:
+
+- Send `protocol_version: 2` in the signaling handshake **and** in every data
+  handshake. Both must use the same version and message format.
+- Open one data connection per concrete media type. V2 rejects
+  `media_type: 32` (ALL) with status `48`.
+- Event subscriptions (`msg_type: 5`) and event updates (`msg_type: 6`) use
+  `event_code` instead of `event_type`. An entry that contains both fields is
+  rejected with status `6`. Only session events `1000` to `1011` can be
+  subscribed to; `FIRST_PACKET_TIMESTAMP` (`1`) and
+  `MEDIA_CONNECTION_INTERRUPTED` (`2`) arrive automatically.
+- A `server_urls` value can list more than one URL separated by commas, for
+  example `wss://...,srt://...`. WebSocket clients split the value and use the
+  `wss://` entry. Treat `media_server.server_urls` as an object keyed by media
+  type, but accept a single string that serves every media type.
+- The data handshake no longer carries `payload_encryption`. Payload encryption
+  is negotiated only in the signaling handshake with `payload_encryptions`.
+- The PNG codec is removed (status `58`); use JPG or H.264. Audio `send_rate`
+  must be a multiple of 20 ms.
+
+| Event | V1 `event_type` | V2 `event_code` |
+|-------|-----------------|-----------------|
+| FIRST_PACKET_TIMESTAMP | 1 | 1 |
+| MEDIA_CONNECTION_INTERRUPTED | 7 | 2 |
+| VIDEO_SUBSCRIPTION_TERMINATED_BY_USER_LEAVE | 15 | 3 |
+| MEDIA_DATA_USER_INFO (V2 only) | none | 4 |
+| ACTIVE_SPEAKER_CHANGE | 2 | 1000 |
+| PARTICIPANT_JOIN | 3 | 1001 |
+| PARTICIPANT_LEAVE | 4 | 1002 |
+| SHARING_START / SHARING_STOP | 5 / 6 | 1003 / 1004 |
+| PARTICIPANT_VIDEO_ON / OFF | 8 / 9 | 1005 / 1006 |
+| CHAT_GROUP_CREATE to CHAT_GROUP_MEMBER_STATUS_UPDATE | 10 to 14 | 1007 to 1011 |
+
+A minimal helper for choosing the WebSocket URL:
+
+```javascript
+function pickWebSocketUrl(value) {
+  return String(value || '')
+    .split(',')
+    .map((url) => url.trim())
+    .find((url) => url.startsWith('wss://'));
+}
+```
+
+See [Protocol versions](https://developers.zoom.us/docs/rtms/event-reference/universal-events/#protocol-versions)
+and [Data types](https://developers.zoom.us/docs/rtms/data-types/) for the full reference.
+
 ## Connection Flow
 
 ```
@@ -47,7 +98,8 @@ If you need full control or are working in a language without SDK support, you c
 Zoom sends `meeting.rtms_started` webhook containing:
 - `meeting_uuid` - Unique meeting identifier
 - `rtms_stream_id` - Stream identifier
-- `server_urls` - Signaling server WebSocket URL
+- `server_urls` - Signaling server URL. In V2 this can be a comma-separated list
+  such as `wss://...,srt://...`; connect to the `wss://` entry.
 
 **Webhook Payload Example:**
 
@@ -247,12 +299,12 @@ signature := generateSignature(
 
 ### 3. Connect to Signaling WebSocket
 
-Connect to the `server_urls` and send handshake:
+Connect to the `wss://` entry of `server_urls` and send the handshake:
 
 ```json
 {
   "msg_type": 1,
-  "protocol_version": 1,
+  "protocol_version": 2,
   "meeting_uuid": "<meeting_uuid>",
   "rtms_stream_id": "<stream_id>",
   "sequence": <random_number>,
@@ -265,7 +317,7 @@ Connect to the `server_urls` and send handshake:
 
 ```javascript
 function connectToSignaling(meetingUuid, streamId, serverUrl) {
-  const signalingWs = new WebSocket(serverUrl);
+  const signalingWs = new WebSocket(pickWebSocketUrl(serverUrl));
   
   signalingWs.on('open', () => {
     const signature = generateSignature(
@@ -277,7 +329,7 @@ function connectToSignaling(meetingUuid, streamId, serverUrl) {
     
     const handshake = {
       msg_type: 1,
-      protocol_version: 1,
+      protocol_version: 2,
       meeting_uuid: meetingUuid,
       rtms_stream_id: streamId,
       sequence: Math.floor(Math.random() * 1000000),
@@ -320,7 +372,7 @@ def on_signaling_open(ws, meeting_uuid, stream_id):
     
     handshake = {
         "msg_type": 1,
-        "protocol_version": 1,
+        "protocol_version": 2,
         "meeting_uuid": meeting_uuid,
         "rtms_stream_id": stream_id,
         "sequence": random.randint(1, 1000000),
@@ -355,7 +407,7 @@ func connectToSignaling(meetingUUID, streamID, serverURL string) {
     
     handshake := map[string]interface{}{
         "msg_type":         1,
-        "protocol_version": 1,
+        "protocol_version": 2,
         "meeting_uuid":     meetingUUID,
         "rtms_stream_id":   streamID,
         "sequence":         rand.Intn(1000000),
@@ -491,12 +543,11 @@ the matching URL, type, and parameters for other selected media.
 ```json
 {
   "msg_type": 3,
-  "protocol_version": 1,
+  "protocol_version": 2,
   "meeting_uuid": "<meeting_uuid>",
   "rtms_stream_id": "<stream_id>",
   "signature": "<hmac_sha256_signature>",
   "media_type": 1,
-  "payload_encryption": false,
   "media_params": {
     "audio": {
       "content_type": 2,
@@ -516,7 +567,7 @@ the matching URL, type, and parameters for other selected media.
 let mediaWs = null;
 
 function connectToMedia(mediaUrl, signalingWs, meetingUuid, streamId) {
-  mediaWs = new WebSocket(mediaUrl);
+  mediaWs = new WebSocket(pickWebSocketUrl(mediaUrl));
   
   mediaWs.on('open', () => {
     const signature = generateSignature(
@@ -528,12 +579,11 @@ function connectToMedia(mediaUrl, signalingWs, meetingUuid, streamId) {
     
     const handshake = {
       msg_type: 3,
-      protocol_version: 1,
+      protocol_version: 2,
       meeting_uuid: meetingUuid,
       rtms_stream_id: streamId,
       signature: signature,
       media_type: 1, // Audio
-      payload_encryption: false,
       media_params: {
         audio: {
           content_type: 2, // RAW_AUDIO
@@ -574,12 +624,11 @@ def connect_to_media(media_url, signaling_ws, meeting_uuid, stream_id):
         
         handshake = {
             "msg_type": 3,
-            "protocol_version": 1,
+            "protocol_version": 2,
             "meeting_uuid": meeting_uuid,
             "rtms_stream_id": stream_id,
             "signature": signature,
             "media_type": 1,  # Audio
-            "payload_encryption": False,
             "media_params": {
                 "audio": {
                     "content_type": 2,  # RAW_AUDIO
@@ -625,12 +674,11 @@ func connectToMedia(mediaURL string, signalingConn *websocket.Conn, meetingUUID,
     
     handshake := map[string]interface{}{
         "msg_type":           3,
-        "protocol_version":   1,
+        "protocol_version":   2,
         "meeting_uuid":       meetingUUID,
         "rtms_stream_id":     streamID,
         "signature":          signature,
         "media_type":         1, // Audio
-        "payload_encryption": false,
         "media_params": map[string]interface{}{
             "audio": map[string]interface{}{
                 "content_type": 2,   // RAW_AUDIO
@@ -1025,9 +1073,12 @@ func cleanup(meetingUUID string) {
 |----------|------|-----------|-------------|
 | 1 | SIGNALING_HANDSHAKE_REQ | Client → Server | Initial authentication |
 | 2 | SIGNALING_HANDSHAKE_RESP | Server → Client | Returns media server URL |
+| 5 | EVENT_SUBSCRIPTION | Client → Server | Subscribe to session events by `event_code` (V2) |
+| 6 | EVENT_UPDATE | Server → Client | Session event, identified by `event_code` (V2) |
 | 7 | START_MEDIA_REQ | Client → Server | Request to start streaming |
 | 12 | KEEP_ALIVE_REQ | Server → Client | Keep-alive ping |
 | 13 | KEEP_ALIVE_RESP | Client → Server | Keep-alive response |
+| 30 | REQUEST_ERROR_RESP | Server → Client | A request was rejected, for example an invalid subscription |
 
 ### Media Socket
 
@@ -1110,6 +1161,11 @@ function generateSignature(meetingUuid, streamId) {
     .digest('hex');
 }
 
+// RTMS V2 server URLs can be comma-separated (wss://...,srt://...).
+function pickWebSocketUrl(value) {
+  return String(value || '').split(',').map((url) => url.trim()).find((url) => url.startsWith('wss://'));
+}
+
 app.post('/webhook', (req, res) => {
   const { event, payload } = req.body;
   
@@ -1124,12 +1180,12 @@ app.post('/webhook', (req, res) => {
 });
 
 function connectToSignaling(meetingUuid, streamId, serverUrl) {
-  signalingWs = new WebSocket(serverUrl);
+  signalingWs = new WebSocket(pickWebSocketUrl(serverUrl));
   
   signalingWs.on('open', () => {
     signalingWs.send(JSON.stringify({
       msg_type: 1,
-      protocol_version: 1,
+      protocol_version: 2,
       meeting_uuid: meetingUuid,
       rtms_stream_id: streamId,
       sequence: Math.floor(Math.random() * 1000000),
@@ -1150,17 +1206,16 @@ function connectToSignaling(meetingUuid, streamId, serverUrl) {
 }
 
 function connectToMedia(mediaUrl, meetingUuid, streamId) {
-  mediaWs = new WebSocket(mediaUrl);
+  mediaWs = new WebSocket(pickWebSocketUrl(mediaUrl));
   
   mediaWs.on('open', () => {
     mediaWs.send(JSON.stringify({
       msg_type: 3,
-      protocol_version: 1,
+      protocol_version: 2,
       meeting_uuid: meetingUuid,
       rtms_stream_id: streamId,
       signature: generateSignature(meetingUuid, streamId),
       media_type: 1,
-      payload_encryption: false,
       media_params: {
         audio: { content_type: 2, sample_rate: 1, channel: 1, codec: 1, data_opt: 1, send_rate: 100 }
       }

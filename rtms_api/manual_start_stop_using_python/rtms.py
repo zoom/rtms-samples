@@ -12,6 +12,26 @@ import threading
 import signal
 import sys
 
+
+def select_websocket_url(value):
+    """RTMS V2 can return several comma-separated URLs (for example
+    wss://host/ws,srt://host:port). WebSocket connections use the ws/wss one."""
+    if not isinstance(value, str):
+        return None
+    for url in value.split(','):
+        url = url.strip()
+        if url.startswith('wss://') or url.startswith('ws://'):
+            return url
+    return None
+
+
+def get_media_server_url(server_urls, media_type):
+    """media_server.server_urls is usually keyed by media type; V2 may return
+    one comma-separated string that serves every media type."""
+    if isinstance(server_urls, str):
+        return server_urls
+    return server_urls.get(media_type) if isinstance(server_urls, dict) else None
+
 # Load environment variables from .env
 load_dotenv()
 
@@ -194,7 +214,13 @@ async def connect_to_signaling_websocket(meeting_uuid, stream_id, server_urls):
         ssl_context.check_hostname = False
         ssl_context.verify_mode = ssl.CERT_NONE
         
-        async with websockets.connect(server_urls, ssl=ssl_context) as signaling_ws:
+        # RTMS V2 server_urls can list wss:// and srt:// entries; signaling uses wss://.
+        signaling_url = select_websocket_url(server_urls)
+        if not signaling_url:
+            print(f'No WebSocket signaling URL in server_urls: {server_urls}')
+            return
+
+        async with websockets.connect(signaling_url, ssl=ssl_context) as signaling_ws:
             with stream_lock_guard:
                 existing_socket = active_signaling_sockets.get(stream_id)
                 if existing_socket is not None and existing_socket is not signaling_ws:
@@ -207,6 +233,7 @@ async def connect_to_signaling_websocket(meeting_uuid, stream_id, server_urls):
             # Send handshake
             handshake_message = {
                 'msg_type': 1,  # HANDSHAKE_REQUEST
+                'protocol_version': 2,  # RTMS protocol V2; must match the data handshake
                 'meeting_uuid': meeting_uuid,
                 'rtms_stream_id': stream_id,
                 'signature': generate_signature(meeting_uuid, stream_id),
@@ -228,7 +255,7 @@ async def connect_to_signaling_websocket(meeting_uuid, stream_id, server_urls):
                 if msg.get('msg_type') == 2 and msg.get('status_code') == 0:
                     with stream_lock_guard:
                         duplicate_signal_retry_counts[stream_id] = 0
-                    media_url = msg['media_server']['server_urls']['transcript']
+                    media_url = get_media_server_url(msg.get('media_server', {}).get('server_urls'), 'transcript')
                     await connect_to_media_websocket(media_url, meeting_uuid, stream_id, signaling_ws)
 
                 if msg.get('msg_type') == 2 and is_duplicate_signal_request:
@@ -280,13 +307,18 @@ async def connect_to_media_websocket(media_url, meeting_uuid, stream_id, signali
         ssl_context.check_hostname = False
         ssl_context.verify_mode = ssl.CERT_NONE
         
-        async with websockets.connect(media_url, ssl=ssl_context) as media_ws:
+        ws_media_url = select_websocket_url(media_url)
+        if not ws_media_url:
+            print(f'No WebSocket media URL in: {media_url}')
+            return
+
+        async with websockets.connect(ws_media_url, ssl=ssl_context) as media_ws:
             print('Media WebSocket opened')
             
             # Send media handshake
             media_handshake = {
                 'msg_type': 3,  # MEDIA_HANDSHAKE_REQUEST
-                'protocol_version': 1,
+                'protocol_version': 2,
                 'sequence': 0,
                 'meeting_uuid': meeting_uuid,
                 'rtms_stream_id': stream_id,

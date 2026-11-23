@@ -5,6 +5,7 @@ import { handleSignalingMessage } from './signalingSocketMessageHandler.js';
 import { FileLogger } from './utils/FileLogger.js';
 import { RTMSError } from './utils/RTMSError.js';
 import { selectAllowedRtmsCallbackUrl } from './utils/rtmsUrlPolicy.js';
+import { DEFAULT_RTMS_PROTOCOL_VERSION } from './utils/rtmsProtocolDefinitions.js';
 
 function releaseSignalingConnectLock(conn, socket) {
   if (conn._signalingConnectSocket === socket) {
@@ -190,7 +191,7 @@ export function connectToSignalingWebSocket(
 
       const handshakeMsg = {
         msg_type: 1,
-        protocol_version: conn.protocolVersion || 1,
+        protocol_version: conn.protocolVersion || DEFAULT_RTMS_PROTOCOL_VERSION,
         ...buildRtmsEntityPayload(conn.rtmsType, meetingUuid),
         rtms_stream_id: streamId,
         sequence: Math.floor(Math.random() * 1e9),

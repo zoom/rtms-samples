@@ -70,6 +70,11 @@ Each selected flag opens a separate data connection. Unified media socket mode
 and `media_type: 32` are deprecated; send exactly one concrete media type in
 each data handshake.
 
+RTMS protocol V2 is the default in both libraries: handshakes send
+`protocol_version: 2`, subscriptions use `event_code`, and comma-separated
+`server_urls` values resolve to their `wss://` entry. See the JavaScript and
+Python readmes for the opt-out and the new events.
+
 ## Presets (JavaScript)
 
 ```javascript

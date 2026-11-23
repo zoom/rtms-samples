@@ -76,6 +76,51 @@ export const EVENT_TYPE = Object.freeze({
   PARTICIPANT_VIDEO_OFF: 9
 });
 
+/**
+ * RTMS protocol V2 event codes (RTMS_EVENT_CODE). V2 replaces event_type with
+ * event_code in subscriptions (msg 5) and event updates (msg 6). Only session
+ * events 1000-1011 can be subscribed to; codes below 1000 arrive automatically.
+ */
+export const EVENT_CODE = Object.freeze({
+  FIRST_PACKET_TIMESTAMP: 1,
+  MEDIA_CONNECTION_INTERRUPTED: 2,
+  VIDEO_SUBSCRIPTION_TERMINATED_BY_USER_LEAVE: 3,
+  MEDIA_DATA_USER_INFO: 4,
+  ACTIVE_SPEAKER_CHANGE: 1000,
+  PARTICIPANT_JOIN: 1001,
+  PARTICIPANT_LEAVE: 1002,
+  SHARING_START: 1003,
+  SHARING_STOP: 1004,
+  PARTICIPANT_VIDEO_ON: 1005,
+  PARTICIPANT_VIDEO_OFF: 1006,
+  CHAT_GROUP_CREATE: 1007,
+  CHAT_GROUP_DELETE: 1008,
+  CHAT_GROUP_MEMBERS_ADD: 1009,
+  CHAT_GROUP_MEMBERS_DELETE: 1010,
+  CHAT_GROUP_MEMBER_STATUS_UPDATE: 1011
+});
+
+/** Legacy V1 event_type to V2 event_code. */
+export const EVENT_CODE_FOR_TYPE = Object.freeze({
+  1: 1, 2: 1000, 3: 1001, 4: 1002, 5: 1003, 6: 1004, 7: 2, 8: 1005, 9: 1006,
+  10: 1007, 11: 1008, 12: 1009, 13: 1010, 14: 1011, 15: 3
+});
+
+/** The V2 event_code of a signaling event, accepting legacy V1 event_type input too. */
+export function eventCodeOf(event = {}) {
+  if (event.event_code != null) return event.event_code;
+  return EVENT_CODE_FOR_TYPE[event.event_type] ?? null;
+}
+
+/** Normalize a subscription entry (V2 code or legacy V1 type) to a subscribable V2 code, or null. */
+export function subscribableEventCode(value) {
+  const code = value >= 1000 ? value : EVENT_CODE_FOR_TYPE[value];
+  return Number.isInteger(code) && code >= 1000 && code <= 1011 ? code : null;
+}
+
+/** RTMS protocol V2 is required by these samples in both handshakes. */
+export const RTMS_PROTOCOL_VERSION = 2;
+
 /** Windows from the playbook. Keep them in one place so tests and docs agree. */
 export const TIMING = Object.freeze({
   signalingReconnectWindowMs: 60_000,

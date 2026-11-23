@@ -219,8 +219,9 @@ export interface RTMSConfig {
   /** @deprecated Use mediaTypes instead */
   mediaTypesFlag?: number;
   /**
-   * RTMS protocol version for signaling and media handshakes. Defaults to 1;
-   * Zoom Phone streams always use 2 or later.
+   * RTMS protocol version for signaling and media handshakes. Defaults to 2.
+   * Set 1 to fall back to the legacy V1 protocol (not available for Zoom
+   * Phone, which always uses 2 or later).
    */
   protocolVersion?: number;
   /**
@@ -494,7 +495,14 @@ export type MediaEvent = AudioEvent | VideoEvent | SharescreenEvent | Transcript
 
 /** Raw signaling event data from Zoom */
 export interface SignalingEventData {
-  event_type: number;
+  /** RTMS protocol V2 event code */
+  event_code?: number;
+  /** Legacy V1 event type (only on streams that opted into protocolVersion 1) */
+  event_type?: number;
+  /** Media type for MEDIA_CONNECTION_INTERRUPTED and MEDIA_DATA_USER_INFO */
+  media_type?: number;
+  /** Media connection for VIDEO_SUBSCRIPTION_TERMINATED_BY_USER_LEAVE */
+  connection_id?: string;
   user_id?: number | string;
   user_name?: string;
   timestamp?: number;
@@ -507,9 +515,12 @@ export interface SignalingEventData {
 /** Signaling event (object format) */
 export interface SignalingEvent {
   type: 'event';
-  /** Legacy V1 event type code; null for V2 events */
+  /**
+   * Legacy V1 RTMS_EVENT_TYPE. For V2 events this is the equivalent legacy
+   * number (for example 3 for event_code 1001), or null when none exists.
+   */
   eventType: number | null;
-  /** V2 RTMS_EVENT_CODE (for example Zoom Phone 3000-3003); null for V1 events */
+  /** V2 RTMS_EVENT_CODE, for example 1001 for PARTICIPANT_JOIN */
   eventCode?: number | null;
   /** Raw event data */
   data: SignalingEventData;
@@ -767,6 +778,8 @@ export class RTMSManager extends EventEmitter {
 
   /** Newer RTMS protocol additions with overrideable defaults */
   static readonly PROTOCOL: RTMSProtocolDefinitions;
+  /** RTMS protocol V2 event codes (RTMS_EVENT_CODE), matched against `eventCode` */
+  static readonly EVENT_CODES: Readonly<Record<string, number>>;
 
   /**
    * Initialize the RTMSManager

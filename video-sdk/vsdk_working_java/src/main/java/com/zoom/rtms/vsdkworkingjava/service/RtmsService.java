@@ -166,7 +166,9 @@ public class RtmsService {
         log.info("[Signaling] Connecting for video session {}", conn.getSessionId());
 
         try {
-            if (conn.getServerUrls() == null || !conn.getServerUrls().startsWith("ws")) {
+            // RTMS V2 server_urls can list wss:// and srt:// entries; signaling uses wss://.
+            String signalingUrl = RtmsUrls.selectWebSocketUrl(conn.getServerUrls());
+            if (signalingUrl == null) {
                 log.error("[Signaling] ❌ Invalid WebSocket URL: {}", conn.getServerUrls());
                 log.error("[Signaling] URL validation failed - URL is null/undefined or doesn't start with ws/wss");
 
@@ -185,7 +187,7 @@ public class RtmsService {
 
             SignalingWebSocketListener listener = new SignalingWebSocketListener(conn);
             CompletableFuture<WebSocket> wsFuture = httpClient.newWebSocketBuilder()
-                    .buildAsync(URI.create(conn.getServerUrls()), listener);
+                    .buildAsync(URI.create(signalingUrl), listener);
 
             WebSocket webSocket = wsFuture.join();
             conn.getSignaling().setSocket(webSocket);
@@ -210,11 +212,17 @@ public class RtmsService {
                     .state(RtmsConnection.MediaConnection.MediaState.CONNECTING)
                     .lastKeepAlive(0)
                     .build();
+            // RTMS V2 media URLs can list wss:// and srt:// entries; use the wss:// one.
+            String wsMediaUrl = RtmsUrls.selectWebSocketUrl(mediaUrl);
+            if (wsMediaUrl == null) {
+                log.warn("[Media] No WebSocket URL in {} media URL {}", mediaType, mediaUrl);
+                return;
+            }
             conn.getMedia().put(mediaType, media);
             MediaWebSocketListener listener = new MediaWebSocketListener(
                     conn, mediaUrl, mediaType, mediaTypeFlag);
             CompletableFuture<WebSocket> wsFuture = httpClient.newWebSocketBuilder()
-                    .buildAsync(URI.create(mediaUrl), listener);
+                    .buildAsync(URI.create(wsMediaUrl), listener);
 
             WebSocket webSocket = wsFuture.join();
             media.setSocket(webSocket);
@@ -372,7 +380,7 @@ public class RtmsService {
             for (String configuredType : zoomConfig.getMediaTypes().split(",")) {
                 String publicType = configuredType.trim().toLowerCase();
                 String wireType = publicType.equals("screenshare") ? "deskshare" : publicType;
-                String mediaUrl = serverUrls.path(wireType).asText();
+                String mediaUrl = RtmsUrls.mediaServerUrl(serverUrls, wireType);
                 if (mediaUrl.isEmpty()) {
                     log.warn("[Signaling] No server_urls.{} returned for {}", wireType, conn.getSessionId());
                     continue;
@@ -400,20 +408,23 @@ public class RtmsService {
     private void handleEventMessage(RtmsConnection conn, JsonNode msg) {
         if (msg.has("event")) {
             JsonNode eventNode = msg.get("event");
-            int eventType = eventNode.get("event_type").asInt();
+            // RTMS protocol V2 reports event_code instead of the legacy event_type.
+            int eventCode = eventNode.path("event_code").asInt(-1);
 
-            switch (eventType) {
+            switch (eventCode) {
                 case 1 -> log.info("[Event] FIRST_PACKET_TIMESTAMP first media packet at {}",
-                        eventNode.get("timestamp").asLong());
-                case 2 -> processActiveSpeakerChange(eventNode);
-                case 3 -> processParticipantJoin(eventNode);
-                case 4 -> processParticipantLeave(eventNode);
-                case 10 -> log.info("[Event] CHAT_GROUP_CREATE {}", eventNode);
-                case 11 -> log.info("[Event] CHAT_GROUP_DELETE {}", eventNode);
-                case 12 -> log.info("[Event] CHAT_GROUP_MEMBERS_ADD {}", eventNode);
-                case 13 -> log.info("[Event] CHAT_GROUP_MEMBERS_DELETE {}", eventNode);
-                case 14 -> log.info("[Event] CHAT_GROUP_MEMBER_STATUS_UPDATE {}", eventNode);
-                default -> log.warn("Unknown event type: {}", eventType);
+                        eventNode.path("timestamp").asLong());
+                case 2 -> log.warn("[Event] MEDIA_CONNECTION_INTERRUPTED media_type {}",
+                        eventNode.path("media_type").asText("unknown"));
+                case 1000 -> processActiveSpeakerChange(eventNode);
+                case 1001 -> processParticipantJoin(eventNode);
+                case 1002 -> processParticipantLeave(eventNode);
+                case 1007 -> log.info("[Event] CHAT_GROUP_CREATE {}", eventNode);
+                case 1008 -> log.info("[Event] CHAT_GROUP_DELETE {}", eventNode);
+                case 1009 -> log.info("[Event] CHAT_GROUP_MEMBERS_ADD {}", eventNode);
+                case 1010 -> log.info("[Event] CHAT_GROUP_MEMBERS_DELETE {}", eventNode);
+                case 1011 -> log.info("[Event] CHAT_GROUP_MEMBER_STATUS_UPDATE {}", eventNode);
+                default -> log.warn("Unknown event code: {}", eventCode);
             }
         }
     }
@@ -691,14 +702,15 @@ public class RtmsService {
         try {
             RtmsMessages.EventSubscriptionRequest subscription = new RtmsMessages.EventSubscriptionRequest(
                     5, List.of(
-                            new RtmsMessages.EventSubscriptionRequest.Event(2, true), // ACTIVE_SPEAKER_CHANGE
-                            new RtmsMessages.EventSubscriptionRequest.Event(3, true), // PARTICIPANT_JOIN
-                            new RtmsMessages.EventSubscriptionRequest.Event(4, true), // PARTICIPANT_LEAVE
-                            new RtmsMessages.EventSubscriptionRequest.Event(10, true), // CHAT_GROUP_CREATE
-                            new RtmsMessages.EventSubscriptionRequest.Event(11, true), // CHAT_GROUP_DELETE
-                            new RtmsMessages.EventSubscriptionRequest.Event(12, true), // CHAT_GROUP_MEMBERS_ADD
-                            new RtmsMessages.EventSubscriptionRequest.Event(13, true), // CHAT_GROUP_MEMBERS_DELETE
-                            new RtmsMessages.EventSubscriptionRequest.Event(14, true) // CHAT_GROUP_MEMBER_STATUS_UPDATE
+                            // RTMS protocol V2 event codes
+                            new RtmsMessages.EventSubscriptionRequest.Event(1000, true), // ACTIVE_SPEAKER_CHANGE
+                            new RtmsMessages.EventSubscriptionRequest.Event(1001, true), // PARTICIPANT_JOIN
+                            new RtmsMessages.EventSubscriptionRequest.Event(1002, true), // PARTICIPANT_LEAVE
+                            new RtmsMessages.EventSubscriptionRequest.Event(1007, true), // CHAT_GROUP_CREATE
+                            new RtmsMessages.EventSubscriptionRequest.Event(1008, true), // CHAT_GROUP_DELETE
+                            new RtmsMessages.EventSubscriptionRequest.Event(1009, true), // CHAT_GROUP_MEMBERS_ADD
+                            new RtmsMessages.EventSubscriptionRequest.Event(1010, true), // CHAT_GROUP_MEMBERS_DELETE
+                            new RtmsMessages.EventSubscriptionRequest.Event(1011, true) // CHAT_GROUP_MEMBER_STATUS_UPDATE
                     ));
 
             String subscriptionMsg = objectMapper.writeValueAsString(subscription);
@@ -726,6 +738,9 @@ public class RtmsService {
         @Override
         public void onOpen(WebSocket webSocket) {
             webSocket.request(1); // Request one message
+            // Store the socket before the handshake: its response can arrive
+            // before buildAsync(...).join() returns to the caller.
+            connection.getSignaling().setSocket(webSocket);
             log.info("[Signaling] Java WebSocket opened successfully for {}", connection.getSessionId());
 
             if (!connection.isShouldReconnect()) {
@@ -740,7 +755,8 @@ public class RtmsService {
                 log.info("[Signaling] Signature generated successfully for {}", connection.getSessionId());
 
                 RtmsMessages.SignalingHandshakeRequest handshakeReq = new RtmsMessages.SignalingHandshakeRequest(
-                        1, connection.getSessionId(), connection.getSessionId(), connection.getStreamId(), signature, false);
+                        1, 2, connection.getSessionId(), connection.getSessionId(), connection.getStreamId(), // RTMS protocol V2
+                        signature, false);
 
                 String handshakeMsg = objectMapper.writeValueAsString(handshakeReq);
                 log.info("[Signaling] Sending handshake for {}", connection.getSessionId());
@@ -860,8 +876,8 @@ public class RtmsService {
 
                 // Media handshake with parameters (msg_type: 3)
                 RtmsMessages.DataHandshakeRequest handshakeReq = new RtmsMessages.DataHandshakeRequest(
-                        3, 1, connection.getSessionId(), connection.getSessionId(),
-                        connection.getStreamId(), signature, mediaTypeFlag, false,
+                        3, 2, connection.getSessionId(), connection.getSessionId(), // RTMS protocol V2
+                        connection.getStreamId(), signature, mediaTypeFlag,
                         new RtmsMessages.MediaParams(
                                 mediaType.equals("audio")
                                         ? new RtmsMessages.AudioParams(1, 1, 1, 1, 2, 20) : null,

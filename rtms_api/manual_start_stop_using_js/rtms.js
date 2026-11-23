@@ -8,7 +8,8 @@ import {
   authenticateZoomWebhook,
   captureRawBody,
   buildUrlValidationResponse,
-  isAllowedRtmsCallbackUrl,
+  selectAllowedRtmsCallbackUrl,
+  getRtmsMediaServerUrl,
 } from './webhookSignature.js';
 
 // Load environment variables from .env
@@ -157,12 +158,15 @@ function connectToSignalingWebSocket(meetingUuid, streamId, serverUrls) {
 
   signalingLocksByStreamId.add(streamId);
   console.log(`Connecting to signaling WebSocket: ${serverUrls}`);
-  if (!isAllowedRtmsCallbackUrl(serverUrls)) {
+  // RTMS V2 server_urls can list wss:// and srt:// entries; signaling uses wss://.
+  const signalingUrl = selectAllowedRtmsCallbackUrl(serverUrls);
+  if (!signalingUrl) {
     console.warn(`[Signaling] Refusing signaling URL outside allowlist: ${serverUrls}`);
+    signalingLocksByStreamId.delete(streamId);
     return;
   }
 
-  const signalingWs = new WebSocket(serverUrls);
+  const signalingWs = new WebSocket(signalingUrl);
   activeSignalingSocketsByStreamId.set(streamId, signalingWs);
 
   // Once signaling WebSocket is open, send handshake
@@ -176,6 +180,7 @@ function connectToSignalingWebSocket(meetingUuid, streamId, serverUrls) {
     console.log('Signaling WebSocket opened');
     signalingWs.send(JSON.stringify({
       msg_type: 1, // HANDSHAKE_REQUEST
+      protocol_version: 2, // RTMS protocol V2; must match the data handshake
       meeting_uuid: meetingUuid,
       rtms_stream_id: streamId,
       signature: generateSignature(meetingUuid, streamId),
@@ -202,7 +207,7 @@ function connectToSignalingWebSocket(meetingUuid, streamId, serverUrls) {
     if (msg.msg_type === 2 && msg.status_code === 0) {
       signalingLocksByStreamId.delete(streamId);
       duplicateSignalRetryCountByStreamId.set(streamId, 0);
-      const mediaUrl = msg.media_server.server_urls.transcript;
+      const mediaUrl = getRtmsMediaServerUrl(msg.media_server?.server_urls, 'transcript');
       connectToMediaWebSocket(mediaUrl, meetingUuid, streamId, signalingWs);
     }
 
@@ -255,19 +260,20 @@ function connectToSignalingWebSocket(meetingUuid, streamId, serverUrls) {
 // Step 6: WebSocket 2 - Connect to Media WebSocket
 function connectToMediaWebSocket(mediaUrl, meetingUuid, streamId, signalingSocket) {
   console.log(`Connecting to media WebSocket: ${mediaUrl}`);
-  if (!isAllowedRtmsCallbackUrl(mediaUrl)) {
+  const wsMediaUrl = selectAllowedRtmsCallbackUrl(mediaUrl);
+  if (!wsMediaUrl) {
     console.warn(`[Media] Refusing media URL outside allowlist: ${mediaUrl}`);
     return;
   }
 
-  const mediaWs = new WebSocket(mediaUrl);
+  const mediaWs = new WebSocket(wsMediaUrl);
 
   // Once media WebSocket is open, send media handshake
   mediaWs.on('open', () => {
     console.log('Media WebSocket opened');
     mediaWs.send(JSON.stringify({
       msg_type: 3, // MEDIA_HANDSHAKE_REQUEST
-      protocol_version: 1,
+      protocol_version: 2,
       sequence: 0,
       meeting_uuid: meetingUuid,
       rtms_stream_id: streamId,

@@ -1,5 +1,5 @@
 import WebSocket from 'ws';
-import { isAllowedRtmsCallbackUrl } from './urlPolicy.js';
+import { selectAllowedRtmsCallbackUrl } from './urlPolicy.js';
 import { generateSignature } from './utils/signature.js';
 import { handleMediaMessage } from './mediaMessageHandler.js';
 
@@ -15,12 +15,14 @@ export function connectToMediaWebSocket(
   sharedServices = null
 ) {
   console.log(`[Media] Connecting for meeting ${meetingUuid}...`);
-  if (!isAllowedRtmsCallbackUrl(mediaUrl)) {
+  // RTMS V2 media URLs can list wss:// and srt:// entries; use the wss:// one.
+  const wsMediaUrl = selectAllowedRtmsCallbackUrl(mediaUrl);
+  if (!wsMediaUrl) {
     console.warn(`[Media] Refusing media URL outside allowlist: ${mediaUrl}`);
     return;
   }
 
-  const mediaWs = new WebSocket(mediaUrl);
+  const mediaWs = new WebSocket(wsMediaUrl);
   conn.media.socket = mediaWs;
   conn.media.state = 'connecting';
 
@@ -36,12 +38,11 @@ export function connectToMediaWebSocket(
 
     const handshakeMsg = {
       msg_type: 3, // DATA_HAND_SHAKE_REQ
-      protocol_version: 1,
+      protocol_version: 2,
       meeting_uuid: meetingUuid,
       rtms_stream_id: streamId,
       signature,
       media_type: 8, // TRANSCRIPT
-      payload_encryption: false,
       media_params: {
         transcript: {
           content_type: 5 //TEXT

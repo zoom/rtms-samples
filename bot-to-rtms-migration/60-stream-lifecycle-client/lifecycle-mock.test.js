@@ -65,6 +65,16 @@ test('mock server exercises the established connection: keep-alive, media, pause
     assert.equal(result.manifest.segments.filter((segment) => segment.mediaType === 'audio' && segment.boundary === 'resume').length, 1);
     assert.ok(types('socket_recovered').length >= 1);
     assert.ok(types('stream_state').some((event) => event.state === 'PAUSED'));
+
+    const sent = server.messages().map((entry) => entry.msg);
+    const handshakes = sent.filter((msg) => msg.msg_type === 1 || msg.msg_type === 3);
+    assert.ok(handshakes.length >= 3, 'signaling plus one handshake per media type');
+    assert.ok(handshakes.every((msg) => msg.protocol_version === 2), 'both handshakes use RTMS protocol V2');
+    assert.ok(handshakes.every((msg) => !('payload_encryption' in msg)), 'V2 negotiates encryption only in signaling');
+    assert.ok(handshakes.every((msg) => msg.msg_type !== 3 || msg.media_type !== 32), 'one concrete media type per connection');
+    const subscription = sent.find((msg) => msg.msg_type === 5);
+    assert.deepEqual(subscription?.events, [1000, 1001, 1002].map((event_code) => ({ event_code, subscribe: true })));
+    assert.equal(result.manifest.rtms_protocol_version, 2);
   } finally {
     await server.close();
   }

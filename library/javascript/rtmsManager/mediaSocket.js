@@ -5,6 +5,7 @@ import { handleMediaMessage } from './mediaSocketMessageHandler.js';
 import { FileLogger } from './utils/FileLogger.js';
 import { RTMSError } from './utils/RTMSError.js';
 import { isAllowedRtmsCallbackUrl } from './utils/rtmsUrlPolicy.js';
+import { DEFAULT_RTMS_PROTOCOL_VERSION } from './utils/rtmsProtocolDefinitions.js';
 
 const TYPE_FLAGS = {
   audio: 1,
@@ -146,12 +147,14 @@ export function connectToMediaWebSocket(
 
     const handshakeMsg = {
       msg_type: 3, // DATA_HAND_SHAKE_REQ
-      protocol_version: conn.protocolVersion || 1,
+      protocol_version: conn.protocolVersion || DEFAULT_RTMS_PROTOCOL_VERSION,
       ...buildRtmsEntityPayload(conn.rtmsType, meetingUuid),
       rtms_stream_id: streamId,
       signature,
       media_type: mediaTypeFlag,
-      payload_encryption: false,
+      // V1 carried a payload_encryption flag on the data handshake. V2
+      // negotiates encryption only in the signaling handshake, so omit it.
+      ...((conn.protocolVersion || DEFAULT_RTMS_PROTOCOL_VERSION) < 2 ? { payload_encryption: false } : {}),
       ...(Object.keys(mediaParams).length > 0 ? { media_params: mediaParams } : {})
     };
     FileLogger.log(

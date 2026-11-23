@@ -40,7 +40,9 @@ export async function createMockRtmsServer({ host = '127.0.0.1', keepAliveMs = 0
         messages.push({ role: ws.role, mediaType: ws.mediaType ?? null, msg });
         if (msg.msg_type === MSG.SIGNALING_HAND_SHAKE_REQ) {
           ws.role = 'signaling';
-          sendTo(ws, { msg_type: MSG.SIGNALING_HAND_SHAKE_RESP, status_code: 0, media_server: { server_urls: mediaUrls } });
+          // RTMS protocol V2 can list an SRT URL next to the WebSocket URL.
+          const v2MediaUrls = Object.fromEntries(Object.entries(mediaUrls).map(([type, url]) => [type, `srt://${host}:9000,${url}`]));
+          sendTo(ws, { msg_type: MSG.SIGNALING_HAND_SHAKE_RESP, protocol_version: msg.protocol_version, status_code: 0, media_server: { server_urls: v2MediaUrls } });
         } else if (msg.msg_type === MSG.DATA_HAND_SHAKE_REQ) {
           ws.role = 'media';
           ws.mediaType = Number.isFinite(msg.media_type) ? msg.media_type : null;

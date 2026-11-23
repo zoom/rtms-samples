@@ -8,7 +8,7 @@ import {
   getRtmsStatusCode
 } from './utils/rtmsEventLookupHelper.js';
 import { FileLogger } from './utils/FileLogger.js';
-import { getProtocolDefinitions } from './utils/rtmsProtocolDefinitions.js';
+import { getProtocolDefinitions, DEFAULT_RTMS_PROTOCOL_VERSION } from './utils/rtmsProtocolDefinitions.js';
 import { MediaEventDispatcher } from './utils/MediaEventDispatcher.js';
 
 const SOCKET_CLOSE_TIMEOUT_MS = 2000;
@@ -93,12 +93,12 @@ export class RTMSMessageHandler {
     this.emit = (eventName, ...args) => this.mediaEventDispatcher.dispatch(eventName, ...args);
     this.mediaTypesFlag = mediaTypesFlag;
     this.config = config;
-    // Zoom Phone requires RTMS protocol V2 or later. Other products keep V1
-    // unless the caller opts in with config.protocolVersion.
+    // RTMS protocol V2 is the default. Other products can opt back into V1
+    // with config.protocolVersion: 1; Zoom Phone always requires V2 or later.
     const configuredProtocolVersion = Number(config.protocolVersion) || 0;
     this.protocolVersion = rtmsType === 'phone'
-      ? Math.max(2, configuredProtocolVersion)
-      : (configuredProtocolVersion || 1);
+      ? Math.max(DEFAULT_RTMS_PROTOCOL_VERSION, configuredProtocolVersion)
+      : (configuredProtocolVersion || DEFAULT_RTMS_PROTOCOL_VERSION);
     this.protocolDefinitions = getProtocolDefinitions(config);
     this.shouldReconnect = true;
     this.signaling = { socket: null, state: 'connecting', lastKeepAlive: null };

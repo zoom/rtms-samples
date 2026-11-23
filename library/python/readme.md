@@ -114,6 +114,25 @@ Each selected flag opens a separate data connection. Unified media socket mode
 and `media_type: 32` are deprecated; send exactly one concrete media type in
 each data handshake.
 
+## RTMS Protocol V2
+
+The library uses RTMS protocol V2 by default:
+
+- Both the signaling and data handshakes send `protocol_version: 2`. Pass
+  `protocol_version=1` (or `protocolVersion`) in the init options to fall back
+  to V1. Zoom Phone always uses V2.
+- Each media type has its own data connection. V2 rejects `media_type: 32`
+  (ALL) with status `48`.
+- Event subscriptions are sent with `event_code` (session events `1000` to
+  `1011`). `'event'` payloads carry `eventCode` (V2) and the equivalent legacy
+  `eventType`; for example participant join is `eventCode` `1001`.
+- Comma-separated `server_urls` values (`wss://...,srt://...`) resolve to the
+  `wss://` entry, and a single `media_server.server_urls` string serves every
+  media type.
+- `media_connection_interrupted`, `video_subscription_terminated` and
+  `media_data_user_info` are emitted for the V2 automatic events, and rejected
+  requests (`REQUEST_ERROR_RESP`, `msg_type 30`) are emitted on `'error'`.
+
 ## Presets
 
 ```python

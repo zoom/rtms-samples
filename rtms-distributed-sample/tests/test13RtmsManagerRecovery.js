@@ -33,7 +33,9 @@ function testMediaInterruptionEmitsDedicatedEvent() {
     Buffer.from(JSON.stringify({
       msg_type: 6,
       event: {
-        event_type: 7,
+        // RTMS protocol V2 MEDIA_CONNECTION_INTERRUPTED (legacy event_type 7)
+        event_code: 2,
+        media_type: 1,
         timestamp: 1779460000000
       }
     })),
@@ -54,7 +56,9 @@ function testMediaInterruptionEmitsDedicatedEvent() {
   const genericEvent = events.find((entry) => entry.name === 'event');
 
   assert(mediaInterrupted?.event?.streamId === 'media-recovery-stream', 'media interruption event was not emitted');
-  assert(genericEvent?.event?.eventType === 7, 'generic RTMS media interruption event was not preserved');
+  assert(mediaInterrupted?.event?.mediaType === 1, 'media interruption event did not report the media type');
+  assert(genericEvent?.event?.eventCode === 2, 'generic RTMS media interruption event was not preserved');
+  assert(genericEvent?.event?.eventType === 7, 'generic RTMS event did not report the legacy event type');
   pass('media_interruption_emits_dedicated_event');
 }
 

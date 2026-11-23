@@ -101,13 +101,32 @@ const transcriptBatcher = new TranscriptBatcher({
   onFlush: sendTranscript
 });
 
+// RTMS protocol V2 can return several URLs for one endpoint, separated by
+// commas (for example "wss://host/ws,srt://host:port"). Use the first secure
+// Zoom WebSocket entry.
 function zoomSocketUrl(value: unknown): string {
   if (typeof value !== 'string') throw new Error('Zoom WebSocket URL is missing');
-  const url = new URL(value);
-  if (url.protocol !== 'wss:' || !(url.hostname === 'zoom.us' || url.hostname.endsWith('.zoom.us'))) {
-    throw new Error('Zoom WebSocket URL is not an allowed secure Zoom endpoint');
+  for (const candidate of value.split(',').map((entry) => entry.trim())) {
+    let url: URL;
+    try {
+      url = new URL(candidate);
+    } catch {
+      continue;
+    }
+    if (url.protocol === 'wss:' && (url.hostname === 'zoom.us' || url.hostname.endsWith('.zoom.us'))) {
+      return url.toString();
+    }
   }
-  return url.toString();
+  throw new Error('Zoom WebSocket URL is not an allowed secure Zoom endpoint');
+}
+
+// media_server.server_urls is usually keyed by media type; V2 may return one
+// comma-separated string that serves every media type.
+function mediaServerUrl(serverUrls: unknown, mediaType: string): unknown {
+  if (typeof serverUrls === 'string') return serverUrls;
+  return serverUrls && typeof serverUrls === 'object'
+    ? (serverUrls as Record<string, unknown>)[mediaType]
+    : undefined;
 }
 
 function generateSignature(meetingId: string, streamId: string): string {
@@ -137,12 +156,11 @@ function connectMedia(state: StreamState, mediaUrl: string): void {
   ws.on('open', () => {
     ws.send(JSON.stringify({
       msg_type: 3,
-      protocol_version: 1,
+      protocol_version: 2,
       meeting_uuid: state.meetingId,
       rtms_stream_id: state.streamId,
       signature: generateSignature(state.meetingId, state.streamId),
       media_type: 8,
-      payload_encryption: false,
       media_params: { transcript: { content_type: 5 } }
     }));
   });
@@ -191,7 +209,7 @@ function connectSignaling(state: StreamState): void {
   ws.on('open', () => {
     ws.send(JSON.stringify({
       msg_type: 1,
-      protocol_version: 1,
+      protocol_version: 2,
       meeting_uuid: state.meetingId,
       rtms_stream_id: state.streamId,
       sequence: crypto.randomInt(1_000_000_000),
@@ -205,8 +223,8 @@ function connectSignaling(state: StreamState): void {
       const message = JSON.parse(data.toString());
       if (message.msg_type === 2 && message.status_code === 0) {
         state.retryCount = 0;
-        const mediaUrl = message.media_server?.server_urls?.transcript;
-        if (!mediaUrl) throw new Error('Signaling response omitted server_urls.transcript');
+        const mediaUrl = mediaServerUrl(message.media_server?.server_urls, 'transcript');
+        if (typeof mediaUrl !== 'string' || !mediaUrl) throw new Error('Signaling response omitted server_urls.transcript');
         connectMedia(state, mediaUrl);
       } else if (message.msg_type === 2) {
         const duplicate = String(message.reason || '').toLowerCase().includes('duplicate signal request');

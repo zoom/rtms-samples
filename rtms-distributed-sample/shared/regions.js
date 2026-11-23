@@ -142,16 +142,23 @@ function firstConfiguredValue(env, keys) {
 }
 
 function firstUrl(serverUrls) {
-  if (typeof serverUrls === 'string') return serverUrls;
+  if (typeof serverUrls === 'string') return pickUrl(serverUrls);
   if (!serverUrls || typeof serverUrls !== 'object') return '';
 
-  return (
+  return pickUrl(
     serverUrls.audio ||
     serverUrls.video ||
     serverUrls.transcript ||
-    Object.values(serverUrls).find((value) => typeof value === 'string' && value.startsWith('ws')) ||
+    Object.values(serverUrls).find((value) => typeof value === 'string' && value.includes('ws')) ||
     ''
   );
+}
+
+// RTMS V2 values can list several URLs, e.g. `srt://...,wss://...`. Prefer
+// the WebSocket entry so region detection reads the signaling host.
+function pickUrl(value) {
+  const urls = String(value || '').split(',').map((url) => url.trim()).filter(Boolean);
+  return urls.find((url) => /^wss?:\/\//.test(url)) || urls[0] || '';
 }
 
 function isPlausibleRtmsCode(code = '') {

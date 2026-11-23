@@ -204,6 +204,32 @@ export function getRtmsStatusCode(statusCode) {
       return 'RTMS status: INVALID_MEDIA_TRANSCRIPT_TARGET_LANGUAGE';
     case 47:
       return 'RTMS status: CHAT_SESSION_KEY_NOT_AVAILABLE';
+    case 44:
+      return 'RTMS status: DUPLICATE_VIDEO_SUBSCRIPTION';
+    case 45:
+      return 'RTMS status: INTERNAL_EXCEPTION';
+    case 48:
+      return 'RTMS status: MEDIA_DATA_TYPE_ALL_NOT_SUPPORTED (V2 requires one connection per media type)';
+    case 49:
+      return 'RTMS status: PROTOCOL_V2_REQUIRED';
+    case 50:
+      return 'RTMS status: PROTOBUF_V2_REQUIRED';
+    case 51:
+      return 'RTMS status: DATA_HANDSHAKE_REQUIRES_ACTIVE_SIGNAL';
+    case 52:
+      return 'RTMS status: HANDSHAKE_MESSAGE_FORMAT_MISMATCH';
+    case 53:
+      return 'RTMS status: INVALID_VIDEO_SUBSCRIPTION_USER';
+    case 54:
+      return 'RTMS status: INVALID_MEDIA_CONNECTION_ID';
+    case 55:
+      return 'RTMS status: VIDEO_SUBSCRIPTION_CAP_EXCEEDED';
+    case 56:
+      return 'RTMS status: FEATURE_NOT_SUPPORTED';
+    case 57:
+      return 'RTMS status: INVALID_EVENT_CODE';
+    case 58:
+      return 'RTMS status: MEDIA_PNG_NOT_SUPPORTED_IN_V2';
     default:
       return `RTMS status: Unknown status code (${statusCode})`;
   }

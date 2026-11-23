@@ -18,7 +18,7 @@ Your app's signaling WebSocket drops (network issue, keep-alive timeout, etc.). 
 
 ### Scenario 3: Media Connection Down Only
 
-Only the media WebSocket drops while signaling stays alive. The RTMS server sends a **`MEDIA_CONNECTION_INTERRUPTED`** event (event_type 7) through the still-active signaling channel.
+Only the media WebSocket drops while signaling stays alive. The RTMS server sends a **`MEDIA_CONNECTION_INTERRUPTED`** event (`event_code` 2 in RTMS protocol V2; legacy `event_type` 7) through the still-active signaling channel.
 
 **What to do:** Reconnect only the media WebSocket. The server waits ~30 seconds before giving up.
 
@@ -84,7 +84,7 @@ The entire implementation lives in a single file ([index.js](index.js)) organize
 
 All RTMS message types, event types, stream states, and stop reasons are defined as named constants so you never see bare numbers in the logic.
 
-> See [index.js:82-120](index.js#L82-L120) — `MSG_TYPE`, `EVENT_TYPE`, `STREAM_STATE`, and `STOP_REASON` definitions.
+> See [index.js:82-120](index.js#L82-L120) — `MSG_TYPE`, `EVENT_CODE`, `STREAM_STATE`, and `STOP_REASON` definitions.
 
 ### Connection State
 
@@ -160,7 +160,7 @@ Both sockets receive keep-alive pings (`msg_type: 12`) every ~10 seconds when no
 
 ### Reconnection: Scenario 3 — Media Connection Down Only
 
-**Trigger:** The signaling channel delivers an `EVENT_UPDATE` (`msg_type: 6`) with `event_type: 7` (`MEDIA_CONNECTION_INTERRUPTED`). The signaling connection is still alive — only the media socket dropped.
+**Trigger:** The signaling channel delivers an `EVENT_UPDATE` (`msg_type: 6`) with `event_code: 2` (`MEDIA_CONNECTION_INTERRUPTED`; legacy V1 `event_type: 7`). The signaling connection is still alive — only the media socket dropped.
 
 **Action:** Close only the old media socket and schedule `connectToMediaWebSocket()` after a backoff delay. Signaling stays up, so no re-handshake is needed on that side.
 

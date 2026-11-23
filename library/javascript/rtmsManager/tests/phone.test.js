@@ -46,7 +46,7 @@ test('selects the wss URL from a comma-separated Phone server_urls value', () =>
   );
 });
 
-test('Phone streams use protocol V2 while other products default to V1', () => {
+test('Phone streams always use protocol V2 or later', () => {
   assert.equal(createPhoneHandler().protocolVersion, 2);
   assert.equal(createPhoneHandler({ protocolVersion: 1 }).protocolVersion, 2);
   assert.equal(createPhoneHandler({ protocolVersion: 3 }).protocolVersion, 3);

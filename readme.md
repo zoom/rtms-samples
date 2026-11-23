@@ -17,6 +17,12 @@ Zoom Realtime Media Streams (RTMS) allows developers to access realtime media da
 > used. Open a separate data connection for each required media type and send
 > one concrete media type per handshake.
 
+> **RTMS protocol V2:** The samples send `protocol_version: 2` in both
+> handshakes, subscribe to events with `event_code` instead of `event_type`,
+> and connect to the `wss://` entry of comma-separated `server_urls` values.
+> The `@zoom/rtms` SDK samples (`*_sdk`) depend on the SDK's own protocol
+> support. See [RTMS_CONNECTION_FLOW.md](./RTMS_CONNECTION_FLOW.md#rtms-protocol-v2).
+
 Generic boilerplates require an explicit comma-separated media selection:
 
 ```env

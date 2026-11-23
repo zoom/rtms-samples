@@ -8,12 +8,15 @@ from .utils.logger import FileLogger
 from .utils.config import RTMSConfig, RTMSConfigHelper, Credentials
 from .utils.media_params import MediaType, RTMS_MEDIA_PARAMS
 from .utils.rtms_entity import get_preferred_media_url, get_rtms_id_from_payload
-from .utils.protocol_definitions import RTMS_PROTOCOL_DEFINITIONS
+from .utils.protocol_definitions import RTMS_PROTOCOL_DEFINITIONS, resolve_protocol_version
 from .signaling_socket import connect_to_signaling_websocket
 from .media_socket import connect_to_media_websocket, TYPE_FLAGS
 
 
-def calculate_effective_flags(requested_flags: int, server_urls: Dict[str, Any]) -> int:
+def calculate_effective_flags(requested_flags: int, server_urls: Any) -> int:
+    # V2 may return one comma-separated string that serves every media type.
+    if isinstance(server_urls, str):
+        return requested_flags & 31 if server_urls.strip() else 0
     effective_flags = 0
     for type_name, flag in TYPE_FLAGS.items():
         if requested_flags & flag and isinstance(server_urls, dict) and server_urls.get(type_name):
@@ -316,6 +319,7 @@ class RTMSManager:
                 'media_params': media_params,
                 'media_types_flag': self._config.media_types,
                 'protocol_definitions': self._config.protocol_definitions.to_dict(),
+                'protocol_version': resolve_protocol_version(rtms_type, self._config.protocol_version),
             },
             start_time=start_time,
         )

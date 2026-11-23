@@ -1,4 +1,4 @@
-import { EVENT_TYPE } from '../../shared/codes.js';
+import { EVENT_CODE, eventCodeOf } from '../../shared/codes.js';
 
 export const PARTICIPANT_SCHEMA_VERSION = '1';
 
@@ -51,20 +51,21 @@ export function createParticipantRegistry({ tenantId = null, meetingId, streamId
   function handleEvent(event = {}) {
     const ts = Number(event.timestamp);
     if (!Number.isFinite(ts)) return { handled: false, reason: 'no_timestamp' };
-    switch (event.event_type) {
-      case EVENT_TYPE.PARTICIPANT_JOIN:
+    // V2 events carry event_code; legacy V1 event_type input is mapped too.
+    switch (eventCodeOf(event)) {
+      case EVENT_CODE.PARTICIPANT_JOIN:
         for (const raw of participantsIn(event)) join(raw.user_id, raw.user_name, ts);
         return { handled: true };
-      case EVENT_TYPE.PARTICIPANT_LEAVE:
+      case EVENT_CODE.PARTICIPANT_LEAVE:
         for (const raw of participantsIn(event)) leave(raw.user_id, ts);
         return { handled: true };
-      case EVENT_TYPE.PARTICIPANT_VIDEO_ON:
+      case EVENT_CODE.PARTICIPANT_VIDEO_ON:
         for (const raw of participantsIn(event)) videoOn(raw.user_id, raw.user_name, ts);
         return { handled: true };
-      case EVENT_TYPE.PARTICIPANT_VIDEO_OFF:
+      case EVENT_CODE.PARTICIPANT_VIDEO_OFF:
         for (const raw of participantsIn(event)) videoOff(raw.user_id, ts);
         return { handled: true };
-      case EVENT_TYPE.ACTIVE_SPEAKER_CHANGE:
+      case EVENT_CODE.ACTIVE_SPEAKER_CHANGE:
         activeSpeaker(event.user_id, event.user_name, ts);
         return { handled: true };
       default:

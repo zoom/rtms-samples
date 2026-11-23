@@ -88,3 +88,22 @@ export function isAllowedRtmsCallbackUrl(value, allowedHosts) {
   const host = parsed.hostname.toLowerCase();
   return suffixes.some((suffix) => host === suffix || host.endsWith(`.${suffix}`));
 }
+
+// RTMS protocol V2 can return several URLs for one endpoint, separated by
+// commas (for example "wss://host/ws,srt://host:port"). WebSocket connections
+// must use the ws/wss entry, so return the first allowed one.
+export function selectAllowedRtmsCallbackUrl(value, allowedHosts) {
+  if (typeof value !== 'string' || value.length === 0) return undefined;
+  return value
+    .split(',')
+    .map((url) => url.trim())
+    .find((url) => isAllowedRtmsCallbackUrl(url, allowedHosts));
+}
+
+// media_server.server_urls is usually an object keyed by media type
+// (audio, video, deskshare, transcript, chat). V2 may instead return a single
+// comma-separated string that serves every media type.
+export function getRtmsMediaServerUrl(serverUrls, mediaType) {
+  if (typeof serverUrls === 'string') return serverUrls;
+  return serverUrls && typeof serverUrls === 'object' ? serverUrls[mediaType] : undefined;
+}

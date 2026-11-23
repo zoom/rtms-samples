@@ -23,6 +23,13 @@ void connect_to_media_server(
     const std::function<void()>& send_ready_ack,
     const std::string& media_name,
     int media_type) {
+    // RTMS V2 media URLs can list wss:// and srt:// entries; use the wss:// one.
+    const std::string ws_media_url = select_websocket_url(media_url);
+    if (ws_media_url.empty()) {
+        std::cerr << "❌ No WebSocket URL in " << media_name << " media URL: " << media_url << "\n";
+        return;
+    }
+
     using client = websocketpp::client<websocketpp::config::asio_tls_client>;
     client c;
     c.init_asio();
@@ -54,12 +61,11 @@ void connect_to_media_server(
         json media_params = json{{media_name, media_params_by_type[media_name]}};
         json handshake = {
             {"msg_type", 3},
-            {"protocol_version", 1},
+            {"protocol_version", 2},
             {"meeting_uuid", meeting_uuid},
             {"rtms_stream_id", stream_id},
             {"signature", generate_signature(CLIENT_ID, meeting_uuid, stream_id, CLIENT_SECRET)},
             {"media_type", media_type},
-            {"payload_encryption", false},
             {"media_params", media_params}
         };
 
@@ -94,7 +100,7 @@ void connect_to_media_server(
     });
 
     websocketpp::lib::error_code ec;
-    auto con = c.get_connection(media_url, ec);
+    auto con = c.get_connection(ws_media_url, ec);
     if (ec) {
         std::cerr << "❌ Media connection error: " << ec.message() << "\n";
         return;

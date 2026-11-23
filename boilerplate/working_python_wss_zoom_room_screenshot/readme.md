@@ -51,7 +51,7 @@ ZOOM_EVENT_WS_BASE=wss://your-zoom-websocket-url
 1. **WebSocket connections**
    - `Zoom Event WS`: Detects `meeting.rtms_started` events
    - `Signaling WS`: Negotiates with Zoom infrastructure
-   - `Media WS`: Streams actual audio/video frames
+   - `Media WS`: Streams video frames (RTMS protocol V2 uses one connection per media type)
 
 2. **Frame Capture**
    - Uses `msg_type == 15` from media socket to receive base64 JPG video frames

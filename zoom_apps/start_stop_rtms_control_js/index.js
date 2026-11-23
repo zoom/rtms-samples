@@ -164,9 +164,9 @@ RTMSManager.on('meeting.rtms_stopped', (payload) => {
   });
 });
 
-RTMSManager.on('event', ({ eventType, data, meetingId, streamId, productType }) => {
-  switch (eventType) {
-    case 2:
+RTMSManager.on('event', ({ eventCode, data, meetingId, streamId, productType }) => {
+  switch (eventCode) {
+    case RTMSManager.EVENT_CODES.ACTIVE_SPEAKER_CHANGE:
       console.log(`Active speaker changed: ${data.user_name} (${data.user_id})`);
       frontendWss.broadcastToMeeting(meetingId, {
         type: 'active_speaker',
@@ -174,7 +174,7 @@ RTMSManager.on('event', ({ eventType, data, meetingId, streamId, productType }) 
         userId: data.user_id
       });
       break;
-    case 3:
+    case RTMSManager.EVENT_CODES.PARTICIPANT_JOIN:
       if (data.participants && Array.isArray(data.participants)) {
         data.participants.forEach(p => {
           console.log(`Participant joined: ${p.user_name} (${p.user_id})`);
@@ -193,7 +193,7 @@ RTMSManager.on('event', ({ eventType, data, meetingId, streamId, productType }) 
         });
       }
       break;
-    case 4:
+    case RTMSManager.EVENT_CODES.PARTICIPANT_LEAVE:
       if (data.participants && Array.isArray(data.participants)) {
         data.participants.forEach(p => {
           console.log(`Participant left: ${p.user_name} (${p.user_id})`);

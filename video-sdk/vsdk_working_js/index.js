@@ -13,17 +13,28 @@ import {
   authenticateZoomWebhook,
   captureRawBody,
   buildUrlValidationResponse,
-  isAllowedRtmsCallbackUrl,
+  selectAllowedRtmsCallbackUrl,
+  getRtmsMediaServerUrl,
 } from './webhookSignature.js';
 
 dotenv.config();
 
-const CHAT_GROUP_EVENT_TYPES = Object.freeze({
-  CREATED: 10,
-  DELETED: 11,
-  MEMBERS_ADDED: 12,
-  MEMBERS_REMOVED: 13,
-  MEMBER_STATUS_UPDATED: 14
+// RTMS protocol V2 event codes (event_code). V2 replaces the legacy
+// event_type numbers shown in the comments, in subscriptions and events.
+const EVENT_CODES = Object.freeze({
+  FIRST_PACKET_TIMESTAMP: 1,          // legacy event_type 1; sent automatically
+  MEDIA_CONNECTION_INTERRUPTED: 2,    // legacy event_type 7; sent automatically
+  ACTIVE_SPEAKER_CHANGE: 1000,        // legacy event_type 2
+  PARTICIPANT_JOIN: 1001,             // legacy event_type 3
+  PARTICIPANT_LEAVE: 1002             // legacy event_type 4
+});
+
+const CHAT_GROUP_EVENT_CODES = Object.freeze({
+  CREATED: 1007,                      // legacy event_type 10
+  DELETED: 1008,                      // legacy event_type 11
+  MEMBERS_ADDED: 1009,                // legacy event_type 12
+  MEMBERS_REMOVED: 1010,              // legacy event_type 13
+  MEMBER_STATUS_UPDATED: 1011         // legacy event_type 14
 });
 
 const MEDIA_DEFINITIONS = Object.freeze([
@@ -510,12 +521,14 @@ function connectToMediaWebSocket(
 
   console.log(`Media WebSocket SSL verification disabled`);
 
-  if (!isAllowedRtmsCallbackUrl(mediaUrl)) {
+  // RTMS V2 media URLs can list wss:// and srt:// entries; use the wss:// one.
+  const wsMediaUrl = selectAllowedRtmsCallbackUrl(mediaUrl);
+  if (!wsMediaUrl) {
     console.warn(`[Media] Refusing media URL outside allowlist: ${mediaUrl}`);
     return;
   }
 
-  const mediaWs = new WebSocket(mediaUrl, [], wsOptions);
+  const mediaWs = new WebSocket(wsMediaUrl, [], wsOptions);
   conn.media[mediaType] = { socket: mediaWs, state: 'connecting', lastKeepAlive: null };
   console.log(`[Media] WebSocket instance created successfully, SSL verification disabled`);
 
@@ -530,13 +543,12 @@ function connectToMediaWebSocket(
 
     const handshakeMsg = {
       msg_type: 3, // DATA_HAND_SHAKE_REQ
-      protocol_version: 1,
+      protocol_version: 2,
       meeting_uuid: sessionID,
       session_id: sessionID,
       rtms_stream_id: streamId,
       signature,
       media_type: mediaTypeFlag,
-      payload_encryption: false,
       media_params: mediaType === 'audio' ? { audio: {
           content_type: 2, // RAW_AUDIO
           sample_rate: 1, //16k
@@ -642,7 +654,9 @@ function connectToSignalingWebSocket(
   console.log(`[Signaling] Stream ID: ${streamId}, Server URL: ${serverUrls}`);
   console.log(`[Signaling] Connecting for video session ${sessionID}`);
 
-  if (!isAllowedRtmsCallbackUrl(serverUrls)) {
+  // RTMS V2 server_urls can list wss:// and srt:// entries; signaling uses wss://.
+  const signalingUrl = selectAllowedRtmsCallbackUrl(serverUrls);
+  if (!signalingUrl) {
     console.error(`[Signaling] ❌ Invalid WebSocket URL:`, serverUrls);
     console.error(`[Signaling] URL validation failed - URL is null/undefined or doesn't start with ws/wss`);
 
@@ -694,7 +708,7 @@ function connectToSignalingWebSocket(
 
      console.log(`Signaling WebSocket SSL verification disabled`);
 
-     signalingWs = new WebSocket(serverUrls, [], wsOptions);
+     signalingWs = new WebSocket(signalingUrl, [], wsOptions);
     console.log(`[Signaling] WebSocket instance created successfully, SSL verification disabled`);
   } catch (err) {
     signalingLocksByStreamId.delete(streamId);
@@ -741,6 +755,7 @@ function connectToSignalingWebSocket(
 
       const handshakeMsg = {
         msg_type: 1,
+        protocol_version: 2, // RTMS protocol V2; must match the data handshake
         meeting_uuid: sessionID, //Video SDK still using back this instead of session_id
         session_id: sessionID, //Video SDK should use this for consistency
         rtms_stream_id: streamId,
@@ -782,7 +797,7 @@ function connectToSignalingWebSocket(
           console.log(`[Signaling] Connection state updated to 'ready' for ${sessionID}`);
 
           for (const media of config.mediaTypes) {
-            const mediaUrl = msg.media_server?.server_urls?.[media.name];
+            const mediaUrl = getRtmsMediaServerUrl(msg.media_server?.server_urls, media.name);
             if (!mediaUrl) {
               console.warn(`[Signaling] No server_urls.${media.name} received for ${sessionID}`);
               continue;
@@ -796,14 +811,15 @@ function connectToSignalingWebSocket(
           const subscribePayload = {
             msg_type: 5,
             events: [
-              { event_type: 2, subscribe: true }, // ACTIVE_SPEAKER_CHANGE
-              { event_type: 3, subscribe: true }, // PARTICIPANT_JOIN
-              { event_type: 4, subscribe: true }, // PARTICIPANT_LEAVE
-              { event_type: CHAT_GROUP_EVENT_TYPES.CREATED, subscribe: true },
-              { event_type: CHAT_GROUP_EVENT_TYPES.DELETED, subscribe: true },
-              { event_type: CHAT_GROUP_EVENT_TYPES.MEMBERS_ADDED, subscribe: true },
-              { event_type: CHAT_GROUP_EVENT_TYPES.MEMBERS_REMOVED, subscribe: true },
-              { event_type: CHAT_GROUP_EVENT_TYPES.MEMBER_STATUS_UPDATED, subscribe: true }
+              // V2 subscribes with event_code only; session events 1000-1011.
+              { event_code: EVENT_CODES.ACTIVE_SPEAKER_CHANGE, subscribe: true },
+              { event_code: EVENT_CODES.PARTICIPANT_JOIN, subscribe: true },
+              { event_code: EVENT_CODES.PARTICIPANT_LEAVE, subscribe: true },
+              { event_code: CHAT_GROUP_EVENT_CODES.CREATED, subscribe: true },
+              { event_code: CHAT_GROUP_EVENT_CODES.DELETED, subscribe: true },
+              { event_code: CHAT_GROUP_EVENT_CODES.MEMBERS_ADDED, subscribe: true },
+              { event_code: CHAT_GROUP_EVENT_CODES.MEMBERS_REMOVED, subscribe: true },
+              { event_code: CHAT_GROUP_EVENT_CODES.MEMBER_STATUS_UPDATED, subscribe: true }
             ]
           };
 
@@ -822,38 +838,38 @@ function connectToSignalingWebSocket(
         console.log(`[Signaling] Processing event message (case 6) for ${sessionID}`);
         console.log(`[Signaling] Event message:`, JSON.stringify(msg, null, 2));
         if (msg.event) {
-          console.log(`[Signaling] Event type: ${msg.event.event_type}`);
-          switch (msg.event.event_type) {
-            case 0: // UNDEFINED
-              console.log(`[Event] UNDEFINED event received`);
-              break;
-
-            case 1: // FIRST_PACKET_TIMESTAMP
+          console.log(`[Signaling] Event code: ${msg.event.event_code}`);
+          switch (msg.event.event_code) {
+            case EVENT_CODES.FIRST_PACKET_TIMESTAMP:
               console.log(`[Event] FIRST_PACKET_TIMESTAMP — first media packet at ${msg.event.timestamp}`);
               break;
 
-            case 2: // ACTIVE_SPEAKER_CHANGE
+            case EVENT_CODES.MEDIA_CONNECTION_INTERRUPTED:
+              console.log(`[Event] MEDIA_CONNECTION_INTERRUPTED — media_type ${msg.event.media_type ?? 'unknown'}`);
+              break;
+
+            case EVENT_CODES.ACTIVE_SPEAKER_CHANGE:
               console.log(`[Event] ACTIVE_SPEAKER_CHANGE — ${msg.event.user_name} (ID: ${msg.event.user_id}) is now speaking`);
               break;
 
-            case 3: // PARTICIPANT_JOIN
+            case EVENT_CODES.PARTICIPANT_JOIN:
               console.log(`[Event] PARTICIPANT_JOIN — ${msg.event.user_name} (ID: ${msg.event.user_id}) joined`);
               break;
 
-            case 4: // PARTICIPANT_LEAVE
+            case EVENT_CODES.PARTICIPANT_LEAVE:
               console.log(`[Event] PARTICIPANT_LEAVE — ${msg.event.user_name} (ID: ${msg.event.user_id}) left`);
               break;
 
-            case CHAT_GROUP_EVENT_TYPES.CREATED:
-            case CHAT_GROUP_EVENT_TYPES.DELETED:
-            case CHAT_GROUP_EVENT_TYPES.MEMBERS_ADDED:
-            case CHAT_GROUP_EVENT_TYPES.MEMBERS_REMOVED:
-            case CHAT_GROUP_EVENT_TYPES.MEMBER_STATUS_UPDATED:
-              console.log(`[Event] Chat group event ${msg.event.event_type}:`, msg.event);
+            case CHAT_GROUP_EVENT_CODES.CREATED:
+            case CHAT_GROUP_EVENT_CODES.DELETED:
+            case CHAT_GROUP_EVENT_CODES.MEMBERS_ADDED:
+            case CHAT_GROUP_EVENT_CODES.MEMBERS_REMOVED:
+            case CHAT_GROUP_EVENT_CODES.MEMBER_STATUS_UPDATED:
+              console.log(`[Event] Chat group event ${msg.event.event_code}:`, msg.event);
               break;
 
             default:
-              console.log(`[Event] Unknown event_type: ${msg.event.event_type}`);
+              console.log(`[Event] Unknown event_code: ${msg.event.event_code}`);
           }
         } else {
           console.log(`[Signaling] Event message received but no event data`);

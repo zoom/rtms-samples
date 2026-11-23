@@ -349,7 +349,7 @@ RTMSManager.on('chat', ({ text, userId, userName, sender, timestamp, meetingId, 
 RTMSManager.on('event', (eventData) => {
   console.log('[Consumer] Event:', util.inspect(eventData, { depth: null, colors: true }));
 
-  if (eventData?.eventType === 3 && Array.isArray(eventData.data?.participants)) {
+  if (eventData?.eventCode === RTMSManager.EVENT_CODES.PARTICIPANT_JOIN && Array.isArray(eventData.data?.participants)) {
     console.log('[Consumer] Participant IDs:', eventData.data.participants.map((participant) => ({
       userId: participant.user_id,
       userName: participant.user_name || null

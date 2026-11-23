@@ -33,6 +33,15 @@ void connect_to_signaling_server(const std::string& server_url, const std::strin
         g_stream_locks.insert(stream_id);
     }
 
+    // RTMS V2 server_urls can list wss:// and srt:// entries; signaling uses wss://.
+    const std::string signaling_url = select_websocket_url(server_url);
+    if (signaling_url.empty()) {
+        std::cerr << "❌ No WebSocket signaling URL in server_urls: " << server_url << "\n";
+        std::lock_guard<std::mutex> guard(g_stream_lock_mu);
+        g_stream_locks.erase(stream_id);
+        return;
+    }
+
     auto c = std::make_shared<client>();
     c->init_asio();
     auto signaling_send_mutex = std::make_shared<std::mutex>();
@@ -46,7 +55,7 @@ void connect_to_signaling_server(const std::string& server_url, const std::strin
     c->set_open_handler([c, meeting_uuid, stream_id, signaling_send_mutex](websocketpp::connection_hdl hdl) {
         json handshake = {
             {"msg_type", 1},
-            {"protocol_version", 1},
+            {"protocol_version", 2},  // RTMS protocol V2; must match the data handshake
             {"meeting_uuid", meeting_uuid},
             {"rtms_stream_id", stream_id},
             {"sequence", rand()},
@@ -64,7 +73,11 @@ void connect_to_signaling_server(const std::string& server_url, const std::strin
 
         if (msg_type == 2) {
             if (payload.value("status_code", -1) == 0) {
-                const auto& media_urls = payload["media_server"]["server_urls"];
+                // server_urls is usually keyed by media type; V2 may return one
+                // comma-separated string that serves every media type.
+                const json media_urls = payload.contains("media_server")
+                    ? payload["media_server"].value("server_urls", json::object())
+                    : json::object();
                 auto send_ready_ack = [c, hdl, stream_id, signaling_send_mutex]() {
                     std::lock_guard<std::mutex> guard(*signaling_send_mutex);
                     json ready_ack = {{"msg_type", 7}, {"rtms_stream_id", stream_id}};
@@ -77,11 +90,16 @@ void connect_to_signaling_server(const std::string& server_url, const std::strin
                 };
                 for (const auto& [media_name, media_type] : media_definitions) {
                     if ((MEDIA_TYPES_MASK & media_type) == 0) continue;
-                    if (!media_urls.contains(media_name)) {
+                    std::string media_url;
+                    if (media_urls.is_string()) {
+                        media_url = media_urls.get<std::string>();
+                    } else if (media_urls.is_object() && media_urls.contains(media_name) && media_urls[media_name].is_string()) {
+                        media_url = media_urls[media_name].get<std::string>();
+                    }
+                    if (media_url.empty()) {
                         std::cerr << "Missing server_urls." << media_name << "\n";
                         continue;
                     }
-                    std::string media_url = media_urls[media_name];
                     std::thread([=]() {
                         connect_to_media_server(
                             media_url, meeting_uuid, stream_id,
@@ -105,7 +123,7 @@ void connect_to_signaling_server(const std::string& server_url, const std::strin
     });
 
     websocketpp::lib::error_code ec;
-    auto con = c->get_connection(server_url, ec);
+    auto con = c->get_connection(signaling_url, ec);
     if (ec) {
         std::cerr << "❌ Signaling connection error: " << ec.message() << "\n";
         return;

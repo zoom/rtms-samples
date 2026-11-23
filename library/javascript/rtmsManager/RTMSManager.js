@@ -8,6 +8,7 @@ import { RTMSError } from './utils/RTMSError.js';
 import { redactSecrets } from './utils/redactSecrets.js';
 import { getRtmsIdFromPayload } from './utils/rtmsEntityHelper.js';
 import { RTMS_PROTOCOL_DEFINITIONS } from './utils/rtmsProtocolDefinitions.js';
+import { RTMS_EVENT_CODES } from './signalingSocketMessageHandler.js';
 
 /**
  * Media type constants for easy configuration
@@ -246,6 +247,18 @@ export class RTMSManager extends EventEmitter {
 
   static get PROTOCOL() {
     return RTMS_PROTOCOL_DEFINITIONS;
+  }
+
+  /**
+   * RTMS protocol V2 event codes, as reported in the `eventCode` field of
+   * 'event' payloads.
+   * @example
+   * RTMSManager.on('event', ({ eventCode, data }) => {
+   *   if (eventCode === RTMSManager.EVENT_CODES.PARTICIPANT_JOIN) { ... }
+   * });
+   */
+  static get EVENT_CODES() {
+    return RTMS_EVENT_CODES;
   }
 
   /**

@@ -43,3 +43,17 @@ std::string generate_signature(const std::string& client_id,
 
     return hex_stream.str();
 }
+std::string select_websocket_url(const std::string& value) {
+    std::stringstream entries(value);
+    std::string entry;
+    while (std::getline(entries, entry, ',')) {
+        const auto first = entry.find_first_not_of(" \t");
+        const auto last = entry.find_last_not_of(" \t");
+        if (first == std::string::npos) continue;
+        entry = entry.substr(first, last - first + 1);
+        if (entry.rfind("wss://", 0) == 0 || entry.rfind("ws://", 0) == 0) {
+            return entry;
+        }
+    }
+    return "";
+}

@@ -929,18 +929,19 @@ RTMSManager.on('video', ({ buffer, userId, userName, timestamp, streamId }) => {
 RTMSManager.on('event', (eventData) => {
   const streamId = eventData.streamId;
   const participants = eventData.data?.participants || [];
+  const { EVENT_CODES } = RTMSManager;
 
-  if (eventData.eventType === 2) {
+  if (eventData.eventCode === EVENT_CODES.ACTIVE_SPEAKER_CHANGE) {
     const activeSpeaker = normalizeParticipant(eventData.data);
     state.activeSpeakerByStream.set(streamId, activeSpeaker);
     io.emit('active_speaker', { streamId, activeSpeaker });
   }
 
-  if (eventData.eventType === 3) {
+  if (eventData.eventCode === EVENT_CODES.PARTICIPANT_JOIN) {
     mergeParticipants(streamId, participants);
   }
 
-  if (eventData.eventType === 4) {
+  if (eventData.eventCode === EVENT_CODES.PARTICIPANT_LEAVE) {
     removeParticipants(streamId, participants);
   }
 

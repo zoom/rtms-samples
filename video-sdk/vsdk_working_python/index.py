@@ -33,6 +33,27 @@ stream_locks_guard = threading.Lock()
 stream_locks = {}
 signaling_handshakes_in_flight = set()
 
+def select_websocket_url(value):
+    """RTMS protocol V2 can return several comma-separated URLs for one endpoint
+    (for example wss://host/ws,srt://host:port). WebSocket connections use the
+    ws/wss entry."""
+    if not isinstance(value, str):
+        return None
+    for url in value.split(","):
+        url = url.strip()
+        if url.startswith("wss://") or url.startswith("ws://"):
+            return url
+    return None
+
+
+def get_media_server_url(server_urls, media_name):
+    """media_server.server_urls is usually keyed by media type. V2 may return one
+    comma-separated string that serves every media type."""
+    if isinstance(server_urls, str):
+        return server_urls
+    return server_urls.get(media_name) if isinstance(server_urls, dict) else None
+
+
 def get_stream_lock(stream_id):
     with stream_locks_guard:
         if stream_id not in stream_locks:
@@ -51,13 +72,12 @@ def connect_to_media_ws(media_url, session_id, stream_id, signaling_socket):
         signature = generate_signature(CLIENT_ID, session_id, stream_id, CLIENT_SECRET)
         handshake = {
             "msg_type": 3,
-            "protocol_version": 1,
+            "protocol_version": 2,
             "meeting_uuid": session_id,
             "session_id": session_id,
             "rtms_stream_id": stream_id,
             "signature": signature,
             "media_type": 1,  # AUDIO
-            "payload_encryption": False,
             "media_params": {
                 "audio": {
                     "content_type": 2,
@@ -104,7 +124,13 @@ def connect_to_media_ws(media_url, session_id, stream_id, signaling_socket):
         if session_id in active_connections:
             active_connections[session_id].pop("media", None)
 
-    ws = websocket.WebSocketApp(media_url,
+    # RTMS V2 media URLs can list wss:// and srt:// entries; use the wss:// one.
+    ws_media_url = select_websocket_url(media_url)
+    if not ws_media_url:
+        logger.error(f"No WebSocket URL in media URL: {media_url}")
+        return
+
+    ws = websocket.WebSocketApp(ws_media_url,
                                 on_open=on_open,
                                 on_message=on_message,
                                 on_error=on_error,
@@ -135,7 +161,7 @@ def connect_to_signaling_ws(session_id, stream_id, server_url):
         logging.info(signature)
         handshake = {
             "msg_type": 1,
-            "protocol_version": 1,
+            "protocol_version": 2,
             "meeting_uuid": session_id,
             "session_id": session_id,
             "rtms_stream_id": stream_id,
@@ -153,7 +179,7 @@ def connect_to_signaling_ws(session_id, stream_id, server_url):
             if msg.get("msg_type") == 2 and msg.get("status_code") == 0:
                 with stream_lock:
                     signaling_handshakes_in_flight.discard(stream_id)
-                media_url = msg.get("media_server", {}).get("server_urls", {}).get("audio")
+                media_url = get_media_server_url(msg.get("media_server", {}).get("server_urls"), "audio")
                 if media_url:
                     connect_to_media_ws(media_url, session_id, stream_id, ws)
             elif msg.get("msg_type") == 2:
@@ -180,7 +206,15 @@ def connect_to_signaling_ws(session_id, stream_id, server_url):
         if session_id in active_connections:
             active_connections[session_id].pop("signaling", None)
 
-    ws = websocket.WebSocketApp(server_url,
+    # RTMS V2 server_urls can list wss:// and srt:// entries; signaling uses wss://.
+    signaling_url = select_websocket_url(server_url)
+    if not signaling_url:
+        logger.error(f"No WebSocket signaling URL in server_urls: {server_url}")
+        with stream_lock:
+            signaling_handshakes_in_flight.discard(stream_id)
+        return
+
+    ws = websocket.WebSocketApp(signaling_url,
                                 on_open=on_open,
                                 on_message=on_message,
                                 on_error=on_error,

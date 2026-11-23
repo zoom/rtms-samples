@@ -47,10 +47,7 @@ public class WebhookController {
 
             String plainToken = (String) webhookEvent.payload().get("plainToken");
             if (plainToken == null || !isValidPlainToken(plainToken)) {
-                response.setStatus(HttpServletResponse.SC_BAD_REQUEST);
-                response.setContentType("application/json");
-                objectMapper.writeValue(response.getOutputStream(), Map.of("error", "invalid_plain_token"));
-                return;
+                return ResponseEntity.badRequest().body(Map.of("error", "invalid_plain_token"));
             }
             String encryptedToken = generateValidationToken(plainToken);
 

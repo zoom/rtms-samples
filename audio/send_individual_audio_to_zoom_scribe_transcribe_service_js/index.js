@@ -185,8 +185,8 @@ RTMSManager.on('audio', ({ buffer, userId, userName, timestamp }) => {
   });
 });
 
-RTMSManager.on('event', ({ eventType, data }) => {
-  if (eventType !== 3 || !data) return; // PARTICIPANT_JOIN
+RTMSManager.on('event', ({ eventCode, data }) => {
+  if (eventCode !== RTMSManager.EVENT_CODES.PARTICIPANT_JOIN || !data) return;
   const participants = Array.isArray(data.participants) ? data.participants : [data];
   for (const participant of participants) {
     if (participant?.user_id != null && participant.user_name) {

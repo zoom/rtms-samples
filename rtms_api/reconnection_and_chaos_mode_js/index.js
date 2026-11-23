@@ -21,7 +21,8 @@ import {
   authenticateZoomWebhook,
   captureRawBody,
   buildUrlValidationResponse,
-  isAllowedRtmsCallbackUrl,
+  selectAllowedRtmsCallbackUrl,
+  getRtmsMediaServerUrl,
 } from './webhookSignature.js';
 import crypto from 'crypto';
 import dotenv from 'dotenv';
@@ -100,12 +101,13 @@ const MSG_TYPE = {
   MEDIA_DATA_TRANSCRIPT:    17,  // Media → App: transcript text
 };
 
-// Event types delivered inside EVENT_UPDATE (msg_type 6) messages.
-const EVENT_TYPE = {
-  ACTIVE_SPEAKER_CHANGE:        2,
-  PARTICIPANT_JOIN:              3,
-  PARTICIPANT_LEAVE:             4,
-  MEDIA_CONNECTION_INTERRUPTED:  7,  // A media connection was interrupted
+// RTMS protocol V2 event codes (event_code) in EVENT_UPDATE (msg_type 6).
+// V2 replaces the legacy event_type numbers shown in the comments.
+const EVENT_CODE = {
+  MEDIA_CONNECTION_INTERRUPTED:  2,     // legacy event_type 7; sent automatically
+  ACTIVE_SPEAKER_CHANGE:         1000,  // legacy event_type 2
+  PARTICIPANT_JOIN:              1001,  // legacy event_type 3
+  PARTICIPANT_LEAVE:             1002,  // legacy event_type 4
 };
 
 // Stream state values in STREAM_STATE_UPDATE (msg_type 8) messages.
@@ -231,12 +233,15 @@ function connectToSignalingWebSocket(conn) {
   }
 
   log(conn.streamId, 'SIGNALING', `Connecting to signaling server: ${conn.serverUrls}`);
-  if (!isAllowedRtmsCallbackUrl(conn.serverUrls)) {
+  // RTMS V2 server_urls can list wss:// and srt:// entries; signaling uses wss://.
+  // conn.serverUrls keeps the original value so reconnects reselect from it.
+  const signalingUrl = selectAllowedRtmsCallbackUrl(conn.serverUrls);
+  if (!signalingUrl) {
     log(conn.streamId, 'SIGNALING', `Refusing signaling URL outside allowlist: ${conn.serverUrls}`);
     return;
   }
 
-  const ws = new WebSocket(conn.serverUrls);
+  const ws = new WebSocket(signalingUrl);
   conn.signalingWs = ws;
 
   // --- Connection opened: send the signaling handshake ---
@@ -245,7 +250,7 @@ function connectToSignalingWebSocket(conn) {
 
     ws.send(JSON.stringify({
       msg_type:         MSG_TYPE.SIGNALING_HANDSHAKE_REQ,
-      protocol_version: 1,
+      protocol_version: 2,
       meeting_uuid:     conn.meetingUuid,
       rtms_stream_id:   conn.streamId,
       sequence:         Math.floor(Math.random() * 1e9),
@@ -302,7 +307,7 @@ function handleSignalingMessage(conn, msg) {
     case MSG_TYPE.SIGNALING_HANDSHAKE_RESP:
       if (msg.status_code === 0) {
         // Success - this transcript-only sample requires the transcript URL.
-        const mediaUrl = msg.media_server?.server_urls?.transcript;
+        const mediaUrl = getRtmsMediaServerUrl(msg.media_server?.server_urls, 'transcript');
         if (!mediaUrl) {
           log(conn.streamId, 'SIGNALING', 'Handshake response omitted server_urls.transcript.');
           break;
@@ -349,7 +354,7 @@ function handleSignalingMessage(conn, msg) {
     // ---------------------------------------------------------------
     // Event Update (msg_type 6)
     // In-meeting event notifications delivered through the signaling channel.
-    // We're specifically watching for MEDIA_CONNECTION_INTERRUPTED (event_type 7).
+    // We're specifically watching for MEDIA_CONNECTION_INTERRUPTED (event_code 2).
     // See: https://developers.zoom.us/docs/rtms/event-reference/
     // ---------------------------------------------------------------
     case MSG_TYPE.EVENT_UPDATE:
@@ -385,9 +390,9 @@ function handleSignalingMessage(conn, msg) {
  * MEDIA_CONNECTION_INTERRUPTED notifications.
  */
 function handleEventUpdate(conn, msg) {
-  const eventType = msg.event?.event_type;
+  const eventCode = msg.event?.event_code;
 
-  switch (eventType) {
+  switch (eventCode) {
 
     // ---------------------------------------------------------------
     // RECONNECTION SCENARIO 3: Media Connection Interrupted
@@ -398,7 +403,7 @@ function handleEventUpdate(conn, msg) {
     // Action: Reconnect ONLY the media WebSocket. Signaling stays up.
     // See: Failover and reconnection > App issue (data socket only)
     // ---------------------------------------------------------------
-    case EVENT_TYPE.MEDIA_CONNECTION_INTERRUPTED:
+    case EVENT_CODE.MEDIA_CONNECTION_INTERRUPTED:
       log(conn.streamId, 'RECONNECT', '========================================');
       log(conn.streamId, 'RECONNECT', 'SCENARIO 3: MEDIA_CONNECTION_INTERRUPTED');
       log(conn.streamId, 'RECONNECT', 'Signaling is still alive. Reconnecting ONLY the media socket.');
@@ -407,20 +412,20 @@ function handleEventUpdate(conn, msg) {
       handleMediaOnlyReconnect(conn);
       break;
 
-    case EVENT_TYPE.ACTIVE_SPEAKER_CHANGE:
+    case EVENT_CODE.ACTIVE_SPEAKER_CHANGE:
       log(conn.streamId, 'EVENT', `Active speaker: ${msg.event?.user_name || 'unknown'} (user_id: ${msg.event?.user_id})`);
       break;
 
-    case EVENT_TYPE.PARTICIPANT_JOIN:
+    case EVENT_CODE.PARTICIPANT_JOIN:
       log(conn.streamId, 'EVENT', `Participant(s) joined: ${JSON.stringify(msg.event?.participants)}`);
       break;
 
-    case EVENT_TYPE.PARTICIPANT_LEAVE:
+    case EVENT_CODE.PARTICIPANT_LEAVE:
       log(conn.streamId, 'EVENT', `Participant(s) left: ${JSON.stringify(msg.event?.participants)}`);
       break;
 
     default:
-      log(conn.streamId, 'EVENT', `event_type: ${eventType}`);
+      log(conn.streamId, 'EVENT', `event_code: ${eventCode}`);
   }
 }
 
@@ -492,12 +497,13 @@ function connectToMediaWebSocket(conn) {
   }
 
   log(conn.streamId, 'MEDIA', `Connecting to media server: ${conn.mediaUrl}`);
-  if (!isAllowedRtmsCallbackUrl(conn.mediaUrl)) {
+  const wsMediaUrl = selectAllowedRtmsCallbackUrl(conn.mediaUrl);
+  if (!wsMediaUrl) {
     log(conn.streamId, 'MEDIA', `Refusing media URL outside allowlist: ${conn.mediaUrl}`);
     return;
   }
 
-  const ws = new WebSocket(conn.mediaUrl);
+  const ws = new WebSocket(wsMediaUrl);
   conn.mediaWs = ws;
 
   // --- Connection opened: send the media handshake ---
@@ -506,12 +512,11 @@ function connectToMediaWebSocket(conn) {
 
     ws.send(JSON.stringify({
       msg_type:           MSG_TYPE.MEDIA_HANDSHAKE_REQ,
-      protocol_version:   1,
+      protocol_version:   2,
       meeting_uuid:       conn.meetingUuid,
       rtms_stream_id:     conn.streamId,
       signature:          generateSignature(conn.meetingUuid, conn.streamId),
       media_type:         8,     // Transcript only (bitmask: TRANSCRIPT = 0x01 << 3 = 8)
-      payload_encryption: false,
     }));
 
     // CHAOS MODE: Force-disconnect the media socket after a delay.
@@ -602,7 +607,7 @@ function handleMediaMessage(conn, msg) {
         // CHAOS MODE: deliberately skip the response.
         // After 3 missed pings (~30s), the server will:
         //   1. Terminate the media connection
-        //   2. Send MEDIA_CONNECTION_INTERRUPTED (event_type 7) through signaling
+        //   2. Send MEDIA_CONNECTION_INTERRUPTED (event_code 2) through signaling
         conn.mediaKeepAliveSuppressed++;
         log(conn.streamId, 'CHAOS', `Suppressing media keep-alive #${conn.mediaKeepAliveCount} (${conn.mediaKeepAliveSuppressed} suppressed so far)`);
         if (conn.mediaKeepAliveSuppressed <= 3) {
@@ -748,7 +753,7 @@ function handleSignalingInterruptedReconnect(meetingUuid, streamId, serverUrls) 
  * What happened:
  *   Only the media WebSocket dropped. The signaling connection is still alive.
  *   The server notified us through the signaling channel via either:
- *     - EVENT_UPDATE (msg_type 6) with event_type MEDIA_CONNECTION_INTERRUPTED (7)
+ *     - EVENT_UPDATE (msg_type 6) with event_code MEDIA_CONNECTION_INTERRUPTED (2)
  *     - STREAM_STATE_UPDATE (msg_type 8) with state INTERRUPTED (2) and reason 14
  *
  * What to do:

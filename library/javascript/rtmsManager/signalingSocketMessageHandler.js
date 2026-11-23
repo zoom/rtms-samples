@@ -10,7 +10,13 @@ import { FileLogger } from './utils/FileLogger.js';
 import { RTMSFlagHelper, TYPE_FLAGS } from './utils/RTMSFlagHelper.js';
 import { RTMSError } from './utils/RTMSError.js';
 import { getPreferredMediaUrl } from './utils/rtmsEntityHelper.js';
-import { getProtocolDefinitions } from './utils/rtmsProtocolDefinitions.js';
+import {
+  getProtocolDefinitions,
+  DEFAULT_RTMS_PROTOCOL_VERSION,
+  LEGACY_EVENT_TYPE_TO_EVENT_CODE,
+  EVENT_CODE_TO_LEGACY_EVENT_TYPE,
+  isSubscribableEventCode
+} from './utils/rtmsProtocolDefinitions.js';
 
 const MAX_DUPLICATE_SIGNAL_RETRIES = 3;
 const INITIAL_DUPLICATE_SIGNAL_RETRY_DELAY_MS = 1500;
@@ -20,6 +26,20 @@ const INITIAL_DUPLICATE_SIGNAL_RETRY_DELAY_MS = 1500;
 export const RTMS_EVENT_CODES = Object.freeze({
   FIRST_PACKET_TIMESTAMP: 1,
   MEDIA_CONNECTION_INTERRUPTED: 2,
+  VIDEO_SUBSCRIPTION_TERMINATED_BY_USER_LEAVE: 3,
+  MEDIA_DATA_USER_INFO: 4,
+  ACTIVE_SPEAKER_CHANGE: 1000,
+  PARTICIPANT_JOIN: 1001,
+  PARTICIPANT_LEAVE: 1002,
+  SHARING_START: 1003,
+  SHARING_STOP: 1004,
+  PARTICIPANT_VIDEO_ON: 1005,
+  PARTICIPANT_VIDEO_OFF: 1006,
+  CHAT_GROUP_CREATE: 1007,
+  CHAT_GROUP_DELETE: 1008,
+  CHAT_GROUP_MEMBERS_ADD: 1009,
+  CHAT_GROUP_MEMBERS_DELETE: 1010,
+  CHAT_GROUP_MEMBER_STATUS_UPDATE: 1011,
   ZP_CALL_INFO_UPDATED: 3000,
   ZP_CALL_HOLD: 3001,
   ZP_CALL_RESUME: 3002,
@@ -67,6 +87,34 @@ function handleEventCode(msg, meetingUuid, streamId, conn, emit) {
       FileLogger.log(`[Signaling] [${conn.rtmsType},${meetingUuid},${streamId}] MEDIA_CONNECTION_INTERRUPTED (media_type ${event.media_type ?? 'unknown'})`);
       emit('media_connection_interrupted', { type: 'media_connection_interrupted', mediaType: event.media_type ?? null, ...base });
       return;
+
+    case RTMS_EVENT_CODES.VIDEO_SUBSCRIPTION_TERMINATED_BY_USER_LEAVE:
+      FileLogger.log(`[Signaling] [${conn.rtmsType},${meetingUuid},${streamId}] VIDEO_SUBSCRIPTION_TERMINATED_BY_USER_LEAVE (connection_id ${event.connection_id ?? 'unknown'})`);
+      conn.currentVideoSubscriptionUserId = null;
+      emit('video_subscription_terminated', {
+        type: 'video_subscription_terminated',
+        connectionId: event.connection_id ?? null,
+        ...base
+      });
+      return;
+
+    case RTMS_EVENT_CODES.MEDIA_DATA_USER_INFO: {
+      const participants = Array.isArray(event.participants)
+        ? event.participants.map((participant) => ({
+          userId: participant.user_id ?? null,
+          userName: participant.user_name ?? null,
+          participantUuid: participant.participant_uuid ?? null
+        }))
+        : [];
+      FileLogger.debug(`[Signaling] [${conn.rtmsType},${meetingUuid},${streamId}] MEDIA_DATA_USER_INFO (media_type ${event.media_type ?? 'unknown'}): ${participants.length} participant(s)`);
+      emit('media_data_user_info', {
+        type: 'media_data_user_info',
+        mediaType: event.media_type ?? null,
+        participants,
+        ...base
+      });
+      return;
+    }
 
     case RTMS_EVENT_CODES.ZP_CALL_INFO_UPDATED: {
       const participants = Array.isArray(event.participants)
@@ -184,7 +232,8 @@ function shouldSubscribeToChatGroupEvents(mediaTypesFlag) {
 function emitChatGroupEvent(eventName, msg, meetingUuid, streamId, conn, emit) {
   emit(eventName, {
     type: eventName,
-    eventType: msg.event.event_type,
+    eventType: msg.event.event_type ?? EVENT_CODE_TO_LEGACY_EVENT_TYPE[msg.event.event_code] ?? null,
+    eventCode: msg.event.event_code ?? LEGACY_EVENT_TYPE_TO_EVENT_CODE[msg.event.event_type] ?? null,
     data: msg.event,
     rtmsId: meetingUuid,
     meetingId: meetingUuid,
@@ -239,7 +288,31 @@ function buildEventSubscriptionPayload(conn, mediaTypesFlag) {
     );
   }
 
-  return payload;
+  return toProtocolSubscriptionPayload(payload, conn);
+}
+
+/**
+ * The subscription list is built with legacy event_type numbers. V2 streams
+ * must subscribe with event_code instead (an entry with both fields is
+ * rejected with status 6), and only session events 1000-1011 are
+ * subscribable: FIRST_PACKET_TIMESTAMP and MEDIA_CONNECTION_INTERRUPTED are
+ * sent automatically.
+ */
+function toProtocolSubscriptionPayload(payload, conn) {
+  const protocolVersion = conn.protocolVersion || DEFAULT_RTMS_PROTOCOL_VERSION;
+  if (protocolVersion < 2) {
+    return payload;
+  }
+
+  const seen = new Set();
+  const events = [];
+  for (const entry of payload.events) {
+    const eventCode = LEGACY_EVENT_TYPE_TO_EVENT_CODE[entry.event_type];
+    if (!isSubscribableEventCode(eventCode) || seen.has(eventCode)) continue;
+    seen.add(eventCode);
+    events.push({ event_code: eventCode, subscribe: entry.subscribe });
+  }
+  return { ...payload, events };
 }
 
 export function sendDeferredEventSubscriptions(conn, signalingWs, meetingUuid, streamId) {
@@ -417,11 +490,18 @@ export function handleSignalingMessage(data, meetingUuid, streamId, signalingWs,
       break;
       }
 
-    case 6: // Events
-      if (msg.event && msg.event.event_code != null && msg.event.event_type == null) {
+    case 6: { // Events
+      // V2 reports event_code. Session events (1000-1011) map onto the legacy
+      // event_type handlers below; automatic and Phone codes have their own.
+      const rawEventCode = msg.event?.event_code ?? null;
+      const legacyEventType = msg.event?.event_type
+        ?? (isSubscribableEventCode(rawEventCode) ? EVENT_CODE_TO_LEGACY_EVENT_TYPE[rawEventCode] : null);
+      const eventCode = rawEventCode ?? LEGACY_EVENT_TYPE_TO_EVENT_CODE[legacyEventType] ?? null;
+
+      if (msg.event && rawEventCode != null && legacyEventType == null) {
         handleEventCode(msg, meetingUuid, streamId, conn, emit);
       } else if (msg.event) {
-        switch (msg.event.event_type) {
+        switch (legacyEventType) {
           case 0: // UNDEFINED
             FileLogger.log(`[Signaling] [${conn.rtmsType},${meetingUuid},${streamId}] UNDEFINED event`);
             break;
@@ -521,15 +601,16 @@ export function handleSignalingMessage(data, meetingUuid, streamId, signalingWs,
             break;
 
           default:
-            FileLogger.log(`[Signaling] [${conn.rtmsType},${meetingUuid},${streamId}] Unknown event_type: ${msg.event.event_type}`);
+            FileLogger.log(`[Signaling] [${conn.rtmsType},${meetingUuid},${streamId}] Unknown event: event_type=${msg.event.event_type ?? 'n/a'}, event_code=${rawEventCode ?? 'n/a'}`);
         }
       }
 
-      // Emit event object
+      // Emit event object. eventCode is the V2 identifier; eventType is the
+      // equivalent legacy V1 number, kept for existing listeners.
       emit('event', {
         type: 'event',
-        eventType: msg.event?.event_type ?? null,
-        eventCode: msg.event?.event_code ?? null,
+        eventType: legacyEventType ?? EVENT_CODE_TO_LEGACY_EVENT_TYPE[rawEventCode] ?? null,
+        eventCode,
         data: msg.event,
         rtmsId: meetingUuid,
         meetingId: meetingUuid,
@@ -538,6 +619,7 @@ export function handleSignalingMessage(data, meetingUuid, streamId, signalingWs,
         timestamp: msg.event?.timestamp || Date.now()
       });
       break;
+    }
 
     case 8: // Stream State changed
       FileLogger.log(
@@ -664,6 +746,18 @@ export function handleSignalingMessage(data, meetingUuid, streamId, signalingWs,
         timestamp: msg.timestamp || Date.now()
       });
       break;
+
+    case 30: { // REQUEST_ERROR_RESP, e.g. a rejected event subscription
+      const error = RTMSError.fromZoomStatus(msg.status_code, {
+        meetingId: meetingUuid,
+        streamId
+      });
+      FileLogger.error(
+        `[Signaling] [${conn.rtmsType},${meetingUuid},${streamId}] Request rejected (request msg_type ${msg.request_msg_type ?? 'unknown'}): ${error.toShortString()}`
+      );
+      emit('error', error);
+      break;
+    }
 
     default:
       FileLogger.log(`[Signaling] [${conn.rtmsType},${meetingUuid},${streamId}] Unhandled msg_type: ${msg.msg_type}`);

@@ -77,6 +77,36 @@ Each selected flag opens a separate data connection. Unified media socket mode
 and `media_type: 32` are deprecated; send exactly one concrete media type in
 each data handshake.
 
+## RTMS Protocol V2
+
+The library uses RTMS protocol V2 by default:
+
+- Both the signaling and data handshakes send `protocol_version: 2`. Set
+  `protocolVersion: 1` in `RTMSManager.init()` to fall back to V1. Zoom Phone
+  always uses V2.
+- Each media type has its own data connection. V2 rejects `media_type: 32`
+  (ALL) with status `48`.
+- Event subscriptions are sent with `event_code` (session events `1000` to
+  `1011`). `'event'` payloads carry `eventCode` (V2) and the equivalent legacy
+  `eventType`, so compare against `RTMSManager.EVENT_CODES`:
+
+```javascript
+RTMSManager.on('event', ({ eventCode, data }) => {
+  if (eventCode === RTMSManager.EVENT_CODES.PARTICIPANT_JOIN) {
+    console.log('Joined:', data.participants);
+  }
+});
+```
+
+- Comma-separated `server_urls` values (`wss://...,srt://...`) resolve to the
+  allowed `wss://` entry, and a single `media_server.server_urls` string serves
+  every media type.
+- New events: `media_connection_interrupted` reports `mediaType`,
+  `video_subscription_terminated` reports `connectionId`, and
+  `media_data_user_info` lists the participants observed on a media type.
+  Rejected requests (`REQUEST_ERROR_RESP`, `msg_type 30`) and the V2 status
+  codes `44`, `45` and `48` to `58` surface as `RTMSError` on `'error'`.
+
 ## Presets
 
 ```javascript

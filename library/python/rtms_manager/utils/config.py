@@ -85,6 +85,9 @@ class RTMSConfig:
     max_stream_history_size: int = 100
     reconnect_delay: int = 3000
     max_reconnect_attempts: int = 3
+    # RTMS protocol version for signaling and media handshakes. Defaults to 2;
+    # set 1 for the legacy V1 protocol (Zoom Phone always uses 2 or later).
+    protocol_version: int = 2
     protocol_definitions: RTMSProtocolDefinitions = field(default_factory=RTMSProtocolDefinitions)
 
 
@@ -198,6 +201,12 @@ class RTMSConfigHelper:
         
         if 'logging' in options:
             config.logging = options['logging']
+
+        if 'protocol_version' in options or 'protocolVersion' in options:
+            try:
+                config.protocol_version = int(options.get('protocol_version', options.get('protocolVersion')))
+            except (TypeError, ValueError):
+                raise ValueError('protocol_version must be an integer, for example 2 (default) or 1 for legacy V1')
         
         if 'log_dir' in options or 'logDir' in options:
             config.log_dir = options.get('log_dir', options.get('logDir'))
