@@ -1,6 +1,6 @@
 from typing import Any, Dict, Optional
 
-from .url_policy import select_websocket_url
+from .url_policy import select_allowed_rtms_callback_url, select_websocket_url
 
 
 RTMS_ENTITY_KEYS = {
@@ -13,7 +13,7 @@ RTMS_ENTITY_KEYS = {
 
 
 def normalize_rtms_type(rtms_type: Optional[str]) -> str:
-    if rtms_type == 'videoSdk':
+    if rtms_type in ('videoSdk', 'session', 'video'):
         return 'video_sdk'
     if rtms_type == 'contactCenter':
         return 'contact_center'
@@ -38,11 +38,12 @@ def get_rtms_id_from_payload(rtms_type: Optional[str], payload: Dict[str, Any]) 
 
 
 def _pick_websocket_url(value: Any) -> str:
-    # V2 values can be comma-separated (wss://...,srt://...). Prefer the
-    # WebSocket entry, falling back to the raw value for error reporting.
+    # V2 values can be comma-separated (wss://...,srt://...). Prefer an allowed
+    # WebSocket entry; fall back to the raw value so the caller's allowlist
+    # check still reports a clear error instead of an empty URL.
     if not isinstance(value, str):
         return ''
-    return select_websocket_url(value) or value
+    return select_allowed_rtms_callback_url(value) or select_websocket_url(value) or value
 
 
 def get_preferred_media_url(rtms_type: Optional[str], server_urls: Any, preferred_type: Optional[str] = None) -> str:
@@ -62,7 +63,7 @@ def get_preferred_media_url(rtms_type: Optional[str], server_urls: Any, preferre
         return _pick_websocket_url(server_urls['audio'])
 
     for value in server_urls.values():
-        url = select_websocket_url(value)
+        url = _pick_websocket_url(value)
         if url:
             return url
 

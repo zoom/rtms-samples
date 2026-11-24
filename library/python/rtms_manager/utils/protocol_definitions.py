@@ -6,6 +6,31 @@ from typing import Dict, Any, Optional
 # options to fall back to V1 (Zoom Phone always uses V2 or later).
 DEFAULT_RTMS_PROTOCOL_VERSION = 2
 
+# RTMS protocol V2 event codes (RTMS_EVENT_CODE). V2 streams such as Zoom
+# Phone report events with event_code instead of the legacy event_type.
+RTMS_EVENT_CODES = {
+    'FIRST_PACKET_TIMESTAMP': 1,
+    'MEDIA_CONNECTION_INTERRUPTED': 2,
+    'VIDEO_SUBSCRIPTION_TERMINATED_BY_USER_LEAVE': 3,
+    'MEDIA_DATA_USER_INFO': 4,
+    'ACTIVE_SPEAKER_CHANGE': 1000,
+    'PARTICIPANT_JOIN': 1001,
+    'PARTICIPANT_LEAVE': 1002,
+    'SHARING_START': 1003,
+    'SHARING_STOP': 1004,
+    'PARTICIPANT_VIDEO_ON': 1005,
+    'PARTICIPANT_VIDEO_OFF': 1006,
+    'CHAT_GROUP_CREATE': 1007,
+    'CHAT_GROUP_DELETE': 1008,
+    'CHAT_GROUP_MEMBERS_ADD': 1009,
+    'CHAT_GROUP_MEMBERS_DELETE': 1010,
+    'CHAT_GROUP_MEMBER_STATUS_UPDATE': 1011,
+    'ZP_CALL_INFO_UPDATED': 3000,
+    'ZP_CALL_HOLD': 3001,
+    'ZP_CALL_RESUME': 3002,
+    'ZP_CALL_TRANSFER_COMPLETED': 3003,
+}
+
 # V2 replaces the legacy event_type with event_code, in both event
 # subscriptions (msg_type 5) and event updates (msg_type 6).
 # Keys are legacy RTMS_EVENT_TYPE values; values are RTMS_EVENT_CODE values.

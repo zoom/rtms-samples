@@ -1,11 +1,12 @@
 from dataclasses import dataclass, field
-from typing import Optional, Dict, Any
+from typing import Optional, Dict, Any, Union
 from .media_params import (
     MediaType, MediaContentType, AudioSampleRate, AudioChannel,
     MediaPayloadType, MediaResolution, AudioDataOption, VideoDataOption,
     LanguageId
 )
 from .protocol_definitions import RTMSProtocolDefinitions, merge_protocol_definitions
+from .rtms_error import RTMSError
 
 
 @dataclass
@@ -79,12 +80,17 @@ class RTMSConfig:
     credentials: ProductCredentials = field(default_factory=ProductCredentials)
     media_types: int = 0
     media_params: MediaParams = field(default_factory=MediaParams)
-    logging: str = 'info'
+    phone_media_params: Dict[str, Any] = field(default_factory=dict)
+    logging: Union[str, Dict[str, Any]] = 'off'
     log_dir: Optional[str] = None
     enable_gap_filling: bool = False
     max_stream_history_size: int = 100
     reconnect_delay: int = 3000
     max_reconnect_attempts: int = 3
+    signaling_ping_timeout_ms: int = 5000
+    subscribe_all_known_events: bool = False
+    async_media_events: bool = True
+    max_media_event_queue_size: int = 500
     # RTMS protocol version for signaling and media handshakes. Defaults to 2;
     # set 1 for the legacy V1 protocol (Zoom Phone always uses 2 or later).
     protocol_version: int = 2
@@ -144,73 +150,72 @@ class RTMSConfigHelper:
             config.media_params.transcript.enable_lid = cls._get_option_value(transcript, 'enable_lid', 'enableLid', config.media_params.transcript.enable_lid)
 
     @staticmethod
+    def _build_credentials(raw: Dict[str, Any], *, video_legacy: bool = False) -> Credentials:
+        if not isinstance(raw, dict):
+            return Credentials()
+        client_id = raw.get('client_id', raw.get('clientId', ''))
+        client_secret = raw.get('client_secret', raw.get('clientSecret', ''))
+        secret_token = raw.get('secret_token', raw.get('secretToken', raw.get('zoomSecretToken', '')))
+        if video_legacy:
+            client_id = client_id or raw.get('video_client_id', raw.get('videoClientId', ''))
+            client_secret = client_secret or raw.get('video_client_secret', raw.get('videoClientSecret', ''))
+            secret_token = secret_token or raw.get('video_secret_token', raw.get('videoSecretToken', ''))
+        return Credentials(
+            client_id=client_id or '',
+            client_secret=client_secret or '',
+            secret_token=secret_token or '',
+        )
+
+    @staticmethod
     def merge(options: Dict[str, Any]) -> RTMSConfig:
+        # Never mutate caller's input dictionary.
+        options = dict(options or {})
         config = RTMSConfig()
-        
-        if 'credentials' in options:
+
+        if 'credentials' in options and isinstance(options['credentials'], dict):
             creds = options['credentials']
             if 'meeting' in creds:
-                m = creds['meeting']
-                config.credentials.meeting = Credentials(
-                    client_id=m.get('client_id', m.get('clientId', '')),
-                    client_secret=m.get('client_secret', m.get('clientSecret', '')),
-                    secret_token=m.get('secret_token', m.get('secretToken', m.get('zoomSecretToken', '')))
-                )
+                config.credentials.meeting = RTMSConfigHelper._build_credentials(creds['meeting'])
             if 'video_sdk' in creds or 'videoSdk' in creds:
                 v = creds.get('video_sdk', creds.get('videoSdk', {}))
-                config.credentials.video_sdk = Credentials(
-                    client_id=v.get('client_id', v.get('clientId', '')),
-                    client_secret=v.get('client_secret', v.get('clientSecret', '')),
-                    secret_token=v.get('secret_token', v.get('secretToken', ''))
-                )
+                config.credentials.video_sdk = RTMSConfigHelper._build_credentials(v, video_legacy=True)
+            elif 'video' in creds:
+                config.credentials.video_sdk = RTMSConfigHelper._build_credentials(creds['video'], video_legacy=True)
             if 'webinar' in creds:
-                w = creds.get('webinar', {})
-                config.credentials.webinar = Credentials(
-                    client_id=w.get('client_id', w.get('clientId', '')),
-                    client_secret=w.get('client_secret', w.get('clientSecret', '')),
-                    secret_token=w.get('secret_token', w.get('secretToken', ''))
-                )
+                config.credentials.webinar = RTMSConfigHelper._build_credentials(creds['webinar'])
             if 'contact_center' in creds or 'contactCenter' in creds:
                 cc = creds.get('contact_center', creds.get('contactCenter', {}))
-                config.credentials.contact_center = Credentials(
-                    client_id=cc.get('client_id', cc.get('clientId', '')),
-                    client_secret=cc.get('client_secret', cc.get('clientSecret', '')),
-                    secret_token=cc.get('secret_token', cc.get('secretToken', ''))
-                )
+                config.credentials.contact_center = RTMSConfigHelper._build_credentials(cc)
             if 'phone' in creds:
-                p = creds.get('phone', {})
-                config.credentials.phone = Credentials(
-                    client_id=p.get('client_id', p.get('clientId', '')),
-                    client_secret=p.get('client_secret', p.get('clientSecret', '')),
-                    secret_token=p.get('secret_token', p.get('secretToken', ''))
-                )
+                config.credentials.phone = RTMSConfigHelper._build_credentials(creds['phone'])
+            if 's2s' in creds and isinstance(creds['s2s'], dict):
+                config.credentials.s2s = dict(creds['s2s'])
         elif 'client_id' in options or 'clientId' in options:
-            shared_credentials = Credentials(
-                client_id=options.get('client_id', options.get('clientId', '')),
-                client_secret=options.get('client_secret', options.get('clientSecret', '')),
-                secret_token=options.get('secret_token', options.get('secretToken', options.get('zoomSecretToken', '')))
-            )
+            shared_credentials = RTMSConfigHelper._build_credentials(options)
             config.credentials.meeting = shared_credentials
             config.credentials.webinar = Credentials(**shared_credentials.__dict__)
             config.credentials.video_sdk = Credentials(**shared_credentials.__dict__)
             config.credentials.contact_center = Credentials(**shared_credentials.__dict__)
             config.credentials.phone = Credentials(**shared_credentials.__dict__)
-        
+
         if 'media_types' in options or 'mediaTypes' in options:
             config.media_types = options.get('media_types', options.get('mediaTypes', 0))
-        
+        elif 'media_types_flag' in options or 'mediaTypesFlag' in options:
+            config.media_types = options.get('media_types_flag', options.get('mediaTypesFlag', 0))
+
         if 'logging' in options:
-            config.logging = options['logging']
+            logging_opt = options['logging']
+            config.logging = dict(logging_opt) if isinstance(logging_opt, dict) else logging_opt
 
         if 'protocol_version' in options or 'protocolVersion' in options:
             try:
                 config.protocol_version = int(options.get('protocol_version', options.get('protocolVersion')))
             except (TypeError, ValueError):
                 raise ValueError('protocol_version must be an integer, for example 2 (default) or 1 for legacy V1')
-        
+
         if 'log_dir' in options or 'logDir' in options:
             config.log_dir = options.get('log_dir', options.get('logDir'))
-        
+
         unified_requested = options.get(
             'use_unified_media_socket', options.get('useUnifiedMediaSocket', False)
         ) is True
@@ -233,30 +238,71 @@ class RTMSConfigHelper:
                 'audio (1), video (2), screen share (4), transcript (8), and chat (16). '
                 'The ALL value 32 is deprecated.'
             )
+        config.media_types = selected_media
 
         if 'enable_gap_filling' in options or 'enableGapFilling' in options or 'enableRealTimeAudioVideoGapFiller' in options:
-            config.enable_gap_filling = options.get(
+            config.enable_gap_filling = bool(options.get(
                 'enable_gap_filling',
                 options.get('enableGapFilling', options.get('enableRealTimeAudioVideoGapFiller', False))
-            )
+            ))
+
+        if 'max_stream_history_size' in options or 'maxStreamHistorySize' in options:
+            config.max_stream_history_size = int(options.get('max_stream_history_size', options.get('maxStreamHistorySize', 100)))
+
+        if 'reconnect_delay' in options or 'reconnectDelay' in options:
+            config.reconnect_delay = int(options.get('reconnect_delay', options.get('reconnectDelay', 3000)))
+
+        if 'max_reconnect_attempts' in options or 'maxReconnectAttempts' in options:
+            config.max_reconnect_attempts = int(options.get('max_reconnect_attempts', options.get('maxReconnectAttempts', 3)))
+
+        if 'signaling_ping_timeout_ms' in options or 'signalingPingTimeoutMs' in options:
+            config.signaling_ping_timeout_ms = int(options.get('signaling_ping_timeout_ms', options.get('signalingPingTimeoutMs', 5000)))
+
+        if 'subscribe_all_known_events' in options or 'subscribeAllKnownEvents' in options:
+            config.subscribe_all_known_events = bool(options.get('subscribe_all_known_events', options.get('subscribeAllKnownEvents', False)))
+
+        if 'async_media_events' in options or 'asyncMediaEvents' in options:
+            config.async_media_events = bool(options.get('async_media_events', options.get('asyncMediaEvents', True)))
+
+        if 'max_media_event_queue_size' in options or 'maxMediaEventQueueSize' in options:
+            config.max_media_event_queue_size = int(options.get('max_media_event_queue_size', options.get('maxMediaEventQueueSize', 500)))
+
+        phone_media_params = options.get('phone_media_params', options.get('phoneMediaParams'))
+        if isinstance(phone_media_params, dict):
+            config.phone_media_params = {
+                k: dict(v) if isinstance(v, dict) else v
+                for k, v in phone_media_params.items()
+            }
 
         protocol_definitions = options.get('protocol_definitions', options.get('protocolDefinitions'))
         if isinstance(protocol_definitions, dict):
             config.protocol_definitions = merge_protocol_definitions(protocol_definitions)
 
         RTMSConfigHelper._merge_media_params(config, options)
-        
+
         return config
 
     @staticmethod
     def get_credentials_for_product(product: str, config: RTMSConfig) -> Credentials:
         product_map = {
             'meeting': config.credentials.meeting,
-            'webinar': config.credentials.webinar or config.credentials.meeting,
+            'webinar': config.credentials.webinar,
             'videoSdk': config.credentials.video_sdk,
             'video_sdk': config.credentials.video_sdk,
-            'contactCenter': config.credentials.contact_center or config.credentials.meeting,
-            'contact_center': config.credentials.contact_center or config.credentials.meeting,
-            'phone': config.credentials.phone or config.credentials.meeting,
+            'session': config.credentials.video_sdk,
+            'video': config.credentials.video_sdk,
+            'contactCenter': config.credentials.contact_center,
+            'contact_center': config.credentials.contact_center,
+            'phone': config.credentials.phone,
         }
-        return product_map.get(product, config.credentials.meeting)
+        creds = product_map.get(product)
+        if creds and creds.client_id:
+            return creds
+
+        if config.credentials.meeting and config.credentials.meeting.client_id:
+            return config.credentials.meeting
+
+        raise RTMSError.from_code(
+            'MISSING_CREDENTIALS',
+            message=f'[RTMSManager] No credentials found for product: {product}',
+        )

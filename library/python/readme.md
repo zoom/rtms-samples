@@ -144,14 +144,17 @@ await RTMSManager.init({ **RTMSManager.PRESETS['TRANSCRIPTION'], 'credentials': 
 
 # Audio + video (recording)
 await RTMSManager.init({ **RTMSManager.PRESETS['VIDEO_RECORDING'], 'credentials': credentials })
+
+# Zoom Phone (per-channel audio + transcript over V2)
+await RTMSManager.init({ **RTMSManager.PRESETS['PHONE'], 'credentials': credentials })
 ```
 
 ## Events
 
 ```python
 # Media events - data dict contains: buffer/text, user_id, user_name, timestamp, rtms_id, meeting_id, stream_id
-rtms.on('audio', lambda data: ...)      # data['buffer'] = bytes
-rtms.on('video', lambda data: ...)      # data['buffer'] = bytes  
+rtms.on('audio', lambda data: ...)      # data['buffer'] = bytes; Phone also sets channel_id and source
+rtms.on('video', lambda data: ...)      # data['buffer'] = bytes
 rtms.on('sharescreen', lambda data: ...)
 rtms.on('transcript', lambda data: ...) # data['text'] = str; plus start_time, end_time, language,
                                         # sentence_id, is_update, attribute, channel_id (see Transcript rewind)
@@ -160,15 +163,36 @@ rtms.on('participant_video_on', lambda data: ...)   # data['available_participan
 rtms.on('participant_video_off', lambda data: ...)
 rtms.on('video_subscription_response', lambda data: ...)
 rtms.on('stream_close_response', lambda data: ...)
+rtms.on('signaling_ping_rtt', lambda data: ...)     # data['rttMs'], data['signalingHost']
 
-# Lifecycle events
+# V2 automatic events
+rtms.on('media_connection_interrupted', lambda data: ...)
+rtms.on('video_subscription_terminated', lambda data: ...)
+rtms.on('media_data_user_info', lambda data: ...)
+
+# Zoom Phone call events (delivered automatically without subscription)
+rtms.on('phone_call_info_updated', lambda data: ...)      # data['host_channel_id'], data['participants']
+rtms.on('phone_call_hold', lambda data: ...)
+rtms.on('phone_call_resume', lambda data: ...)
+rtms.on('phone_call_transfer_completed', lambda data: ...) # data['transfer_type'], data['transfer_result']
+
+# Lifecycle events (start / stop / interrupted across all products)
 rtms.on('meeting.rtms_started', lambda payload: ...)
 rtms.on('meeting.rtms_stopped', lambda payload: ...)
+rtms.on('meeting.rtms_interrupted', lambda payload: ...)
+rtms.on('webinar.rtms_started', lambda payload: ...)
+rtms.on('webinar.rtms_stopped', lambda payload: ...)
+rtms.on('webinar.rtms_interrupted', lambda payload: ...)
+rtms.on('session.rtms_started', lambda payload: ...)
+rtms.on('session.rtms_stopped', lambda payload: ...)
+rtms.on('session.rtms_interrupted', lambda payload: ...)
 rtms.on('contact_center.voice_rtms_started', lambda payload: ...)
 rtms.on('contact_center.voice_rtms_stopped', lambda payload: ...)
-rtms.on('phone.rtms_started', lambda payload: ...)
-rtms.on('phone.rtms_stopped', lambda payload: ...)
-rtms.on('error', lambda error: ...)
+rtms.on('contact_center.voice_rtms_interrupted', lambda payload: ...)
+rtms.on('phone.call_rtms_started', lambda payload: ...)   # phone.rtms_* aliases also supported
+rtms.on('phone.call_rtms_stopped', lambda payload: ...)
+rtms.on('phone.call_rtms_interrupted', lambda payload: ...)
+rtms.on('error', lambda error: ...)     # receives RTMSError instances
 
 # Signaling chat-group lifecycle events. The raw event payload is data['data'].
 rtms.on('chat_group_created', lambda data: ...)
@@ -176,12 +200,34 @@ rtms.on('chat_group_deleted', lambda data: ...)
 rtms.on('chat_group_members_added', lambda data: ...)
 rtms.on('chat_group_members_removed', lambda data: ...)
 rtms.on('chat_group_member_status_updated', lambda data: ...)
+```
 
 Chat metadata is read from the RTMS `content` object and the original message
 data is preserved in `raw_data`. Nested JSON payloads are also accepted for
 compatibility. Key participant records by `user_id`, not display name, so
 simultaneous PSTN clients remain distinct.
-```
+
+## Stream Metadata, Security, and Utilities
+
+- **Callback URL allowlist**: Signaling and media WebSocket URLs are validated
+  against `zoom.us` (`ws://` or `wss://`). Override allowed host suffixes with
+  the `RTMS_ALLOWED_MEDIA_HOSTS` environment variable (comma-separated).
+- **Errors and lookups**: Import `RTMSError`, `RTMS_EVENT_CODES` (also on
+  `RTMSManager.EVENT_CODES`), `redact_secrets`, `get_rtms_session_state`,
+  `get_rtms_stream_state`, `get_rtms_stop_reason`, and `get_rtms_status_code`
+  from `library.python.rtms_manager`.
+- **Frontend & Webhook managers**:
+  - `WebhookManager` (with `normalize_webhook_plain_token`, `build_url_validation_response`, `verify_zoom_webhook_request`) validates `endpoint.url_validation` tokens, enforces raw-body HMAC signatures and timestamp tolerances (`WEBHOOK_TIMESTAMP_TOLERANCE_SECONDS`, default `300`), and defers FastAPI event handling via `BackgroundTasks` so Zoom receives an immediate `200`.
+  - `FrontendWssManager` fails closed on client registration unless `authorize_registration` is supplied, uses the canonical identity returned by the authorizer, excludes unregistered clients from broadcasts, and enforces `max_payload_bytes` (default 64 KiB).
+  - `FrontendManager` serves static frontend assets and resolves `ws://`/`wss://` URLs for Flask or FastAPI.
+- **Stream inspection**: Query active or archived streams with
+  `RTMSManager.get_stream_metadata(stream_id)`, `get_stream_timestamps(stream_id)`,
+  `get_stream_start_time(stream_id)`, `get_stream_media_config(stream_id)`,
+  `get_audio_details(stream_id)`, `get_video_details(stream_id)`,
+  `get_sharescreen_details(stream_id)`, `get_transcript_details(stream_id)`,
+  `get_chat_details(stream_id)`, `get_ping_rtt(stream_id)`, and
+  `rtms.get_phone_call_info(stream_id)`. Call `await rtms.reconnect_stream(stream_id)`
+  to manually trigger failover reconnection.
 
 ## Transcript rewind
 
@@ -226,9 +272,13 @@ await RTMSManager.init({
         'phone': { 'client_id': '...', 'client_secret': '...', 'secret_token': '...' },  # Optional
     },
     'media_types': MediaType.AUDIO | MediaType.TRANSCRIPT,
-    'logging': 'info',            # 'off' | 'error' | 'warn' | 'info' | 'debug'
+    'logging': 'off',             # 'off' | 'error' | 'warn' | 'info' | 'debug' | dict
     'log_dir': '/var/log/rtms',
     'enable_gap_filling': False,  # Insert silence during network drops (for recording)
+    'max_stream_history_size': 100,
+    'signaling_ping_timeout_ms': 5000,
+    'subscribe_all_known_events': False,
+    'phone_media_params': {},     # Optional override; Phone omits media_params by default
     'media_params': {
         'transcript': {
             'language': 9,
