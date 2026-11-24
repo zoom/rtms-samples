@@ -463,12 +463,47 @@ export interface TranscriptEvent extends BaseEvent {
   /** Zoom Phone participant channel; also used as userId for Phone streams */
   channelId?: string | null;
   /**
-   * Zoom Phone sentence ID. Revisions reuse it; key sentences by
-   * (channelId, sentenceId). 0 is a valid ID.
+   * Transcript sentence ID. Revisions (transcript rewind) reuse it; key
+   * sentences by (streamId, channelId or userId, sentenceId). 0 is a valid ID.
+   * null when the server does not send one.
    */
   sentenceId?: number | null;
-  /** True when attribute is 2 (replace the existing sentence text) */
+  /** True when attribute is 2: replace the existing sentence text, do not append */
   isUpdate?: boolean;
+}
+
+/** Sentence kept by TranscriptRevisionStore */
+export interface TranscriptSentence {
+  streamId: string | null;
+  rtmsId: string | null;
+  channelId: string | null;
+  userId: string | number | null;
+  userName: string | null;
+  sentenceId: number | null;
+  text: string;
+  language: number | string | null;
+  startTime: number | null;
+  endTime: number | null;
+  timestamp: number | null;
+  /** 0 for the first delivery, incremented on each revision */
+  revision: number;
+  order: number;
+}
+
+/**
+ * Keeps the latest text of each transcript sentence so rewind revisions
+ * replace earlier text instead of appending a duplicate line.
+ */
+export class TranscriptRevisionStore {
+  readonly size: number;
+  apply(event: Partial<TranscriptEvent>): {
+    action: 'new' | 'updated' | 'recovered' | 'replaced';
+    key: string;
+    sentence: TranscriptSentence;
+  };
+  get(key: string): TranscriptSentence | undefined;
+  sentences(streamId?: string): TranscriptSentence[];
+  clear(streamId?: string): void;
 }
 
 /** Chat event */

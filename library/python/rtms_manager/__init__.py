@@ -7,6 +7,7 @@ from .utils.media_params import (
 from .utils.config import RTMSConfig, MediaParams, Credentials
 from .utils.protocol_definitions import RTMSProtocolDefinitions, RTMS_PROTOCOL_DEFINITIONS
 from .utils.logger import FileLogger
+from .utils.transcript_store import TranscriptRevisionStore
 
 __all__ = [
     'RTMSManager',
@@ -26,4 +27,5 @@ __all__ = [
     'RTMSProtocolDefinitions',
     'RTMS_PROTOCOL_DEFINITIONS',
     'FileLogger',
+    'TranscriptRevisionStore',
 ]

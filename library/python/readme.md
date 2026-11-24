@@ -153,7 +153,8 @@ await RTMSManager.init({ **RTMSManager.PRESETS['VIDEO_RECORDING'], 'credentials'
 rtms.on('audio', lambda data: ...)      # data['buffer'] = bytes
 rtms.on('video', lambda data: ...)      # data['buffer'] = bytes  
 rtms.on('sharescreen', lambda data: ...)
-rtms.on('transcript', lambda data: ...) # data['text'] = str
+rtms.on('transcript', lambda data: ...) # data['text'] = str; plus start_time, end_time, language,
+                                        # sentence_id, is_update, attribute, channel_id (see Transcript rewind)
 rtms.on('chat', lambda data: ...)       # text plus chat_session/sender/receiver/message metadata
 rtms.on('participant_video_on', lambda data: ...)   # data['available_participants']
 rtms.on('participant_video_off', lambda data: ...)
@@ -181,6 +182,37 @@ data is preserved in `raw_data`. Nested JSON payloads are also accepted for
 compatibility. Key participant records by `user_id`, not display name, so
 simultaneous PSTN clients remain distinct.
 ```
+
+## Transcript rewind
+
+RTMS can send a transcript sentence and later a corrected version of it. The
+correction reuses the same `sentence_id`, sets `is_update: True` (`attribute: 2`),
+and carries the full replacement text. Replace the earlier sentence instead of
+appending a new line. `sentence_id` is `None` when the server does not send one,
+and `0` is a valid ID.
+
+`TranscriptRevisionStore` does the bookkeeping. It keys sentences by
+`(stream_id, channel_id or user_id, sentence_id)`, because Phone sentence IDs
+repeat across channels.
+
+```python
+from library.python.rtms_manager import TranscriptRevisionStore
+
+transcript = TranscriptRevisionStore()
+
+def on_transcript(event):
+    result = transcript.apply(event)
+    # result['action']: 'new' | 'updated' | 'recovered' | 'replaced'
+    # 'updated' and 'recovered' mean redraw or re-analyze result['sentence'], not append it.
+
+rtms.on('transcript', on_transcript)
+rtms.on('meeting.rtms_stopped', lambda payload: transcript.clear(payload.get('rtms_stream_id')))
+
+transcript.sentences(stream_id)  # latest text of every sentence, in start-time order
+```
+
+Run the library tests with `python3 -m unittest discover -s tests` from
+`library/python`.
 
 ## Configuration
 

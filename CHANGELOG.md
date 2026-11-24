@@ -21,6 +21,13 @@ remain under **Unreleased** until a repository release is published.
   `phone_call_transfer_completed`), `RTMSManager.PRESETS.PHONE`, and
   `RTMSManager.getPhoneCallInfo()`.
 - Added `phone/print_phone_transcript_js`, a Zoom Phone transcript sample.
+- Added transcript rewind support to the JavaScript and Python `RTMSManager`
+  libraries. Transcript events from every product report the sentence ID,
+  update flag, and raw attribute (`sentenceId`/`isUpdate`/`attribute` in
+  JavaScript, `sentence_id`/`is_update`/`attribute` in Python), and a new
+  `TranscriptRevisionStore` replaces revised sentences instead of appending
+  duplicates. Python transcript events also gain `start_time`, `end_time`,
+  `language` and `channel_id`.
 - Added `RTMSManager.EVENT_CODES`, the V2 status codes `44`, `45` and `48` to
   `58`, `REQUEST_ERROR_RESP` handling, and the `video_subscription_terminated`
   and `media_data_user_info` events to the JavaScript `RTMSManager`, with

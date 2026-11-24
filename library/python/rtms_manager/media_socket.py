@@ -331,11 +331,26 @@ async def _handle_media_messages(
                     })
 
                 elif data_type in (8, 17):
+                    attribute = content.get('attribute')
+                    channel_id = content.get('channel_id')
+                    try:
+                        is_update = int(attribute) == 2
+                    except (TypeError, ValueError):
+                        is_update = False
                     emit('transcript', {
                         'text': raw_data,
-                        'user_id': user_id,
+                        'user_id': content.get('user_id', channel_id if channel_id is not None else 'unknown'),
                         'user_name': user_name,
                         'timestamp': timestamp,
+                        'start_time': content.get('start_time'),
+                        'end_time': content.get('end_time'),
+                        'language': content.get('language'),
+                        # Transcript rewind: a revision has attribute 2 and the same
+                        # sentence_id (per channel_id on Phone); 0 is a valid sentence ID.
+                        'channel_id': channel_id,
+                        'sentence_id': content.get('sentence_id'),
+                        'attribute': attribute,
+                        'is_update': is_update,
                         'rtms_id': meeting_uuid,
                         'meeting_id': meeting_uuid,
                         'stream_id': stream_id,

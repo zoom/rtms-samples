@@ -170,6 +170,35 @@ The manager applies the Phone protocol details automatically:
 [`phone/print_phone_transcript_js`](../../phone/print_phone_transcript_js/)
 for a runnable sample.
 
+## Transcript rewind
+
+RTMS can send a transcript sentence and later a corrected version of it. The
+correction reuses the same `sentenceId`, sets `isUpdate: true` (`attribute: 2`),
+and carries the full replacement text. Replace the earlier sentence instead of
+appending a new line. This applies to meetings, webinars, Video SDK, Contact
+Center, and Phone transcripts. `sentenceId` is `null` when the server does not
+send one, and `0` is a valid ID.
+
+`TranscriptRevisionStore` does the bookkeeping. It keys sentences by
+`(streamId, channelId or userId, sentenceId)`, because Phone sentence IDs repeat
+across channels.
+
+```javascript
+import { RTMSManager, TranscriptRevisionStore } from 'rtms-manager-dev';
+
+const transcript = new TranscriptRevisionStore();
+
+RTMSManager.on('transcript', (event) => {
+  const { action, sentence } = transcript.apply(event);
+  // action: 'new' | 'updated' | 'recovered' | 'replaced'
+  // 'updated' and 'recovered' mean redraw or re-analyze `sentence`, not append it.
+});
+
+RTMSManager.on('meeting.rtms_stopped', ({ rtms_stream_id }) => transcript.clear(rtms_stream_id));
+
+transcript.sentences(streamId); // latest text of every sentence, in start-time order
+```
+
 ## Events
 
 ```javascript
@@ -177,7 +206,7 @@ for a runnable sample.
 RTMSManager.on('audio', ({ buffer, userId, userName, timestamp, meetingId, streamId }) => {});
 RTMSManager.on('video', ({ buffer, userId, userName, timestamp, meetingId, streamId }) => {});
 RTMSManager.on('sharescreen', ({ buffer, userId, userName, timestamp, meetingId, streamId }) => {});
-RTMSManager.on('transcript', ({ text, userId, userName, timestamp, meetingId, streamId }) => {});
+RTMSManager.on('transcript', ({ text, userId, userName, timestamp, meetingId, streamId, startTime, endTime, language, sentenceId, isUpdate, attribute, channelId }) => {});
 RTMSManager.on('chat', ({ text, data, userId, userName, sender, receiver, chatSession, operationType, messageId, parentMessageId, files, deleteFileIdList, timestamp, meetingId, streamId }) => {});
 
 // Lifecycle events

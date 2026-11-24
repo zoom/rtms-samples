@@ -36,6 +36,7 @@ export { RTMS_PROTOCOL_DEFINITIONS } from './utils/rtmsProtocolDefinitions.js';
 export { RTMSFlagHelper, TYPE_FLAGS } from './utils/RTMSFlagHelper.js';
 export { isAllowedRtmsCallbackUrl, selectAllowedRtmsCallbackUrl } from './utils/rtmsUrlPolicy.js';
 export { RTMS_EVENT_CODES } from './signalingSocketMessageHandler.js';
+export { TranscriptRevisionStore } from './utils/TranscriptRevisionStore.js';
 
 // Lookup helpers
 export {

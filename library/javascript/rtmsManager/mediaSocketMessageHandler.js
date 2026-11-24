@@ -177,10 +177,10 @@ export function handleMediaMessage(data, {
             userId: resolvedUserId,
             userName: resolvedUserName,
             channelId: channel_id ?? null,
-            // Phone sends revisions with attribute 2 for the same
-            // (channel_id, sentence_id); 0 is a valid sentence ID.
+            // Transcript rewind: a revision has attribute 2 and the same
+            // sentence_id (per channel_id on Phone); 0 is a valid sentence ID.
             sentenceId: sentence_id ?? null,
-            isUpdate: attribute === 2,
+            isUpdate: Number(attribute) === 2,
             timestamp,
             rtmsId: meetingUuid,
             meetingId: meetingUuid,
