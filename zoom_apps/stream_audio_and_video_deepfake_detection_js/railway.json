@@ -1,0 +1,17 @@
+{
+  "$schema": "https://railway.com/railway.schema.json",
+  "build": {
+    "builder": "DOCKERFILE",
+    "dockerfilePath": "zoom_apps/stream_audio_and_video_deepfake_detection_js/Dockerfile",
+    "watchPatterns": [
+      "/zoom_apps/stream_audio_and_video_deepfake_detection_js/**",
+      "/library/javascript/**"
+    ]
+  },
+  "deploy": {
+    "healthcheckPath": "/health",
+    "healthcheckTimeout": 300,
+    "restartPolicyType": "ON_FAILURE",
+    "restartPolicyMaxRetries": 10
+  }
+}

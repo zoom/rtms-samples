@@ -1,0 +1,28 @@
+services:
+  - type: web
+    name: zoom-transcripts-to-llms
+    runtime: docker
+    repo: https://github.com/zoom/rtms-samples
+    dockerContext: .
+    dockerfilePath: ./transcript/send_transcript_to_openai_js/Dockerfile
+    autoDeployTrigger: off
+    healthCheckPath: /health
+    envVars:
+      - key: PORT
+        value: "3000"
+      - key: WEBHOOK_PATH
+        value: /webhook
+      - key: ZOOM_SECRET_TOKEN
+        sync: false
+      - key: ZOOM_CLIENT_ID
+        sync: false
+      - key: ZOOM_CLIENT_SECRET
+        sync: false
+      - key: OPENAI_API_KEY
+        sync: false
+      - key: OPENAI_MODEL
+        value: gpt-5.6-luna
+      - key: WEBHOOK_TIMESTAMP_TOLERANCE_SECONDS
+        value: "300"
+      - key: MEDIA_SOCKET_CONNECTION_MODE
+        value: split

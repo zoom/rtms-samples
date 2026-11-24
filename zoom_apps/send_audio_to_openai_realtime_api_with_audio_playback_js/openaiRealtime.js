@@ -370,8 +370,9 @@ function buildMcpInstructionLines() {
   }
 
   return [
-    'Allowlisted MCP tools are connected. Use them only when the speaker explicitly asks for information they provide.',
-    'Summarize MCP results before responding and do not read raw tool output aloud.',
+    'Allowlisted MCP tools are connected. Review their names and descriptions before choosing a tool.',
+    'Call a tool only when its description matches the speaker request. Otherwise answer without a tool.',
+    'Use the tool result as evidence for the answer. Summarize it and do not read raw tool output aloud.',
   ];
 }
 
@@ -480,7 +481,7 @@ function handleRealtimeEvent(session, rawMessage) {
       break;
     case 'mcp_list_tools.failed':
       console.error(`[OpenAI Realtime] MCP tool listing failed for item ${event.item_id}: ${summarizeMcpFailure(event)}`);
-      broadcast({ type: 'error', data: `Zoom MCP tool listing failed: ${summarizeMcpFailure(event)}` });
+      broadcast({ type: 'error', data: `MCP tool listing failed: ${summarizeMcpFailure(event)}` });
       break;
     case 'conversation.item.done':
       handleConversationItemDone(event.item);
@@ -490,12 +491,12 @@ function handleRealtimeEvent(session, rawMessage) {
       break;
     case 'response.mcp_call.in_progress':
       console.log(`[OpenAI Realtime] Running MCP tool for item ${event.item_id}`);
-      broadcast({ type: 'status', data: 'Running Zoom MCP tool...' });
+      broadcast({ type: 'status', data: 'Running MCP tool...' });
       startMcpWatchdog(session, event.item_id);
       break;
     case 'response.mcp_call.failed':
       console.error(`[OpenAI Realtime] MCP tool call failed for item ${event.item_id}`);
-      broadcast({ type: 'error', data: 'Zoom MCP tool call failed' });
+      broadcast({ type: 'error', data: 'MCP tool call failed' });
       clearTimer(session, 'mcpWatchdogTimer');
       break;
     case 'response.output_item.done':
@@ -637,7 +638,7 @@ function handleConversationItemDone(item) {
   if (item.type === 'mcp_list_tools') {
     const names = (item.tools || []).map((tool) => tool.name).join(', ');
     console.log(`[OpenAI Realtime] MCP tools ready on ${item.server_label}: ${names}`);
-    broadcast({ type: 'status', data: `Zoom MCP tools ready: ${names}` });
+    broadcast({ type: 'status', data: `MCP tools ready on ${item.server_label}: ${names}` });
   }
 
   if (item.type === 'mcp_approval_request') {
