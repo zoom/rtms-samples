@@ -103,7 +103,7 @@ async function liveDemo(env) {
   process.on('SIGINT', () => client.close(1000));
   process.on('SIGTERM', () => client.close(1000));
   say(`connecting to ${env.RTMS_SIGNALING_URL}`, { media });
-  const { manifest } = await client.done;
+  const { manifest } = await client.start();
   say('real stream complete', { stop: manifest.stop.name, packets: manifest.stats.packets, degraded: manifest.degraded });
 }
 

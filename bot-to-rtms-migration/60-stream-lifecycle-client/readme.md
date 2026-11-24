@@ -1,63 +1,76 @@
-# 60 Stream lifecycle client
+# 60 Stream lifecycle client (Step 6: stay connected)
 
-## Run this folder alone
+Connects to Zoom's RTMS servers over protocol V2, runs signaling and per-media handshakes, answers keep-alives on every socket, recovers sockets independently inside Zoom's reconnect windows, tracks pause/resume boundaries, handles transcript revisions, and writes a versioned `manifest.json`. `50-start-and-approval` hands each claimed stream here, and `61-media-and-participants` adds participant tracking and camera selection on top.
 
 **Contents**
 
-- [Run the full service against Zoom](#run-the-full-service-against-zoom) - commands and setup
-- [The lifecycle](#lifecycle) and [settings worth knowing](#settings-worth-knowing)
-- [Deduplication, gaps and the manifest](#deduplication-and-the-manifest) and [the latency spans in the trace](#latency-spans-written-to-the-trace)
-- [Test coverage](#test-coverage), [Adapting this sample](#adapting-this-sample) and [files](#files)
-- [Step 6. Stay connected: signaling, media and recovery](#step-6-stay-connected) - the guide chapter: connection order, keep-alives, every failure and its recovery, pause and resume, the artifact record
+- [Run this folder alone](#run-this-folder-alone)
+- [How connection management differs from a bot](#how-connection-management-differs-from-a-bot)
+- [Run against live Zoom](#run-against-live-zoom)
+- [Connection sequence and lifecycle](#connection-sequence-and-lifecycle)
+- [Keep-alives, reconnects, and stop reasons](#keep-alives-reconnects-and-stop-reasons)
+- [Deduplication, transcript revisions, and the manifest](#deduplication-transcript-revisions-and-the-manifest)
+- [RTMS protocol V2 notes](#rtms-protocol-v2-notes)
+- [Test coverage](#test-coverage)
+- [Adapting this sample](#adapting-this-sample)
+- [Files and tests](#files-and-tests)
 
+## Run this folder alone
 
 ```bash
 npm run demo:60    # offline: local mock RTMS server, no credentials, no files
-npm run test:60    # lifecycle, protocol mock and pure-function tests
+npm run test:60    # lifecycle, protocol mock, and pure-function tests
 ```
 
-Offline is the default. `demo:60` connects to a local WebSocket server and runs the whole sequence: handshakes, keep-alives, media, pause and resume, a dropped-socket reconnect, a server replacement, and a final manifest summary. Expect `phase client_ready_sent`, `phase streaming`, then `mock stream complete` with packets, duplicates, keep-alives, reconnects and segment boundaries.
+`demo:60` runs offline against [mockRtmsServer.js](mockRtmsServer.js) and exercises the full lifecycle: V2 handshakes, keep-alives, media delivery and replay deduplication, pause and resume boundaries, dropped-socket recovery, server URL replacement, and final manifest output.
 
-That local server, [mockRtmsServer.js](mockRtmsServer.js), is a test harness that speaks the protocol, not Zoom. The live path always connects to Zoom's real servers. The mock exists only so reconnect, dedup and state-machine logic can be tested without a meeting.
+To run the standalone demo against a live RTMS signaling URL, set `RTMS_SIGNALING_URL`, `ZOOM_CLIENT_ID`, and `ZOOM_CLIENT_SECRET` (`RTMS_MEDIA`, `RTMS_MEETING_ID`, and `RTMS_STREAM_ID` are optional). For the full webhook-to-client flow, use `npm run live` from [50-start-and-approval](../50-start-and-approval/readme.md).
 
-To point the same demo at a real RTMS endpoint, set `RTMS_SIGNALING_URL`, `ZOOM_CLIENT_ID` and `ZOOM_CLIENT_SECRET`. `RTMS_MEDIA`, `RTMS_MEETING_ID` and `RTMS_STREAM_ID` are optional. The full webhook-to-client path is in 50-start-and-approval. This folder can connect only when you already have a signaling URL.
+## How connection management differs from a bot
 
-Connects to Zoom's real RTMS servers. It runs the signaling and media handshakes, answers keep-alives, recovers each socket on its own, treats pause and resume as boundaries, and produces a versioned manifest. The start-and-approval service hands it each claimed stream, and the media-and-participants folder adds participants and cameras on top.
-
-## Meeting SDK bot vs RTMS
-
-| A Meeting SDK bot | RTMS |
+| Meeting SDK bot | RTMS |
 |---|---|
-| The SDK keeps the connection alive and reconnects. | You answer every keep-alive on every socket. Three unanswered and the server closes that socket. |
-| One connection carries audio, video and chat. | One signaling socket plus one media socket per concrete media type. A transcript socket can stream while video recovers. |
-| After a network blip the bot is still in the meeting. | You have about 60 seconds to reconnect signaling. Miss the window and the stream is gone. A new webhook and a new `rtms_stream_id` are needed then. |
-| The SDK records locally through an outage. | Buffered media arrives after a reconnect, and you deduplicate it. A long outage is a gap you must record. |
-| Pause is a meeting concept. | Pause and resume are stream states inside the same stream. |
+| SDK keeps the connection alive and reconnects | You answer every `KEEP_ALIVE_REQ` on every socket; three unanswered closes the socket |
+| One connection carries all media | One signaling socket plus one media socket per media type; transcript can keep streaming while video reconnects |
+| Bot stays in the meeting across brief blips | You have ~60 s to restore signaling and ~30 s for media; missing a window ends the stream and requires a new webhook and `rtms_stream_id` |
+| SDK records locally through outages | Replayed buffered media arrives after reconnect and must be deduplicated; longer outages leave gaps you must record |
+| Pause is a meeting-level concept | `PAUSED` and `RESUMED` are stream state updates inside the same stream |
 
-## Run the full service against Zoom
+## Run against live Zoom
 
 ```bash
-cp .env.example .env              # ZOOM_SECRET_TOKEN, ZOOM_CLIENT_ID, ZOOM_CLIENT_SECRET, TENANT_ACCOUNT_IDS
-npm run live:check                # checks your setup, prints no secrets
-npm run live                      # listens for webhooks, connects to Zoom on rtms_started
+cp .env.example .env    # set ZOOM_SECRET_TOKEN, ZOOM_CLIENT_ID, ZOOM_CLIENT_SECRET, TENANT_ACCOUNT_IDS
+npm run live:check      # verifies config without printing secrets
+npm run live            # listens for webhooks and connects on rtms_started
 ```
 
-Then start a meeting with RTMS enabled. The full walkthrough, including exposing the webhook URL, is in the "Connect to Zoom" section of the 50-start-and-approval readme. You see `connecting to the RTMS signaling server`, then `phase signaling_connected`, `media_connected`, `client_ready_sent`, `streaming`, then `stats` lines with packet counts, and when the stream ends a `manifest.json` under `.data/streams/<tenant>/<stream>/`.
+See [Connect to live Zoom](../50-start-and-approval/readme.md#connect-to-live-zoom) for reverse proxy and Marketplace validation steps. Each completed stream writes `manifest.json` (and optionally `transcript.jsonl`) under `.data/streams/<tenant>/<stream>/`.
 
-To drive the client yourself, build the envelope from a claimed `rtms_started` payload:
+To embed the client directly from a claimed `rtms_started` payload:
 
 ```js
 import { createStreamClient } from './src/streamClient.js';
+
 const client = createStreamClient({
-  envelope: { product: 'meeting', tenantId, meetingId: payload.meeting_uuid, streamId: payload.rtms_stream_id, serverUrls: payload.server_urls },
-  clientId, clientSecret, media: ['audio', 'transcript'], trace
+  envelope: {
+    product: 'meeting',
+    tenantId,
+    meetingId: payload.meeting_uuid,
+    streamId: payload.rtms_stream_id,
+    serverUrls: payload.server_urls
+  },
+  clientId,
+  clientSecret,
+  media: ['audio', 'transcript'],
+  trace
 });
+
 const { manifest, stop } = await client.start();
 ```
 
-[src/liveSession.js](src/liveSession.js) is the ready-made version: it builds the client, adds the participant registry and video subscription from 61-media-and-participants, writes the manifest and optionally the transcript, and logs one JSON line per event.
+[src/liveSession.js](src/liveSession.js) wraps this with the participant registry, single-camera video subscription manager, transcript store, manifest writer, and JSON logging.
 
-## Lifecycle
+## Connection sequence and lifecycle
 
 ```text
 requested -> webhook_received -> signaling_connected -> media_connected -> client_ready_sent -> streaming
@@ -67,209 +80,115 @@ requested -> webhook_received -> signaling_connected -> media_connected -> clien
                                                                        stopped -> artifact_finalized
 ```
 
-Each socket has its own state, attempt counter and timers.
+Every socket tracks its own state, attempt counter, keep-alive watch, and reconnect timer:
 
-1. **Signaling handshake** (`msg_type 1`): protocol version, the meeting, webinar or session ID, `rtms_stream_id`, a random sequence, `buffer_data`, and the signature `HMAC-SHA256(clientSecret, "clientId,meetingId,streamId")`. The webhook's `server_urls` is the signaling URL (a string). Status 8 or a "duplicate signal request" reason retries after backoff. Anything else ends the generation: a bad signature is not retried.
-2. **Media URLs** come back in `media_server.server_urls`, keyed `audio`, `video`, `sharescreen`, `transcript`, `chat`. One media socket per requested type, each with a handshake (`msg_type 3`) carrying one concrete `media_type` and its own parameters. A type with no URL is reported as unavailable. The deprecated aggregate value is never used.
-3. **Event subscription** (`msg_type 5`, V2 `event_code` entries). Without it Zoom sends no participant, speaker or video events. Default: active speaker, join, leave (`1000`, `1001`, `1002`). With individual video it adds sharing start and stop and video on and off, and waits until the video socket is live. With chat it adds the chat group events. Sent again after every signaling reconnect.
-4. **`CLIENT_READY_ACK`** (`msg_type 7`, on the signaling socket) after each successful media handshake, the way the reference manager does, so a slow media socket cannot hold the others back. Sent again only when the set of live sockets changed.
-5. **Keep-alives** are answered on every socket. A socket that hears nothing for 65 seconds is closed by the client and rebuilt on its own.
-6. **Reconnect** uses exponential backoff with full jitter, capped per generation (default 8 attempts) and never scheduled past the socket's window. When signaling drops, Zoom interrupts the media sockets too, so media **waits** with no attempts and no handshake while signaling is down. Signaling back means media reconnects, unless its own window passed. A socket that drops alone reconnects alone.
-7. **Failed recovery or a missed window** finalizes the generation with `degraded` set and `requires_new_generation` true. It does not retry forever.
-8. **Server replaced**: a new `started` webhook for a stream you already hold carries new server URLs. `client.refresh(serverUrls)` closes the old sockets quietly and reconnects to the new server. That is not counted as a failure or a reconnect.
-9. `PAUSED` closes the open segments, `RESUMED` opens new ones with boundary `resume`. A pause is not a new stream. `degraded_or_paused` is not by itself proof of a user pause: a media leg can be interrupted and recover while the stream remains live, so use the `PAUSED`/`RESUMED` events for pause boundaries. `MEDIA_CONNECTION_INTERRUPTED` and `INTERRUPTED` mark the stream degraded.
-10. A server stop (`TERMINATED`, session `STOPPED`) finalizes with `decideStop(reason)`. A controlled stop can move directly through `STOPPED` to `TERMINATED` without an explicit `TERMINATING`. The three-second fallback covers a server that closes the sockets after `TERMINATING`. `client.close()` sends `STREAM_CLOSE_REQ` first.
+1. **Signaling handshake (`msg_type 1`):** opens the `wss://` entry from the webhook's `server_urls` and sends `protocol_version: 2`, product entity ID (`meeting_uuid`, `webinar_uuid`, `session_id`, `engagement_id`, or `call_id`), `rtms_stream_id`, a random `sequence`, `buffer_data`, and `signature = HMAC-SHA256(clientSecret, "clientId,meetingId,streamId")`. Status `8` ("duplicate signal request") retries with backoff; other failures (such as bad signatures) end the generation immediately.
+2. **Media handshakes (`msg_type 3`):** reads `media_server.server_urls` (`audio`, `video`, `sharescreen`, `transcript`, `chat`) and opens one WebSocket per requested concrete media type (audio `1`, video `2`, share `4`, transcript `8`, chat `16`; the deprecated aggregate value `32` is never used). Types missing a URL are logged as `media_unavailable`.
+3. **Event subscription (`msg_type 5`):** subscribes using V2 `event_code` entries only (legacy V1 numbers passed in `subscribeEvents` are mapped automatically; codes `< 1000` arrive without subscription). Default events are active speaker (`1000`), join (`1001`), and leave (`1002`), plus sharing and video on/off (`1003`-`1006`) for individual video (sent once the video socket is ready) and chat group events (`1007`-`1011`) when chat is requested. Subscriptions re-send after every signaling reconnect.
+4. **`CLIENT_READY_ACK` (`msg_type 7`):** sent on signaling after each successful media handshake so a slow socket never blocks ready ones, and resent only when the active socket set changes.
+5. **Streaming and pause/resume:** `PAUSED` closes open segments; `RESUMED` marks the next packet with boundary `resume` inside the same stream. `INTERRUPTED` and `MEDIA_CONNECTION_INTERRUPTED` mark the stream `degraded_or_paused` (so use `PAUSED`/`RESUMED` events specifically for user pause boundaries).
+6. **Server replacement:** a fresh `rtms_started` for a stream you already hold carries replacement `server_urls`. `client.refresh(serverUrls)` closes old sockets quietly and reconnects without counting it as a failure.
+7. **Stop and finalize:** `TERMINATED` or session `STOPPED` finalizes via `decideStop(reason)`. `TERMINATING` disables reconnects and arms a 3-second fallback timer in case sockets close without a final `TERMINATED` frame. `client.close()` sends `STREAM_CLOSE_REQ` (`msg_type 21`) first.
 
-### Settings worth knowing
+### Key settings
 
-- **Reconnect windows.** About 60 seconds for signaling and about 30 seconds for media. The client defaults to exactly that and never retries past the window. Change them with `RTMS_SIGNALING_WINDOW_SEC` and `RTMS_MEDIA_WINDOW_SEC`.
-- **`buffer_data`** defaults to false, matching Zoom's reference manager behavior. Set `RTMS_BUFFER_DATA=true` to also receive media buffered before the handshake finished. Duplicates are dropped by chunk ID either way.
-- **Transcript parameters** default to English with language detection on (`src_language: 9`, `enable_lid: true`), like the reference manager.
+- **Reconnect windows:** `RTMS_SIGNALING_WINDOW_SEC` (default `60`) and `RTMS_MEDIA_WINDOW_SEC` (default `30`). Backoff starts at `RTMS_RECONNECT_BASE_MS` (`1000` ms) with full jitter, capped by `RTMS_RECONNECT_CAP_MS` (`15000` ms in live config, `30000` ms client default) and `RTMS_RECONNECT_MAX_ATTEMPTS` (`8`).
+- **`RTMS_BUFFER_DATA`:** defaults to `false` (matching `library/javascript/rtmsManager`) for lower startup latency. Set `true` to request media buffered before handshake completion; chunk deduplication drops replays either way.
+- **Transcript defaults:** `RTMS_TRANSCRIPT_LANGUAGE_ID=9` (English) and `RTMS_TRANSCRIPT_DETECT_LANGUAGE=true` (`enable_lid: true`).
 
-That is the closest check available without a live stream. It is not a substitute for one: nothing in this repo has yet connected this client to a live Zoom server. Run `npm run live` with a real meeting before you rely on it.
-
-## Deduplication and the manifest
-
-- Every chunk gets `sha256(tenant + meeting + stream + media type + timestamp + bytes)`. Replayed buffered chunks are dropped and counted.
-- A reconnect records the last timestamp before the drop. If the first new timestamp is more than `gapThresholdMs` later, a gap is recorded. Late buffered chunks that fill it are accepted and no gap is written.
-- `noteAcceptedParams()` closes the current segment if the accepted media parameters change, so incompatible parameters never mix in one decode unit.
-- The manifest carries `tenant_id`, `meeting_id`, `stream_id`, `stream_generation`, `previous_stream_id`, `schema_version`, `rtms_protocol_version`, `media_params_hash`, `participant_schema_version`, `artifact_writer_version`, `policy_version`, `consent_ref`, the stop reason, segments, gaps, reconnects and stats. [src/generations.js](src/generations.js) numbers the streams of one meeting and never reuses one.
-- The client counts, hashes and attributes chunks. It does not store audio or video. Put your writer in `onPacket`.
-
-## Latency spans written to the trace
-
-`webhook_to_signaling_connected`, `signaling_ping_rtt` (a WebSocket ping to the real signaling host), `signaling_to_media_handshake`, `media_handshake_to_first_packet`, `reconnect`. The reporting dashboard turns them into p50, p95 and p99.
-
-## Test coverage
-
-The local protocol mock is part of the folder now. It is a test harness, not a Zoom implementation. Live behavior still needs a real meeting. The automated tests follow.
-
-| Covered | How |
-|---|---|
-| Backoff attempts inside a window, giving up when the window passes, the attempt cap, `close()` on a client that never connected, a missing signaling URL | [lifecycle.test.js](lifecycle.test.js), against a local port with nothing listening |
-| Keep-alive requests and replies, media delivery and replay deduplication, pause and resume segments, recovery after both sockets drop, server replacement, silence detection | [lifecycle-mock.test.js](lifecycle-mock.test.js) and `npm run demo:60`, against [mockRtmsServer.js](mockRtmsServer.js) |
-| Default event subscriptions, the screen share URL key, chunk IDs, manifest hashing, generation numbering | [lifecycle.test.js](lifecycle.test.js), pure functions |
-
-**Not covered by the mock**, and verified only by running the full service against a real meeting: Zoom's exact status codes, media waiting for signaling under real failure timing, gap recording on a long outage, the `TERMINATING` grace period, and the phase changes driven by Zoom's messages. The client still accepts a `WebSocketImpl` option for a richer harness.
-
-## Adapting this sample
-
-- **Your media writer.** The client counts, hashes and attributes chunks but stores nothing. Put your storage in the `onPacket` callback of [src/streamClient.js](src/streamClient.js). The manifest and gap bookkeeping keep working whatever you write.
-- **Tuning.** Reconnect windows (`RTMS_SIGNALING_WINDOW_SEC`, `RTMS_MEDIA_WINDOW_SEC`), `RTMS_BUFFER_DATA` and the transcript languages are environment settings, listed under Settings worth knowing. Start there before editing code.
-- **Event subscriptions.** The default set (active speaker, join, leave) is built in [src/streamClient.js](src/streamClient.js) at `msg_type 5`. Add the groups your product needs. They are re-sent after every signaling reconnect, so keep that path intact.
-- **A richer test harness.** The client accepts a `WebSocketImpl` option, so you can inject your own socket implementation without touching the reconnect logic.
-- **Manifest fields.** Add product-specific fields in [src/manifest.js](src/manifest.js) and bump `schema_version` when you do. [src/generations.js](src/generations.js) must keep numbering generations without reuse.
-
-## Files
-
-[src/streamClient.js](src/streamClient.js), [src/liveSession.js](src/liveSession.js), [src/manifest.js](src/manifest.js), [src/generations.js](src/generations.js), [mockRtmsServer.js](mockRtmsServer.js), [demo.js](demo.js), [lifecycle.test.js](lifecycle.test.js) (8 tests), [lifecycle-mock.test.js](lifecycle-mock.test.js) (3 tests).
-
----
-
-## Step 6. Stay connected
-
-With a bot the SDK kept the connection. RTMS keeps the connection alive the same way, but the machinery is yours. You answer the server's keep-alive pings, run reconnect with backoff, and deduplicate anything that arrives twice around a reconnect. The connection code is in `60-stream-lifecycle-client`, with participants and cameras in `61-media-and-participants`.
-
-### The connection sequence
-
-```text
-1. Open the signaling WebSocket (the webhook's server_urls). Send the signaling handshake.
-     fields: protocol version, the meeting / webinar / session ID, rtms_stream_id, a sequence, buffer_data,
-             signature = HMAC-SHA256(clientSecret, "clientId,meetingId,streamId")
-2. The response lists one URL per media type, for audio, video, sharescreen, transcript and chat.
-3. Open one media WebSocket per requested type. Send a media handshake carrying ONE concrete media type
-     and that type's parameters. (The old aggregate "all media" value is deprecated.)
-4. Subscribe to events on the signaling socket. Without this Zoom sends no participant,
-     speaker or video events.
-5. Send CLIENT_READY_ACK on the signaling socket after each successful media handshake.
-6. Receive. Answer every KEEP_ALIVE_REQ with the same timestamp, on EVERY socket.
-```
-
-Concrete media types are audio 1, video 2, screen share 4, transcript 8, chat 16. Why split sockets? Each type gets its own scope and parameter check, can back off on its own, reconnect on its own, and change codec on its own, so a slow consumer on one type cannot block the rest.
+## Keep-alives, reconnects, and stop reasons
 
 ### Keep-alives
 
-Both sockets get keep-alive requests. Three unanswered requests and the server closes that socket, which stops zombie writers and duplicate consumers. If you hear nothing for about 65 seconds, treat the socket as dead and rebuild it. A blocked event loop looks exactly like a dead socket, so keep the loop healthy.
+Zoom sends `KEEP_ALIVE_REQ` (`msg_type 12`) on both signaling and media sockets; reply with `KEEP_ALIVE_RESP` (`msg_type 13`) echoing `timestamp`. Three unanswered requests cause Zoom to close the socket. If a socket sees no keep-alive for 65 seconds, the client terminates and rebuilds that socket alone. A blocked Node event loop looks identical to a dead socket.
 
-### Reconnect behavior by failure
+### Reconnect matrix
 
-| What breaks | What Zoom does | What you do |
+| Failure | What Zoom sends | Client response |
 |---|---|---|
-| A Zoom RTMS server fails | A replacement starts and Zoom sends a **new** `rtms_started` webhook with fresh `server_urls` for the same stream | Move the stream to the new URLs. Close the old sockets quietly. Do not open a second stream |
-| Your signaling socket drops | Zoom interrupts signaling **and** media, and sends `rtms_interrupted` about 60 s into the silence; the terminal `await_reconnection_timeout` follows roughly one more window later. Plan for 60 s, expect ~2 min to full teardown | Reconnect signaling first, then media |
-| Only a media socket drops | Zoom sends the `MEDIA_CONNECTION_INTERRUPTED` event on the live signaling socket | Reconnect only that media socket |
+| Zoom RTMS server replaced | Fresh `rtms_started` webhook with new `server_urls` for the same stream | Call `client.refresh(serverUrls)`: close old sockets quietly and reconnect |
+| Signaling socket dropped | Interrupts signaling and media; `rtms_interrupted` lands ~58 s into silence, terminal `await_reconnection_timeout` (19) ~60 s later | Media sockets wait without burning attempts until signaling recovers; once signaling is ready, reconnect media if its window remains open |
+| Single media socket dropped | `MEDIA_CONNECTION_INTERRUPTED` on live signaling | Reconnect only that media socket while others keep streaming |
 
-The rules follow.
+Rules enforced by the client:
 
-- Reconnect each socket on its own. Never assume they fail or recover together, and a transcript socket can stream while video recovers.
-- A media handshake only works while signaling is up. So media waits for signaling, spends no attempts meanwhile, and reconnects as soon as signaling is back.
-- Do not blindly resend a successful media handshake. Look at the socket and the stream state first.
-- If Zoom rejects a signaling handshake as a duplicate (another connection for this stream is still registered), close yours and retry after backoff. Keep one winner. The client does this.
-- One connection per stream ID, ever. A second connection kicks the first off, not the other way around. Two claimants whose retry logic fires blind will kick each other forever, so gate every reconnect behind the claim fence. The lease owner reconnects. The loser waits and only retries once it has won the lease. Never let a raw socket failure alone authorize a reconnect.
-- Use exponential backoff with jitter, cap the attempts per stream, and never schedule an attempt past the window.
-- If recovery fails or the window passes, finalize that stream and mark it degraded. A restart needs a new webhook and a **new stream**. Never reuse old signaling state.
+- Gate reconnects behind your claim lease in multi-worker deployments so two workers never fight over one `rtms_stream_id`.
+- Never schedule a retry past the socket's reconnect window.
+- When attempts exhaust or a window expires, finalize the generation with `degraded: true` and `requires_new_generation: true`. Wait for a new webhook and new stream ID.
 
-**The windows.** After a disconnect you have 60 seconds to get signaling back and about 30 seconds to get media back. The client defaults to exactly that and never retries past the window. Change them with `RTMS_SIGNALING_WINDOW_SEC` and `RTMS_MEDIA_WINDOW_SEC`. Backoff starts at 1 second here and is capped by `RTMS_RECONNECT_CAP_MS`.
+### Stop reasons
 
-### Stream control operations
+Every stop is terminal for that `rtms_stream_id`. Classify the stop reason before deciding whether policy allows requesting a fresh stream:
 
-A stream can be **paused and resumed without becoming a new stream**. Track the `STREAM_STATE_UPDATE` states `PAUSED` and `RESUMED`, not only active and stopped. Treat the last packet before `PAUSED` and the first after `RESUMED` as segment boundaries.
-
-The client follows these messages and does not query the state itself, so if your own state is uncertain after a resume, query the stream state before you continue.
-
-A **stop is terminal** for that stream. Persist artifacts, map the reason to an action, and if your policy allows a restart wait for a new started webhook with a new stream ID.
-
-The same meeting can have several streams over its life, one generation each. Key your state by tenant, product, meeting and `rtms_stream_id`, number the generations, link each to the previous one, and never overwrite one. Make duplicate stops harmless.
-
-| Reason | Meaning | After you finalize |
+| Reason | Meaning | Post-finalize action |
 |---|---|---|
-| 1 | Host stopped | Do not restart without policy |
-| 2 | App user stopped | Respect their choice |
-| 3 | App user left | Apply your owner-left policy |
-| 4 | User ejected by host | Do not reconnect without consent |
-| 5 | Host disabled the app | Wait for the host to re-enable it |
+| 1 | Host stopped | Respect host stop; do not auto-restart without policy |
+| 2 | App user stopped | Respect user choice |
+| 3 | App user left | Apply owner-left policy |
+| 4 | User ejected by host | Do not reconnect without new consent |
+| 5 | Host disabled app | Wait for host to re-enable |
 | 6 | Meeting ended | Finalize and close state |
-| 7 | Stream canceled | Reconcile. Restart only if policy allows |
-| 8 | Stream revoked | **Delete assets immediately** and confirm. Recheck authorization and consent |
-| 9 | All apps disabled | Alert the admin or host if it persists |
-| 10 | Server internal exception | Retry with backoff if authorized |
-| 11 | Connection timed out | Reconnect by the rules above |
+| 7 | Stream canceled | Reconcile; restart only if policy allows |
+| 8 | Stream revoked | Delete stored artifacts immediately, confirm purge, recheck consent |
+| 9 | All apps disabled | Alert admin/host if persistent |
+| 10 | Server internal exception | Retry new stream with backoff if authorized |
+| 11 | Connection timed out | Follow reconnect rules |
 
-Codes 12 to 26 (instance, signal and data interruptions, authentication failure, await-reconnection timeout, keep-alive timeout, admin disabled, and others) are in [shared/codes.js](../shared/codes.js) with an action each. Their restart column is a reading of the reference library's lookup table, not Zoom policy, so check it against your own rules.
+Codes 12 through 26 (instance/signal/data interruptions, auth failure `18`, await-reconnection timeout `19`, receiver close `20`, Contact Center disconnects `21`-`22`, admin disabled `23`, keep-alive timeout `24`, manual REST stop `25`, streaming unsupported `26`) live in [shared/codes.js](../shared/codes.js). Treat policy-class reasons (`1`, `4`, `5`, `8`, `9`, `23`) as closed gates until a fresh `rtms_started` arrives; Zoom sends no "gate reopened" event.
 
-The decision rule behind both tables is to classify the stop reason before you retry.
+## Deduplication, transcript revisions, and the manifest
 
-- Network-class reasons (10, 11, and the 12 to 26 connection failures) justify an automatic retry under the reconnect rules above.
-- Policy-class reasons (1, 4, 5, 8, 9) mean a human or admin gate is closed, so no retry until it clears.
+- **Chunk deduplication:** every packet gets `chunkId = sha256(tenant + meeting + stream + mediaType + timestamp + bytes)`. Replayed buffered packets are dropped and counted.
+- **Gap tracking:** on media socket close, the client records the last seen stream timestamp. When a post-reconnect chunk arrives at or after that timestamp with a delta exceeding `gapThresholdMs` (default `1500` ms), it records a gap and marks the capture degraded.
+- **Parameter changes:** `noteAcceptedParams()` closes the active segment and opens a new one whenever accepted media parameters change so incompatible frames never mix in one decode unit.
+- **Transcript revisions:** `streamClient.js` forwards `sentence_id`, `attribute`, and `channel_id` on every packet to `onPacket`. When `RTMS_SAVE_TRANSCRIPT=true`, [src/transcriptStore.js](src/transcriptStore.js) replaces existing sentences in place when `attribute: 2` (UPDATE) arrives rather than appending duplicates.
+- **Manifest and generations:** [src/manifest.js](src/manifest.js) writes `tenant_id`, `meeting_id`, `stream_id`, `stream_generation`, `previous_stream_id`, `schema_version`, `rtms_protocol_version`, `media_params_hash`, `participant_schema_version`, `artifact_writer_version`, `policy_version`, `consent_ref`, stop reason, segments, gaps, reconnects, stats, and participant intervals. [src/generations.js](src/generations.js) numbers streams per meeting without reuse.
+- **Latency spans:** writes `webhook_to_signaling_connected`, `signaling_ping_rtt`, `signaling_to_media_handshake`, `media_handshake_to_first_packet`, and `reconnect` to the trace for `70-reporting-dashboard`.
 
-Zoom sends no "gate is open again" event. The first sign of recovery is a fresh `rtms_started`. Treat any silent no-prompt-no-webhook stretch after a policy stop as the gate still being shut, not as a lost request.
+Never mutate finished artifacts. Write raw audio/video storage inside your own `onPacket` callback.
 
-### Missed audio and duplicates
+## RTMS protocol V2 notes
 
-**Can I recover audio missed at startup or during an interruption?** Yes, with a tradeoff.
+This client sends `protocol_version: 2` in both handshakes, opens one data socket per concrete media type, subscribes via `event_code`, and extracts the `wss://` entry from comma-separated V2 `server_urls`.
 
-- `buffer_data: true` in the signaling handshake delivers media buffered before the handshake finished, which you may see twice.
-- `false` favors startup latency and avoiding duplicates. The reference library sends false, and so does this client by default (`RTMS_BUFFER_DATA`).
+- **TLS:** TLS 1.2 or 1.3 is required on every connection.
+- **Wire format and transports:** V2 adds protobuf framing (this client uses JSON), SRT data transport (`srt_passphrase`, `srt_pbkey_length`), AEAD payload encryption by request, and `REQUEST_ERROR_RESP` for failed requests.
+- **Video and audio details:** SD video is 640x360, PNG is removed for video and screen share, `MEDIA_DATA_AUDIO` includes `content.source` (`1` microphone, `2` shared content), and `MEDIA_DATA_USER_INFO` arrives automatically on Meetings with `user_id`, `user_name`, and `participant_uuid`. Multi-camera (up to four concurrent 720p streams) requires server enablement by request.
+- **Audio packet framing:** one frame per message for RTP and raw Opus/G711/G722; variable frames up to 128 KiB for L16.
 
-After a reconnect, buffered media arrives once the new connection is up. Deduplicate it by stream, timestamp and content. Buffering does not cover an arbitrarily long outage, so compare timestamps, record the gap, and mark that segment degraded.
+## Test coverage
 
-
-### The artifact record and its versions
-
-Every stream and artifact carries these fields, so you can replay, remux or migrate later without guessing what produced it.
-
-| Field | Meaning |
+| Covered | How |
 |---|---|
-| `schema_version` | Your event and manifest shape |
-| `rtms_protocol_version` | The version sent in the signaling handshake |
-| `stream_generation`, `previous_stream_id` | Which stream of the meeting this is |
-| `media_params_hash` | Hash of the accepted media parameters. If it changes inside a capture, close the segment and open a new one |
-| `participant_schema_version` | Your participant model version |
-| `artifact_writer_version` | Your encoder and storage writer version |
-| `policy_version`, `consent_ref` | The policy snapshot and consent record in force |
+| Backoff inside windows, window expiry, attempt cap, `close()` before connect, missing signaling URL, V2 `event_code` mapping, `sharescreen` URL key, comma-separated URLs, chunk IDs, generations | [lifecycle.test.js](lifecycle.test.js) (10 tests, local closed port and pure functions) |
+| V2 handshakes, keep-alives, media replay dedupe, pause/resume segments, full interrupt recovery, server URL replacement, keep-alive silence detection, transcript revisions | [lifecycle-mock.test.js](lifecycle-mock.test.js) (4 tests) and `npm run demo:60` against [mockRtmsServer.js](mockRtmsServer.js) |
 
-Never mutate an original artifact. Keep writing the old version until a tested writer is enabled. The client writes these into [manifest.json](src/manifest.js), plus segments, gaps, reconnects, stop reason and participant intervals. It does not store audio or video: put your writer in `onPacket`.
+**Validate on a live Zoom meeting before production:** exact Zoom error codes under your account policies, media waiting on signaling under real network drops, sustained-outage gap timing, and real `TERMINATING` teardown timing.
 
-### Verification coverage
+## Adapting this sample
 
-| Verified | How |
-|---|---|
-| Backoff and giving up when a server is unreachable, the attempt cap, closing a client that never connected, subscription defaults, chunk IDs, generations | Unit tests, with nothing listening on the port |
-| Participant registry, one-camera subscription logic, media parameters | Unit tests |
-| Meeting-level policy for two users, the capture filter, per-user tokens with refresh and reauthorization, verified deauthorization, REST pause and resume | Unit tests, plus a run of the real server against its HTTP routes (nothing connected to Zoom) |
-| An established connection: handshakes, keep-alives, media delivery, replay deduplication, `PAUSED`/`RESUMED` segment boundaries, reconnect and recovery, replacement server URLs, scripted terminal states, and manifest counters | [60-stream-lifecycle-client](../60-stream-lifecycle-client/readme.md): [`lifecycle-mock.test.js`](lifecycle-mock.test.js) and `npm run demo:60`, against the repository's mock RTMS server |
-| Silence detection and recovery without hard-coded waits | The same lifecycle mock tests |
+- **Media storage:** attach your audio/video writer in `onPacket` of [src/streamClient.js](src/streamClient.js) (or [src/liveSession.js](src/liveSession.js)).
+- **Reconnect and format tuning:** adjust `RTMS_SIGNALING_WINDOW_SEC`, `RTMS_MEDIA_WINDOW_SEC`, `RTMS_BUFFER_DATA`, and `RTMS_TRANSCRIPT_*` in `.env` before editing code.
+- **Event subscriptions:** edit `defaultEventSubscriptions` in [src/streamClient.js](src/streamClient.js) or pass `subscribeEvents` (kept intact across signaling reconnects).
+- **Custom test socket:** inject a custom `WebSocketImpl` into `createStreamClient()`.
+- **Manifest schema:** add product fields in [src/manifest.js](src/manifest.js) and increment `MANIFEST_SCHEMA_VERSION`.
 
-### Shipped protocol features to plan for
+## Files and tests
 
-The features Zoom announced in its November release are now live, and this client speaks RTMS protocol V2. Both handshakes send `protocol_version: 2` (`RTMS_PROTOCOL_VERSION` in [shared/codes.js](../shared/codes.js)), each media type has its own data connection, event subscriptions and updates use `event_code`, and comma-separated `server_urls` values resolve to their `wss://` entry. Zoom Phone uses the same protocol through [library/javascript/rtmsManager](../../library/javascript/rtmsManager/RTMSManager.js) and its `PRESETS.PHONE`.
-
-- TLS 1.2 or 1.3 is required on every connection. Pin your Node TLS range now.
-- The V2 protocol adds a protobuf wire format (this client uses JSON) and `event_code` replacing the legacy `event_type`. Subscriptions send `event_code` only, mapped from `EVENT_CODE` in [shared/codes.js](../shared/codes.js); legacy numbers passed in `subscribeEvents` are converted.
-- An SRT transport option exists for data connections (`srt_passphrase` and `srt_pbkey_length` in the handshake response), alongside AEAD payload encryption by request and a `REQUEST_ERROR_RESP` message with `status_code` and `reason` for failed requests.
-- Multiple individual video streams, up to four concurrent 720p subscriptions per stream, are a server feature enabled by request.
-- SD video is 640x360 and PNG is gone for video and screen share.
-- Transcript rewind is live. Corrections arrive as UPDATE events with the same `sentence_id` and the full replacement text whenever `enable_lid` is on. Replace the sentence, do not append. The sample writer handles this in [src/transcriptStore.js](src/transcriptStore.js), active when `RTMS_SAVE_TRANSCRIPT=true`.
-- `MEDIA_DATA_USER_INFO` arrives unsubscriptioned on the event channel with `user_id`, `user_name` and `participant_uuid` (Meetings only). `MEDIA_DATA_AUDIO` carries `content.source` (1 microphone, 2 shared content).
-- Audio boundaries are one frame per message for RTP and raw Opus/G711/G722, and variable frames up to 128 KiB for L16.
-
-The mock is a protocol harness, not Zoom. Before production, validate the remaining real-service behavior: Zoom's exact status codes and phase timing, media waiting for signaling under real failure timing, sustained-outage timing, and the real `TERMINATING` grace period. A live meeting is the only real check.
-
----
+- Source: [src/streamClient.js](src/streamClient.js), [src/liveSession.js](src/liveSession.js), [src/manifest.js](src/manifest.js), [src/generations.js](src/generations.js), [src/transcriptStore.js](src/transcriptStore.js), [mockRtmsServer.js](mockRtmsServer.js), [demo.js](demo.js).
+- Tests (`npm run test:60`, 14 tests): [lifecycle.test.js](lifecycle.test.js) (10 tests), [lifecycle-mock.test.js](lifecycle-mock.test.js) (4 tests).
 
 ---
 
 ## Elsewhere in the guide
 
-All nine parts link below. Start from the [overview](../readme.md).
+Start from the [overview](../readme.md).
 
-- [00 Design](../00-design/readme.md) - Production architecture: failure drills, media choices, observability, the webhook SLO
-- [10 Integration Advisor](../10-integration-advisor/readme.md) - Step 1. What changes, which sample to start from, the gap-checker
-- [20 Configure](../20-configure/readme.md) - Step 2. The Marketplace app: manifest, scopes, events, credentials
-- [30 Publish](../30-publish/readme.md) - Step 3. Review, evidence and the rejections to avoid
-- [40 Prepare](../40-prepare/readme.md) - Step 4. Admin enablement, host approval, consent, the status codes
-- [50 Start And Approval](../50-start-and-approval/readme.md) - Step 5. The webhook endpoint, deduplication, claims, the tenant gate, OAuth
-- [61 Media And Participants](../61-media-and-participants/readme.md) - Step 6. The participant registry, the camera selector, media profiles
-- [70 Reporting Dashboard](../70-reporting-dashboard/readme.md) - Step 7. The dashboard, alerts, the event contract, the production checklist
-- [The root readme](../readme.md) - the seven steps, the plan and licensing checks, the reuse table
-
+- [00 Design](../00-design/readme.md) - Production architecture, failover drills, media choices, observability, webhook SLO
+- [10 Integration Advisor](../10-integration-advisor/readme.md) - Step 1: what changes, starter samples, gap checker
+- [20 Configure](../20-configure/readme.md) - Step 2: Marketplace manifest, scopes, events, credentials
+- [30 Publish](../30-publish/readme.md) - Step 3: review package, checks, common rejections
+- [40 Prepare](../40-prepare/readme.md) - Step 4: admin enablement, host approval, consent, status codes
+- [50 Start and Approval](../50-start-and-approval/readme.md) - Step 5: webhook intake, claims, tenant gate, OAuth
+- [61 Media and Participants](../61-media-and-participants/readme.md) - Step 6: participant registry, camera selector, media profiles
+- [70 Reporting Dashboard](../70-reporting-dashboard/readme.md) - Step 7: dashboard, alerts, event contract, rollout

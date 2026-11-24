@@ -83,7 +83,10 @@ const oauth = createOAuth({
 
 // Stop reason 8 (stream revoked) requires deleting that stream's artifacts. The reconciler
 // lists every file under the stream directory and removes it; both operations are idempotent.
-const streamArtifactDir = (stream) => path.join(live.outputDir, String(stream.tenantId || 'unknown'), String(stream.streamId));
+// Use the same directory sanitization as liveSession.js so real stream IDs (which can contain
+// `/` or `+`) match on disk and cannot traverse paths.
+const safePathPart = (s) => String(s).replace(/[^A-Za-z0-9_-]/g, '_').slice(0, 80);
+const streamArtifactDir = (stream) => path.join(live.outputDir, safePathPart(stream.tenantId || 'unknown'), safePathPart(stream.streamId));
 const listArtifacts = async (stream) => {
   try {
     const dir = streamArtifactDir(stream);
@@ -189,27 +192,17 @@ app.get('/oauth/authorize', (_req, res) => {
 app.get('/oauth/callback', async (req, res) => {
   const code = String(req.query.code || '');
   const state = String(req.query.state || '');
-    try {
-      const result = await oauth.completeAuthorization({ code, state });
-    log.info('user authorized', { userId: result.userId, status: result.status });
+  try {
+    // Marketplace's own Authorize button sends ?code with no state parameter at all.
+    // When a state parameter is present, verify it strictly so invalid or expired states fail closed.
+    const result = state
+      ? await oauth.completeAuthorization({ code, state })
+      : await oauth.completeAuthorizationDirect({ code });
+    log.info(state ? 'user authorized' : 'marketplace-initiated authorization', { userId: result.userId, status: result.status });
     res.status(200).send(result.status === 'authorized' ? 'Authorized. You can close this window.' : 'Authorized, but the app needs more permissions. Please authorize again.');
-    } catch (error) {
-      // Only a state problem falls through to the marketplace-initiated path. A token-exchange
-      // failure under a valid state is the real error: retrying the same code without state would
-      // double-exchange and mask it.
-      if (error.message !== 'invalid_or_expired_state') {
-        log.warn('authorization failed', { error: error.message });
-        res.status(400).send(`Authorization failed. Authorize via ${publicBaseUrl || '/oauth/authorize'} and try again.`);
-        return;
-      }
-      try {
-        const result = await oauth.completeAuthorizationDirect({ code });
-      log.info('marketplace-initiated authorization', { userId: result.userId, status: result.status, stateError: error.message });
-      res.status(200).send(result.status === 'authorized' ? 'Authorized. You can close this window.' : 'Authorized, but the app needs more permissions. Please authorize again.');
-      } catch (directError) {
-        log.warn('authorization failed', { error: directError.message, stateError: error.message });
-        res.status(400).send(`Authorization failed. Authorize via ${publicBaseUrl || '/oauth/authorize'} and try again.`);
-      }
+  } catch (error) {
+    log.warn('authorization failed', { error: error.message });
+    res.status(400).send(`Authorization failed. Authorize via ${publicBaseUrl || '/oauth/authorize'} and try again.`);
   }
 });
 // Zoom posts here when a user removes the app. Delete the tokens and every other piece of that user's data.

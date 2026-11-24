@@ -138,6 +138,18 @@ test('stream revoked asks for purge and raises an alert', async () => {
   assert.equal(s.calls.stopped[0].d.purge, true);
 });
 
+test('late stream_revoked after releaseStream still purges and alerts, and releaseStream frees concurrency', async () => {
+  const s = setup();
+  await s.send('meeting.rtms_started', started(), { eventTs: 1 });
+  await s.send('rtms.concurrency_limited', { account_id: 'A1', concurrency_number: 10, concurrency_limit: 10 }, { eventTs: 2 });
+  assert.equal(s.service.startsAllowed({ critical: true }).reason, 'concurrency_limited');
+  s.service.releaseStream('S1', 'client_finished');
+  assert.equal(s.service.startsAllowed({ critical: true }).allowed, true, 'releasing a stream frees a slot from limited to near');
+  await s.send('meeting.rtms_stopped', { account_id: 'A1', meeting_uuid: 'M1', rtms_stream_id: 'S1', stop_reason: 8 }, { eventTs: 3 });
+  assert.equal(s.calls.alerts.at(-1).type, 'stop_alert');
+  assert.equal(s.calls.stopped.at(-1).d.purge, true);
+});
+
 test('an interrupted webhook is recorded and does not open anything', async () => {
   const s = setup();
   await s.send('meeting.rtms_started', started(), { eventTs: 1 });

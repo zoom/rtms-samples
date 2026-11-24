@@ -134,6 +134,7 @@ export function createParticipantRegistry({ tenantId = null, meetingId, streamId
     }
     if (userId == null || userId === 0) return; // nobody is the active speaker
     const p = person(userId, name, ts, true);
+    if (!p.present) { p.present = true; openInterval(p.presence, ts); }
     openInterval(p.speaking, ts);
     speaking = { userId };
     notify({ type: 'speaker', userId });

@@ -11,7 +11,7 @@ import { rtmsHandshakeSignature, signWebhook, urlValidationResponse, verifyWebho
 import { createClaimRegistry, streamKey } from './claims.js';
 import { createTenantGate } from './tenantGate.js';
 import { createTrace, readTrace } from './trace.js';
-import { normalizeStartedPayload } from './rtmsPayload.js';
+import { isInterruptedEvent, isStartedEvent, isStoppedEvent, normalizeStartedPayload } from './rtmsPayload.js';
 
 const SECRET = 'test-secret';
 
@@ -46,6 +46,19 @@ test('payload shape accepts flat and payload.object forms', () => {
   const flat = normalizeStartedPayload('meeting.rtms_started', { meeting_uuid: 'M', rtms_stream_id: 'S', account_id: 'A' });
   const nested = normalizeStartedPayload('meeting.rtms_started', { object: { meeting_uuid: 'M', rtms_stream_id: 'S', account_id: 'A' } });
   assert.deepEqual([flat.meetingId, flat.streamId, flat.accountId], [nested.meetingId, nested.streamId, nested.accountId]);
+});
+
+test('lifecycle event matchers cover meetings, webinars, Video SDK, Contact Center and Phone', () => {
+  for (const e of ['meeting.rtms_started', 'webinar.rtms_started', 'session.rtms_started', 'contact_center.voice_rtms_started', 'phone.call_rtms_started']) {
+    assert.equal(isStartedEvent(e), true, e);
+  }
+  for (const e of ['meeting.rtms_stopped', 'contact_center.voice_rtms_stopped', 'phone.call_rtms_stopped']) {
+    assert.equal(isStoppedEvent(e), true, e);
+  }
+  for (const e of ['meeting.rtms_interrupted', 'contact_center.voice_rtms_interrupted', 'phone.call_rtms_interrupted']) {
+    assert.equal(isInterruptedEvent(e), true, e);
+  }
+  assert.equal(normalizeStartedPayload('phone.call_rtms_started', { call_id: 'C1', rtms_stream_id: 'S1', account_id: 'A1' }).product, 'phone');
 });
 
 test('claim registry: one winner, duplicate rejected, stale lease superseded and fenced', () => {

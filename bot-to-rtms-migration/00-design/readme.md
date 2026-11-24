@@ -1,301 +1,268 @@
 # 00 Backend design
 
-Design documentation for a production RTMS backend. It covers the architecture that survives real traffic, the media and codec choices to make before the first packet, the observability that tells the truth, and the webhook edge everything else depends on.
-
-Read it before writing production code.
+Production backend design for Zoom RTMS. Read this before writing production code: it covers horizontal scaling, failover, media and codec trade-offs, observability, and webhook ingress reliability.
 
 **Contents**
 
-- [01 Resilient architecture](#01-resilient-architecture) - the four-concern shape, stream ownership, reconnection, the shared store, capacity, failure drills
-- [02 Media and codec planning](#02-media-and-codec-planning) - the decision table and the five choices to make explicitly
-- [03 Observability](#03-observability) - the event log, metrics, alerting, tracing
-- [04 Webhook resilience](#04-webhook-resilience) - the contract as an SLO, ingress, retries and duplicates, the operational checklist
+- [01 Resilient architecture](#01-resilient-architecture)
+- [02 Media and codec planning](#02-media-and-codec-planning)
+- [03 Observability](#03-observability)
+- [04 Webhook resilience](#04-webhook-resilience)
 
-Primary external sources, mirrored here with credit.
+Primary references:
 
-- Zoom's distributed reference implementation - <https://github.com/zoom/rtms-samples/tree/main/rtms-distributed-sample>
-- Failover and reconnection - <https://developers.zoom.us/docs/rtms/meetings/failover-reconnection/>
-- Media formats and handling - <https://developers.zoom.us/docs/rtms/meetings/media/>
-- The single-instance reference in this repo - steps 5 and 6, and `60-stream-lifecycle-client` with `61-media-and-participants`
+- Zoom's multi-node reference: [rtms-distributed-sample](https://github.com/zoom/rtms-samples/tree/main/rtms-distributed-sample)
+- [Failover and reconnection](https://developers.zoom.us/docs/rtms/meetings/failover-reconnection/)
+- [Media formats and handling](https://developers.zoom.us/docs/rtms/meetings/media/)
+- Single-instance reference in this guide: [50-start-and-approval](../50-start-and-approval/readme.md), [60-stream-lifecycle-client](../60-stream-lifecycle-client/readme.md), and [61-media-and-participants](../61-media-and-participants/readme.md)
 
 ## 01 Resilient architecture
 
-How a production RTMS backend is structured to scale horizontally, survive instance death, and reconnect the way Zoom's own reference implementations do.
-
-Primary source: Zoom's [rtms-distributed-sample](https://github.com/zoom/rtms-samples/tree/main/rtms-distributed-sample), the official multi-node reference. This section states the architecture and the reasons behind each piece. The reference shows it as running code.
-
-### The shape
-
-A distributed RTMS backend separates the four concerns that a single-process sample welds together.
+A distributed RTMS backend separates the four concerns that a single-process sample keeps together.
 
 ```text
                     +---------------------+
- webhooks  -------> |  webhook ingress     |  stateless, N replicas, 200 in <3 s
-                    |  (validate+enqueue)  |  behind a load balancer
+ webhooks  -------> |  webhook ingress    |  stateless, N replicas, 200 in <3 s
+                    |  (validate+enqueue) |  behind a load balancer
                     +----------+----------+
-                               | queue (per-stream ordering!)
+                               | queue (per-stream ordering)
                     +----------v----------+
-                    |  stream workers      |  one stream = one worker at a time
-                    |  signaling + media   |  leases, heartbeats, graceful handoff
+                    |  stream workers     |  one stream = one worker at a time
+                    |  signaling + media  |  leases, heartbeats, graceful handoff
                     +----------+----------+
                                |
           +--------------------+--------------------+
-          |                  |                     |
-   +------v-----+    +-------v------+    +---------v---------+
-   | state store |   | artifact      |   | observability      |
-   | leases,     |   | store         |   | metrics, traces,   |
-   | dedupe,     |   | versioned,    |   | logs, stream clock |
-   | seq windows |   | tenant-scoped |   |                    |
-   +-------------+    +---------------+   +--------------------+
+          |                    |                    |
+   +------v-----+      +-------v------+    +--------v----------+
+   | state store|      | artifact     |    | observability     |
+   | leases,    |      | store        |    | metrics, traces,  |
+   | dedupe,    |      | versioned,   |    | logs, stream clock|
+   | seq windows|      | tenant-scoped|    |                   |
+   +------------+      +--------------+    +-------------------+
 ```
 
-The single-instance path in this repo (`50-start-and-approval`, `60-stream-lifecycle-client`) is the same state machine on one node. Scale-out changes where the state lives, not what the states are.
+The single-instance service in `50-start-and-approval` and `60-stream-lifecycle-client` runs the same state machine on one node. Scaling out moves state into shared storage while keeping the state transitions unchanged.
 
 ### Stream ownership
 
-The cardinal rule of a distributed RTMS backend is that **two live connections to one stream is a defect, not a feature**, because the second kicks the first. Therefore,
+Two live connections to the same stream break capture because the second connection kicks the first. Enforce single ownership:
 
-- A stream is owned by exactly one worker at a time, enforced by a **lease** in the shared store (TTL, renewed by heartbeat).
-- Webhook ingress never connects. It records the event and enqueues `stream_id -> event`.
-- A worker claims a stream by taking the lease. The queue routes that stream's events to the lease holder.
-- On worker death the lease expires and another worker claims the stream from the last durable state.
-
-Ordering within a stream matters (sequence numbers, dedupe keys), so a partitioned queue keyed by `stream_id` - or a work queue with per-stream claiming - is required. A single shared FIFO that interleaves two streams' events is fine. A fan-out that duplicates them is not.
+- One worker owns a stream at a time, enforced by a lease with a TTL and heartbeat renewal in a shared store.
+- Webhook ingress never opens WebSockets. It validates the signature, records the event, and enqueues `stream_id -> event`.
+- A worker claims a stream by acquiring its lease. A partitioned queue keyed by `stream_id` (or a work queue with per-stream claiming) preserves per-stream ordering for sequence numbers and dedupe keys.
+- When a worker dies, its lease expires and another worker takes over from durable state. A worker that loses its lease must close its sockets immediately with no overlap period.
 
 ### The four reconnection scenarios
 
-From Zoom's [Failover and reconnection](https://developers.zoom.us/docs/rtms/meetings/failover-reconnection/) - the state machine your worker implements, and the triggers that select each branch:
+From Zoom's [Failover and reconnection](https://developers.zoom.us/docs/rtms/meetings/failover-reconnection/) guide:
 
-| # | Scenario | Trigger | Recover by |
+| # | Scenario | Trigger | Recovery |
 |---|---|---|---|
-| 1 | RTMS server failure | `meeting.rtms_started` arrives for an **already-active** stream | Tear down all sockets, reconnect everything to the (possibly new) `server_urls`. The `meeting_uuid` and `rtms_stream_id` are unchanged |
-| 2 | Signaling dropped | `meeting.rtms_interrupted` webhook | Reconnect signaling **and** media, with exponential backoff. Observed live: the interrupted event lands ~58 s into the silence and the terminal `await_reconnection_timeout` (19) follows about 60 s later, so the whole kill takes ~2 min - but treat 60 s as the working budget (see B9) |
-| 3 | One media leg dropped | `MEDIA_CONNECTION_INTERRUPTED` signal on that socket | Reconnect **only** the affected media connection(s). The rest keep running |
-| 4 | Stream terminated | `meeting.rtms_stopped` with `stop_reason` 10-19 or 24 | Full restart: a fresh `rtms_started` is required. Do not reconnect onto a dead stream |
+| 1 | RTMS server failure | `meeting.rtms_started` arrives for an already-active stream | Close old sockets quietly and reconnect to the new `server_urls`. `meeting_uuid` and `rtms_stream_id` stay unchanged |
+| 2 | Signaling dropped | `meeting.rtms_interrupted` webhook | Reconnect signaling, then media, with exponential backoff. Live observations show `rtms_interrupted` arriving ~58 s into silence and terminal `await_reconnection_timeout` (19) ~60 s later (~2 min total), but treat 60 s as your working budget |
+| 3 | One media leg dropped | `MEDIA_CONNECTION_INTERRUPTED` event on signaling | Reconnect only the affected media socket while the other sockets keep running |
+| 4 | Stream terminated | `meeting.rtms_stopped` with `stop_reason` 10-19 or 24 | Wait for a fresh `rtms_started` webhook. Never reconnect onto a dead stream |
 
-**Backoff (scenarios 2 and 3):** start at 3 s, double per attempt, cap at 30 s. Reset the attempt counter to 0 after every successful handshake so failures do not compound. Never reconnect without the counter reset - a flapping socket then hammers the server at the base delay forever.
+**Backoff (scenarios 2 and 3).** Zoom's failover guide recommends starting at 3 s, doubling per attempt, and capping at 30 s (`60-stream-lifecycle-client` defaults to 1 s base with jitter and a 15 s live cap / 30 s client cap, tunable via `RTMS_RECONNECT_*`). Reset the attempt counter to 0 after every successful handshake so past failures do not keep delays pinned or hammer the server.
 
-**The reconnect windows are hard budgets.** After an interruption you have ~60 s to restore signaling and then ~30 s for media. The 60-stream-lifecycle-client in this repo encodes them as `RTMS_SIGNALING_WINDOW_SEC` / `RTMS_MEDIA_WINDOW_SEC`. A distributed worker must treat them identically and escalate to a full restart (scenario 1 semantics) when a window is blown.
+**Hard reconnect windows.** After an interruption you have roughly 60 s to restore signaling and 30 s for media (`RTMS_SIGNALING_WINDOW_SEC` and `RTMS_MEDIA_WINDOW_SEC` in `60-stream-lifecycle-client`). Once a window expires, finalize the generation and wait for a new stream.
 
-**Idempotent handshakes.** Reconnects reuse the same signed credentials from the original `rtms_started` payload - which is why the payload is the durable recovery record and is never rebuilt from the REST APIs.
+**Idempotent handshakes.** Reconnects reuse the signed credentials from the original `rtms_started` payload. Persist that raw payload as your recovery record instead of trying to reconstruct it from REST APIs.
 
 ### Shared store contents
 
-Minimum durable state, all keyed by `stream_id`.
+Minimum durable state keyed by `stream_id`:
 
-| Data | Why |
+| Data | Purpose |
 |---|---|
-| The raw `rtms_started` payload | Recovery record: credentials, `server_urls`, operator, timestamps |
-| Lease (owner, expiry) | Single-writer guarantee |
-| Last sequence number per media socket | Gap and duplicate detection across reconnects |
-| Dedupe keys (event+account+meeting+stream+ts) | Webhook retries, at-least-once queues, and double-delivery |
-| Stream phase (`connecting/streaming/interrupted/finalized`) | Health, alerting, and safe worker handoff |
-| Artifact manifest references | What was written, where, under which retention/consent |
+| Raw `rtms_started` payload | Recovery record: `server_urls`, operator, timestamps |
+| Lease (owner, expiry, fencing generation) | Single-writer guarantee |
+| Last sequence number or timestamp per media socket | Gap and duplicate detection across reconnects |
+| Dedupe keys (`event + account + meeting + stream + event_ts`) | Idempotent webhook retries and at-least-once queues |
+| Stream phase (`connecting`, `streaming`, `interrupted`, `finalized`) | Health checks, alerting, safe worker handoff |
+| Artifact manifest references | What was written, where, and under which retention and consent |
 
-Everything else (packets, transcripts) flows to the artifact store and never needs to survive a worker.
+Raw packets and transcripts belong in the artifact store, not in worker state.
 
 ### Capacity and concurrency at scale
 
-The single-layer numbers still bind. A concurrent stream is one RTMS **session ID** per media socket, the default account limit is 2,000 sessions, and `rtms.concurrency_near_limit` / `rtms.concurrency_limited` are the autoscaling signals. In a distributed deployment,
+A concurrent stream is one RTMS session ID per media socket. The default Developer Pack limit is 2,000 sessions (5 on the free trial). `rtms.concurrency_near_limit` and `rtms.concurrency_limited` arrive per account:
 
-- Shed *before* the limit, with admission control at ingress rather than a pile-up of doomed workers.
-- Place streams by worker capacity (sockets per worker is your unit. Each media socket is a real WebSocket with backpressure).
-- Treat `concurrency_limited` as a capacity event to page on, and near-limit as the scale signal - the events arrive per account, so your ingress can reject early with a clean `started: false` instead of accepting and starving.
+- Enforce admission control at ingress so you shed noncritical starts before hitting the hard limit.
+- Size workers by sockets per worker, since each media socket is a WebSocket with backpressure.
+- Page on `rtms.concurrency_limited` and autoscale on `rtms.concurrency_near_limit`.
 
-The dashboard a worker fleet feeds is the same panel set the 70-reporting-dashboard renders against real streams.
+The single-instance dashboard in [70-reporting-dashboard](../70-reporting-dashboard/readme.md) plots the same panel set against live traces.
 
 ![Live dashboard with real trace](../docs/screenshots/15-dashboard-live.png)
 
 ### Failure drills
 
-A design is resilient only after these drills have run against the real deployment.
+Run these drills against your real deployment before launch:
 
-1. Kill a worker mid-stream (lease expiry claim by a second worker. No duplicate sockets. Sequence continuity).
-2. Drop signaling only (scenario 2 recovery inside the window. Media resumes. Sequence gap report clean).
-3. Drop one media leg (scenario 3). The other legs run uninterrupted.
-4. Simulate Zoom server failure (re-delivered `rtms_started` for a live stream. Scenario 1 full reconnect to new URLs).
-5. Queue backlog while a worker is down, then recovery - no lost `stopped`, no phantom live stream.
-6. The chaos harness: Zoom's [reconnection and chaos mode sample](https://github.com/zoom/rtms-samples/tree/main/rtms_api/reconnection_and_chaos_mode_js) exists precisely to test this machinery. Run it against your own implementation too.
+1. Kill a worker mid-stream and verify lease expiry, takeover by a second worker, zero duplicate sockets, and sequence continuity.
+2. Drop signaling only (scenario 2) and verify recovery within the 60 s window and clean gap reporting.
+3. Drop one media socket (scenario 3) and verify the remaining media sockets continue unaffected.
+4. Re-deliver `rtms_started` with new `server_urls` for a live stream (scenario 1) and verify clean reconnection.
+5. Build a queue backlog while a worker is down and verify no dropped `rtms_stopped` events and no orphaned live streams.
+6. Run Zoom's [reconnection and chaos mode sample](https://github.com/zoom/rtms-samples/tree/main/rtms_api/reconnection_and_chaos_mode_js) against your service.
 
-### Excluded components
+### Patterns to avoid
 
-- **A connection per meeting per service.** One owner, one connection set. Everyone else consumes artifacts or a fan-out of processed events.
-- **Stateful ingress.** The moment your load balancer needs affinity for correctness, a deploy becomes an outage.
-- **Reconnect-on-timer.** Every reconnect is trigger-driven (webhook or socket event) with backoff. Timers only arm watchdogs that *detect*, never ones that *retry*.
-- **Silent lease steals.** A worker that loses its lease must close its sockets immediately. A grace period with two owners is the duplicate-connection defect with extra steps.
+- **One connection per downstream consumer.** One worker owns the connection set; other services read artifacts or a fan-out bus.
+- **Stateful ingress.** Load-balancer session affinity turns every deploy into dropped webhooks.
+- **Blind timer reconnects.** Drive reconnects from webhook or socket close events with backoff. Use timers only for silence watchdogs.
+- **Silent lease steals.** A fenced worker must close its sockets immediately to prevent duplicate connections.
 
-**Trial versus paid behaves the same.** Nothing in the RTMS flow differs on a free-trial account - same webhooks, same reconnect windows, same event semantics. The only documented difference is capacity: the free trial allows 5 concurrent streams against 2,000 on a Developer Pack (see 70-reporting-dashboard). Prototype on the trial, load-plan against the paid limit.
+### Trial behavior and host death
 
-**A dead node ends the stream; a new stream needs a new `rtms_started`.** If the node holding the sockets dies - crash, kill -9, extended network outage - the graceful in-process close path never runs, so there is no receiver-requested close and no reuse of the old stream. Observed live (B9): the crash path ends in terminal `await_reconnection_timeout` (19) about two minutes after the silence starts, and a fresh `rtms_started` lands roughly 20 s later. Reconnect windows are for *socket* drops, not *host* death - after host death, plan for scenario 4 semantics. The restart columns in the stop-reason table are a reading of the reference library's lookup table, not Zoom policy - treat "new stream required" as the safe default after any host-level failure.
-
-**Node-death detection is your infrastructure, not the SDK's.** The websocket client detects its own break in about 1-2 s (B3: 1.2 s signaling, 2.1 s transcript/audio) and reconnects silently. What no SDK gives you is noticing that a *node* stopped answering while its sockets look fine from inside - the silent-partition case. That needs an external heartbeat or health checker watching each worker (process liveness, socket state, last sequence advance) with authority to kill and reassign. It is deployment plumbing, and the lease/heartbeat store in 01 is where it hangs off.
+- **Trial vs paid accounts.** Free-trial accounts use the same webhooks, reconnect windows, and event semantics as paid accounts. Only the concurrency ceiling differs: 5 concurrent streams on trial versus 2,000 on a Developer Pack.
+- **Host death ends the stream.** If the worker process crashes (`kill -9` or host outage), graceful close never runs. Live observations show terminal `await_reconnection_timeout` (19) firing about two minutes after silence begins, followed by a fresh `rtms_started` roughly 20 s later. Reconnect windows cover socket drops; after host death, plan for a new stream (scenario 4).
+- **External node-death detection.** A WebSocket client detects a broken socket in 1-2 s (observed live: ~1.2 s signaling, ~2.1 s transcript/audio) and reconnects. Detecting a silently partitioned host requires an external heartbeat or health checker watching process liveness, socket state, and timestamp progress, with authority to fence and reassign the lease.
 
 ## 02 Media and codec planning
 
-What you subscribe to in the media handshake decides your bandwidth, your CPU, your storage, and how hard muxing is - per stream, multiplied by every concurrent stream you committed to in 01. Choose deliberately. The defaults are a starting point, not a spec.
+Media subscriptions in the data handshake set your bandwidth, CPU, storage, and muxing complexity per stream. Check Zoom's [Media handling](https://developers.zoom.us/docs/rtms/meetings/media/) page at integration time because supported formats evolve with Zoom releases.
 
-Primary source: Zoom's [Media handling](https://developers.zoom.us/docs/rtms/meetings/media/) reference. Formats below are as documented there. Re-verify at integration time, the page is versioned by Zoom's release train.
+### Media format table
 
-### The decision table
-
-| Media | Wire format | Knobs (handshake) | The real cost drivers |
+| Media | Wire format | Handshake knobs | Primary cost drivers |
 |---|---|---|---|
-| Audio (mixed) | Raw PCM **L16**, 16 kHz, mono, base64 in JSON | `sample_rate`, `channel`, `send_rate` (20 ms steps, 20-1000 ms) | Storage math: L16 is uncompressed by design - compress after the meeting, not live |
-| Audio (per-participant) | Same, one stream per user; merged audio is `user_id 0` | As above, plus the multi-stream subscription | N participants = N sockets of the same rate; concurrency and CPU multiply |
-| Video (active speaker) | **H.264** above 5 fps; JPG/PNG frames at ≤ 5 fps | Resolution SD 480p/360p, HD 720p, FHD 1080p, QHD 2K; fps up to 30 | Resolution × fps is your bandwidth and decode budget. Resolution is dynamic - the server adapts to hardware/network, so plan for the ceiling you requested, receive whatever arrives |
-| Video (single participant) | As above | The single-stream subscription API | One camera at a time per stream; subscription churn is its own load |
-| Screen share | H.264 / image frames, same rules as video | As video | Bursty by nature, silent for minutes then a slide storm. Size buffers for the burst |
-| Transcript | JSON sentences | none (always on when scoped) | Cheap on the wire; the cost is the revision handling (see below) |
+| Audio (mixed) | Raw PCM L16, 16 kHz mono, base64 in JSON | `sample_rate`, `channel`, `send_rate` (20 ms steps, 20-1000 ms) | Uncompressed storage (~115 MB/h); compress after the meeting |
+| Audio (per-participant) | Same, one stream per user (merged audio is `user_id 0`) | Same, plus multi-stream option (`data_opt: 2`) | N participants multiply sockets, concurrency count, and CPU |
+| Video (active speaker) | H.264 above 5 fps; JPG frames at <= 5 fps (PNG removed in V2) | Resolution (`sd` 640x360, `hd` 720p, `fhd` 1080p, `qhd` 2K), `fps` up to 30 | Resolution x fps drives bandwidth and decode CPU; server adapts downward dynamically |
+| Video (single participant) | Same | Single-stream subscription (`data_opt: 4`) | One camera at a time per stream; frequent switching adds signaling load |
+| Screen share | H.264 or JPG frames | Same as video | Bursty traffic (idle minutes followed by slide bursts); size buffers for bursts |
+| Transcript | JSON text messages | `src_language`, `enable_lid` | Low wire cost; handle sentence revisions |
 
-### The five decisions to make explicitly
+### Five choices to make explicitly
 
-**1. Which media, at all.** Every media type is its own socket, its own scope, its own concurrency unit. Audio + transcript is the cheap core that survives bad networks (notes, compliance, analytics). Add video only when a deliverable needs it - it is the expensive line in storage and decode, and its absence degrades nothing else.
-
-**2. Audio, merged or per-participant or both.** Merged (`user_id 0`) is one socket and enough for notes and volume analytics. Per-participant is the only way to diarize reliably, isolate speakers, or build per-user clips - and it multiplies sockets by headcount. Diarization from merged audio via active-speaker metadata is approximate. Per-participant is exact. Decide per product, not per deployment.
-
-**3. Video resolution and fps, honestly.** The handshake asks for a ceiling. Delivery adapts downward.
-
-- 480p/15 fps is plenty for archival and thumbnails
-- 720p is the reviewable floor for humans
-- 1080p+ only for a stated product need, at multiples of the cost
-
-Frame-based fallback (JPG ≤ 5 fps) exists for snapshot pipelines - do not build a video product on it.
-
-**4. `send_rate` for audio.** 20 ms is the realtime-analysis default (lowest latency, highest packet rate: 50 packets/s). Raising it to 100-1000 ms cuts packet overhead for store-and-process pipelines at the price of latency and chunkier mute detection. Streaming ASR wants 20 ms. Batch transcription can tolerate 200-500 ms.
-
-**5. Transcript revisions from day one.** The transcript stream carries corrections. The first delivery of a sentence is NEW (`attribute 1`), revisions are UPDATE (`attribute 2`) with the same `sentence_id` and full replacement text.
-
-A writer that only appends produces doubled text the first time Zoom corrects a word - this is the single most common transcript bug. The sample writer in this repo appends and does not handle revisions yet. Fix that before promising clean transcripts.
+1. **Which media to subscribe to.** Each media type opens its own socket, requires its own scope, and consumes a concurrency session. Audio plus transcript covers notes, compliance, and analytics at low cost. Add video only when a feature requires frames.
+2. **Merged vs per-participant audio.** Merged audio (`user_id 0`) uses one socket and covers notes and summaries; active-speaker metadata gives approximate speaker attribution. Per-participant audio gives exact diarization and per-speaker clips, at N times the socket and concurrency cost.
+3. **Video resolution and frame rate.** Handshake values are ceilings, and Zoom adapts downward under load. 480p/360p at 15 fps covers archival and thumbnails, 720p is the floor for human review, and 1080p+ multiplies decode and storage cost. Use JPG frame mode (<= 5 fps) only for snapshot pipelines.
+4. **Audio `send_rate`.** 20 ms (50 packets/s) gives the lowest latency for streaming ASR and live translation. Raising it to 200-500 ms cuts packet overhead for batch transcription.
+5. **Transcript revisions.** When `enable_lid` is on, Zoom sends initial sentences with `attribute: 1` (NEW) and corrections with `attribute: 2` (UPDATE) carrying the same `sentence_id` and full replacement text. Appending every packet duplicates corrected sentences. The sample handles in-place replacement in [60-stream-lifecycle-client/src/transcriptStore.js](../60-stream-lifecycle-client/src/transcriptStore.js) when `RTMS_SAVE_TRANSCRIPT=true`.
 
 ### Timestamp handling and muxing
 
-- **The stream clock.** Every packet carries Zoom's server-side creation `timestamp`. It is the only join key across media. Store it everywhere. Never re-stamp from local clocks.
-- **Buffered audio offset.** On `rtms_started` the server buffers audio (up to 60 s) while signaling connects. Video does not buffer. `buffer_duration = first_packet_ts - rtms_started_ts`. Subtract it when muxing or A/V drifts by exactly the connect time.
-- **Silence is absence.** Muted users send no audio packets. Video stops when no video exists. Insert silence/filler frames by timestamp arithmetic, or your timelines have holes that every downstream consumer discovers independently.
-- **Muxing is your job.** RTMS hands you separate per-media streams. ffmpeg/gstreamer with the timestamp discipline above combines them. Zoom's recording samples are the reference.
+- **Use Zoom's stream clock.** Every packet carries Zoom's server-side creation `timestamp`. Join tracks on that timestamp; never re-stamp with local wall clocks.
+- **Account for buffered audio.** On `rtms_started`, Zoom buffers audio (up to 60 s) while signaling connects, but does not buffer video. Compute `buffer_duration = first_packet_ts - rtms_started_ts` and subtract it when muxing to prevent A/V drift.
+- **Treat silence as absence.** Muted users send no audio packets, and video stops when no camera is active. Insert silence or filler frames by timestamp arithmetic before handing files to downstream players.
+- **Mux in your pipeline.** RTMS delivers separate per-media streams. Combine them with ffmpeg or gstreamer using the timestamp rules above.
 
-### Capacity arithmetic per decision
+### Rough per-stream capacity
 
-Per stream, rough ordering-of-magnitude (verify with your own traffic):
+Verify these numbers against your own traffic:
 
-| Choice | Wire in | Stored/h (raw) | Decode CPU |
+| Choice | Wire rate | Raw storage per hour | Decode CPU |
 |---|---|---|---|
-| Audio merged 20 ms L16 | ~50 pkts/s | 16 kHz mono 16-bit = 32 kB/s ≈ 115 MB/h | Trivial |
-| + per-participant audio (N people) | ×N sockets | ×N | ×N (still small) |
-| Video 480p15 H.264 | ~300-800 kb/s | 0.15-0.4 GB/h | Moderate; ×1 decoder |
-| Video 720p30 H.264 | ~1-2.5 Mb/s | 0.5-1.1 GB/h | The step where CPU per worker starts to matter |
-| Transcript | Negligible | KBs | Negligible; the cost is revision logic |
+| Audio merged, 20 ms L16 | ~50 packets/s | 32 kB/s (~115 MB/h) | Low |
+| Per-participant audio (N users) | xN sockets | xN | xN (still low) |
+| Video 480p15 H.264 | ~300-800 kb/s | 0.15-0.4 GB/h | Moderate (1 decoder) |
+| Video 720p30 H.264 | ~1-2.5 Mb/s | 0.5-1.1 GB/h | Significant per worker |
+| Transcript | Negligible | A few KB | Negligible |
 
-Each media type added above is another concurrency unit and another socket of backpressure on the worker. The `send_rate`, fps and resolution you pick are the numbers in your autoscaling policy - write them down next to the worker capacity, and re-derive the worker count whenever a default changes.
+Re-derive worker sizing whenever you change `send_rate`, fps, or resolution.
 
-### Subscriptions by product shape
+### Subscriptions by product type
 
-| Product | Subscribe | Skip at first | Add later when |
+| Product | Subscribe to | Skip initially | Add later when |
 |---|---|---|---|
-| Meeting notes / summary | Audio merged + transcript | video, per-participant | speaker clips are requested |
-| Compliance capture | Audio merged + transcript (+ video if policy demands frames) | per-participant | policy names individuals |
-| Live analytics dashboard | Transcript + active-speaker events | everything else | the dashboard shows video |
-| Recording replacement | Audio + video + screen share, muxed from day one | - | - |
-| Translation | Audio 20 ms + transcript | video | latency budget proves room |
+| Meeting notes / summary | Merged audio + transcript | Video, per-participant audio | Customers ask for speaker clips |
+| Compliance capture | Merged audio + transcript (+ video if policy requires frames) | Per-participant audio | Policy requires per-individual isolation |
+| Live analytics dashboard | Transcript + active-speaker events | Audio, video, share | Dashboard displays video |
+| Recording replacement | Audio + video + screen share (muxed) | None | None |
+| Live translation | Audio (20 ms) + transcript | Video | Latency budget allows it |
 
-Zoom Phone media are shipped and supported in [library/javascript/rtmsManager](../../library/javascript/rtmsManager/RTMSManager.js) through `PRESETS.PHONE`; multi-camera remains a server feature enabled by request. Each new media type re-opens the handshake, the capacity math and the branch logic.
+Zoom Phone audio and transcript are supported in [library/javascript/rtmsManager](../../library/javascript/rtmsManager/RTMSManager.js) via `PRESETS.PHONE`. Multi-camera subscriptions (up to four concurrent 720p feeds) require server-side enablement by request.
 
 ## 03 Observability
 
-What to log and alert on. The 50-start-and-approval service already writes the event log this section generalizes (`.data/events.jsonl`, one JSON line per decision). A production backend keeps the same discipline at infrastructure grade.
+`50-start-and-approval` writes structured decision events to `.data/events.jsonl`. Production services should keep the same event shape in their logging or analytics pipeline.
 
-### The event log
+### Event log categories
 
-One structured JSON line per *decision and transition*, not per packet. The categories.
+Log one structured JSON line per decision and state transition, never per media packet:
 
-- Lifecycle. `start_attempt` (with the audit snapshot), `webhook_received/rejected` (with the reason), `watchdog_fired` (with the unmatched-request audit order), `request_status` (raw payload, even for known codes), `stream_phase` transitions, `stream_finalized`, `stream_stopped` (with stop reason)
-- Media. Per-socket `connected/reconnect/backoff` with attempt counters, sequence gaps, duplicates dropped (by layer), first-packet latency, buffered-audio offset at start
-- Application. Artifact writes with version and consent reference, tenant gate decisions, reauthorization and token refresh outcomes, deauthorization events
+- **Lifecycle:** `start_attempt` (including audit snapshot), `webhook_received` / `webhook_rejected` (with reason), `start_watchdog_fired` (with audit order), `request_status` (raw payload), `stream_phase`, `stream_finalized`, `stream_stopped` (with stop reason).
+- **Media:** per-socket `socket_closed`, `socket_recovered`, `reconnect_failed` with attempt counts, sequence gaps, duplicates dropped by layer, first-packet latency, and buffered-audio offset.
+- **Application:** artifact writes with schema/writer version and consent reference, tenant gate verdicts, OAuth refresh/reauthorization outcomes, and deauthorization events.
 
-Rules that keep the log trustworthy.
+Keep logs usable during incidents:
 
-1. **The stream clock on every line.** Zoom's event/packet timestamps next to your receive time - the pair is how you prove where a delay happened.
-2. **Persist rejects and known-code statuses verbatim.** The payload you did not act on is the one the incident needs.
-3. **One line, whole decision.** The audit snapshot (tenant, policy, consent, gate verdict) rides on the attempt line. Nobody reconstructs a decision from five lines.
-4. **Log keys, not secrets.** Log stream, account and meeting IDs. Keep tokens and signatures out.
+1. Record Zoom's event timestamp beside your local receive timestamp to isolate network vs processing delay.
+2. Store rejected webhooks and unknown `request_status` payloads verbatim.
+3. Attach the full audit snapshot (tenant, policy, consent, gate verdict) directly to each `start_attempt` line.
+4. Log IDs (`streamId`, `accountId`, `meetingId`), never tokens, secrets, or raw media.
 
-### Metrics that map to page-worthy states
+### Page-worthy metrics
 
-| Metric | Why it pages someone |
+| Metric | What it signals |
 |---|---|
-| Start success rate (started webhooks / accepted starts) | The funnel top; drops when Zoom-side or policy drifts |
-| Time to first packet (distribution, worst cases) | Media-path health; a tail move precedes the outage |
-| Signaling reconnect rate & outcome within the 60 s window | Scenario 2 recoveries failing = streams dying |
-| Per-media-leg reconnects | Scenario 3; a leg-specific problem, not a stream problem |
-| Sequence gaps & duplicates per socket | Transport quality and your dedupe correctness |
-| Concurrency: near-limit event rate, limited events, per-tenant usage | Capacity events in [01](#01-resilient-architecture). Near-limit is the scale signal, limited pages |
-| Watchdog firings with unmatched audit order | Lifecycle webhooks not arriving - the silent killer this repo's watchdog exists for |
-| Webhook 5xx/latency at the edge | Retries and duplicate sessions start here |
-| Reauthorization failure rate | Token decay; silent stream-loss for that user days later |
-| Artifact writes failing / consent-missing artifacts | Compliance exposure and lost evidence |
+| Start success rate (`rtms_started` / accepted starts) | Policy drift, stale OAuth, or Zoom-side blocks |
+| Time to first packet (p95, p99, max) | Media-path degradation before full outages |
+| Signaling reconnect success inside the 60 s window | Failed scenario 2 recoveries killing live streams |
+| Per-media-leg reconnects | Isolated codec or media socket issues |
+| Sequence gaps and duplicates per socket | Transport loss or broken dedupe logic |
+| `rtms.concurrency_near_limit` and `rtms.concurrency_limited` | Autoscale on near-limit; page on limited |
+| `start_watchdog_fired` count | Missing lifecycle webhooks |
+| Webhook 5xx rate and acknowledge latency | Retries that can trigger duplicate connections |
+| Reauthorization failure rate | Silent stream loss for users whose tokens decayed |
+| Failed artifact writes or missing `consent_ref` | Compliance exposure and data loss |
 
-### Alerting shape
+### Alerting and tracing
 
-- **Symptom alerts page. Cause alerts ticket.** Page on `concurrency_limited`, a watchdog firing or a success-rate drop. Ticket near-limit, reconnect churn and elevated 429s, with a runbook link.
-- **Alert on the worst cases, not averages** - the p-words are implementation details. What pages is "users hit multi-second media stalls".
-- **Every alert links the stream's log slice** (`stream_id` + window). The on-call's first command should never be a grep.
-- **Dashboards mirror the lifecycle**, top to bottom. Ingress 200-rate and latency, queue depth and age, worker lease health, per-phase stream counts, per-socket media health, artifact and consent writes. The repo's 70-reporting-dashboard is the single-instance sketch of exactly these panels. Rebuild it on your metrics stack for production.
-
-### Tracing
-
-Propagate one trace per stream lifecycle, from webhook receipt through claim, signaling handshake, each media handshake and artifacts to stop. Spans at worker handoff make the lease story visible. A stream that changes workers mid-incidents otherwise looks like two half-streams.
+- Page on user-facing symptoms (`concurrency_limited`, watchdog spikes, start success rate drops). Ticket underlying causes (near-limit warnings, reconnect churn, elevated 429s) with runbook links.
+- Alert on tail latency (p95/p99) rather than averages.
+- Include a direct link to the stream's log slice (`stream_id` + time window) in every alert.
+- Propagate one trace ID per stream from webhook receipt through claim, handshakes, worker handoffs, artifact writes, and stop.
 
 ## 04 Webhook resilience
 
-The webhook endpoint is the only door Zoom knows about. Everything above assumes deliveries arrive once, in order, and fast. They do not.
-
-The 50-start-and-approval service already implements this edge. Its green states are the reference renders.
+Zoom delivers webhooks at least once, sometimes out of order, and retries on timeouts or non-200 responses. `50-start-and-approval` implements this edge; its validated states look like this in Marketplace:
 
 ![Webhook endpoint validation green](../docs/screenshots/16-webhook-validation-green.png)
 
 ![Subscription endpoint status green in Marketplace](../docs/screenshots/17-subscription-endpoint-status.png)
 
-### Webhook contract as an SLO
+### Webhook SLO
 
-- **200 within 3 seconds, always.** Validate the signature, enqueue, return. The 3 s ceiling is this repo's budget for the acknowledge. Zoom's guidance is to respond immediately, because a slow reply reads as failure and triggers a retry - and the retry is a second `rtms_started` that can open a duplicate signaling session and kick the first.
-- **Every delivery verified.** `x-zm-signature` HMAC over the raw body, timestamp tolerance enforced, `x-zm-request-id` logged. URL validation (`endpoint.url_validation`) answers `{plainToken, encryptedToken}` from the same secret, computed over the plain token only.
-- **At-least-once, so dedupe is not optional.** The natural key is event + account + meeting/session + `rtms_stream_id` + `event_ts`, with the delivery ID logged beside it. Keep keys ≥ 65 minutes. First delivery wins. Later ones get a 200 and nothing else.
+- **Return HTTP 200 within 3 seconds.** Verify `x-zm-signature` over the raw request body, enqueue the event, and return 200. Slow responses trigger retries, and a retried `rtms_started` can open a second signaling socket that kicks the first.
+- **Verify every request.** Check `x-zm-signature` against raw bytes, enforce timestamp tolerance (default 300 s), and log `x-zm-request-id`. Answer `endpoint.url_validation` with `{ plainToken, encryptedToken }` using your webhook secret token.
+- **Deduplicate for at least 65 minutes.** Key on `event + account + meeting/session + rtms_stream_id + event_ts` plus `x-zm-request-id`. First delivery wins; retries receive HTTP 200 and trigger no work.
 
-### Ingress architecture
+### Ingress design
 
-- **Stateless replicas behind a load balancer.** No session affinity, because the shared store (dedupe, leases, stream state) holds the truth and any replica can answer any delivery. Sticky sessions turn a deploy into dropped deliveries.
-- **Validate and enqueue in the request path. Nothing else.** No token refresh, no REST calls, no artifact writes inside the 3 s window - those belong to the stream workers via the queue.
-- **Backpressure at the door.** If the queue is saturated or the account is `concurrency_limited`, still return 200 for lifecycle events you must not lose, and shed or defer the work. A 500 invites a retry storm on top of the incident. For `rtms_started` specifically, prefer accepting and letting the worker's watchdog/gate decide over bouncing the delivery.
-- **Graceful degradation, ordered.** On replica loss the load balancer spreads and the queue absorbs. On store outage, fail the enqueue honestly (the retry will come) rather than acknowledge-and-lose. Never acknowledge a delivery you have not durably recorded.
+- Run stateless replicas behind a load balancer with no sticky sessions. Shared state lives in your database or Redis.
+- Keep token refreshes, REST calls, and artifact writes out of the HTTP request handler.
+- Return 200 for lifecycle events even under backpressure and let workers shed or defer work. Returning 500 adds a retry storm to an existing incident.
+- Never return 200 before the event is durably enqueued. If the queue or store is down, fail loudly so Zoom retries.
 
-### Retry and duplicate mechanics
+### Retry and failover mechanics
 
-- Zoom retries on non-200 and on timeout. Your dedupe key makes every retry idempotent. The 65-minute window covers the retry horizon. The rare slow-start case is why the window is generous, not the norm - a started webhook is usable for ~60 s, so retries usually arrive after the stream is live.
-- Retries are **ack-conditional and backoff-shaped**: a delivery that never got the HTTP 200 is re-delivered on a roughly 5 / 20 / 60-minute cadence (forum-confirmed, not in the official reference - keep the 65-minute dedupe window as the safe horizon). A delivery that got a 200 never comes back, so "answered but the enqueue failed" is the case your own reconcile watchdog covers, not Zoom's retry.
-- Duplicate `rtms_started` for a live stream is also **scenario 1 (server failover)**: same key, but the payload carries new `server_urls` and means reconnect, not a retry. The dedupe layer forwards it. The stream worker decides retry-vs-failover from its own state. A naive "duplicate, drop" at ingress deletes failover signals.
-- Reconcile missed deliveries with the watchdog. An accepted start with no webhook inside the window is an incident signal (audit order attached), not a queue to poll.
+- Unacknowledged webhooks retry on an approximate 5 / 20 / 60-minute backoff cadence (observed in Zoom developer forums; keep a 65-minute dedupe window). Once Zoom receives HTTP 200, it never retries that delivery.
+- A fresh `rtms_started` for an active stream with a new `event_ts` and new `server_urls` is scenario 1 (server failover), not a duplicate retry. Forward it to the stream owner so the worker moves sockets to the new URLs.
+- Use a watchdog to catch missed webhooks after an accepted REST start rather than polling Zoom.
 
 ### Operational checklist
 
-1. Load-test the edge at your peak concurrency × retry storms (a Zoom-side incident retries every stream at once).
-2. TLS 1.2+ end to end, certificate monitoring, and the domain verification records in place before the first production webhook (see step 3).
-3. Alert on 5xx rate, p-95 acknowledge latency against the 3 s budget, dedupe window size, and queue age.
-4. Chaos. Kill replicas mid-delivery, partition the store, slow the queue. The endpoint must keep answering 200 or fail loudly, never hang.
-5. Rehearse the purge and deauthorization flows. They arrive as webhooks too, and they carry data-deletion obligations.
+1. Load-test ingress at peak concurrency multiplied by a retry storm.
+2. Enforce TLS 1.2 or 1.3 end to end, monitor certificates, and complete Marketplace domain verification before going live.
+3. Alert on 5xx rate, p95 acknowledge latency against the 3 s budget, dedupe store health, and queue age.
+4. Run chaos tests: kill ingress replicas mid-request, partition the store, and slow the queue.
+5. Rehearse `app_deauthorized` and stop-reason-8 (`stream_revoked`) purge flows.
 
 ---
 
 ## Elsewhere in the guide
 
-All nine parts link below. Start from the [overview](../readme.md).
+Start from the [overview](../readme.md).
 
-- [10 Integration Advisor](../10-integration-advisor/readme.md) - Step 1. What changes, which sample to start from, the gap-checker
-- [20 Configure](../20-configure/readme.md) - Step 2. The Marketplace app, its manifest, scopes, events and credentials
-- [30 Publish](../30-publish/readme.md) - Step 3. Review, evidence and the rejections to avoid
-- [40 Prepare](../40-prepare/readme.md) - Step 4. Admin enablement, host approval, consent, the status codes
-- [50 Start And Approval](../50-start-and-approval/readme.md) - Step 5. The webhook endpoint, deduplication, claims, the tenant gate, OAuth
-- [60 Stream Lifecycle Client](../60-stream-lifecycle-client/readme.md) - Step 6. Signaling and media sockets, keep-alives, reconnect, generations
-- [61 Media And Participants](../61-media-and-participants/readme.md) - Step 6. The participant registry, the camera selector, media profiles
-- [70 Reporting Dashboard](../70-reporting-dashboard/readme.md) - Step 7. The dashboard, alerts, the event contract, the production checklist
-- [The root readme](../readme.md) - the seven steps, the plan and licensing checks, the reuse table
-
+- [10 Integration Advisor](../10-integration-advisor/readme.md) - Step 1: what changes, starter samples, gap checker
+- [20 Configure](../20-configure/readme.md) - Step 2: Marketplace manifest, scopes, events, credentials
+- [30 Publish](../30-publish/readme.md) - Step 3: review package, checks, common rejections
+- [40 Prepare](../40-prepare/readme.md) - Step 4: admin enablement, host approval, consent, status codes
+- [50 Start and Approval](../50-start-and-approval/readme.md) - Step 5: webhook intake, claims, tenant gate, OAuth
+- [60 Stream Lifecycle Client](../60-stream-lifecycle-client/readme.md) - Step 6: signaling, media, keep-alives, reconnect, manifests
+- [61 Media and Participants](../61-media-and-participants/readme.md) - Step 6: participant registry, camera selector, media profiles
+- [70 Reporting Dashboard](../70-reporting-dashboard/readme.md) - Step 7: dashboard, alerts, event contract, rollout

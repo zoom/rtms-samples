@@ -1,149 +1,131 @@
-# 30 Publish the app
+# 30 Publish the app (Step 3)
 
-Step 3 of 7. There is no code here. This step is review and evidence. The full instructions are in the root readme, section **Step 3**. The rules that matter:
-
-- Keep every representation of the product consistent. The Marketplace configuration, the scopes, the production OAuth behavior, the docs, the test plan, the screenshots and the listing copy. If two of them disagree, the review stalls.
-- Keep the reviewer test plan concrete, covering starting state, install, each start path, host approval, one test per scope, stop, removal and reinstall.
+There is no code in this folder. Publishing lets external Zoom accounts install your app. Reviews move fastest when every piece of your submission agrees: Marketplace settings, declared scopes, production OAuth behavior, public docs, reviewer test plan, screenshots, and listing copy. Whenever two of those disagree, review stalls.
 
 **Contents**
 
-- [3.1 Pick the distribution path first](#31-pick-the-distribution-path-first) - Private, Beta, Unlisted or Published, and what each demands
-- [3.2 Production infrastructure](#32-production-infrastructure) and [3.3 Scopes](#33-scopes) - HTTPS endpoints and the scope table reviewers check
-- [3.4 Documentation](#34-documentation) - the public page, add use troubleshoot remove
-- [3.5 The review package](#35-the-review-package) and [3.6 Final checks before you submit](#36-final-checks)
-- [3.7 Submit, then treat each note as a defect](#37-submit-and-resolve-review-notes) - working the review thread
-- [Common rejections and how to avoid them](#common-rejections-and-remedies) and [Adapting this sample](#adapting-this-sample)
+- [3.1 Pick the distribution path](#31-pick-the-distribution-path)
+- [3.2 Production infrastructure](#32-production-infrastructure)
+- [3.3 Scopes](#33-scopes)
+- [3.4 Public documentation](#34-public-documentation)
+- [3.5 Review package](#35-review-package)
+- [3.6 Final checks before submitting](#36-final-checks-before-submitting)
+- [3.7 Working through review notes](#37-working-through-review-notes)
+- [Common rejections and fixes](#common-rejections-and-fixes)
+- [Adapting this sample](#adapting-this-sample)
 
----
+## 3.1 Pick the distribution path
 
-# Guide part three: the review
+Choose Private, Beta, Unlisted, or Published first. That choice determines who can install the app and what security evidence Zoom requires.
 
-## Step 3. Publish the app
+- Zoom requires approval before users outside your account can add an RTMS app.
+- Private and Beta apps skip the full public listing, but Beta sharing outside your account still requires Zoom approval of the authorization URL (typically 3-4 business days; initial 4-week renewable window) plus security evidence.
+- Check Zoom's "Sharing Private and Beta apps" and "App review process" pages before deciding, because requirements change.
 
-Publishing is what lets other accounts install your app. It is mostly evidence gathering, and the way to get through it quickly is to keep every representation of the product consistent:
+Test on a second Zoom account on a separate tenant before submitting. Submit as soon as webhooks, scopes, and any SDK paths work, not the week of launch: security documentation, test plans, screenshots, and listing copy take the longest.
 
-- the Marketplace configuration
-- the scopes
-- the production OAuth behavior
-- the docs, the test plan, the screenshots and the listing copy
+Three review facts to plan around:
 
-If two of them disagree, the review stalls.
+- Compliance review runs before security testing.
+- Reviewers authorize the app with an external test account and verify that every declared scope is used.
+- You need Developer Pack credits to get an RTMS app approved.
 
-### 3.1 Pick the distribution path first
+## 3.2 Production infrastructure
 
-Private, Beta, Unlisted or Published. It decides who can install and what Zoom asks you to prove.
+- Host production endpoints on a stable HTTPS domain you control. Enforce TLS 1.2 or 1.3 and refuse TLS 1.0 and 1.1 on every hop (viewer to CDN and CDN to origin).
+- Never use a generated CDN hostname such as `d123example.cloudfront.net`. You cannot place Zoom's verification record under it or control its certificate policy. On CloudFront, configure a custom domain, an ACM certificate in `us-east-1`, `TLSv1.2_2021` or newer, and an HTTPS-only origin requiring TLS 1.2+.
+- Verify every Marketplace domain with Zoom. DNS TXT verification is the most reliable. If using a verification file, serve it at the exact path with no redirect, no auth wall, and no SPA rewrite.
+- Production OAuth must use the production Client ID and registered production redirect URI.
 
-Zoom's RTMS page states that approval is required before users outside your account can add the app.
+## 3.3 Scopes
 
-- Private and Beta apps skip the general review page, but a Beta app can be shared outside your account only after Zoom approves the authorization URL (3-4 business days, and the first sharing period is 4 weeks, renewable).
-- Do not ask for Beta sharing unless you need external testers and can supply security evidence.
-- Definitions and requirements change, so read Zoom's "Sharing Private and Beta apps" and "App review process" pages before you decide.
+Build a table listing every scope, the product feature that uses it, and the reviewer test step that exercises it. Drop any scope missing either column. Prefer granular scopes, request admin scopes only when strictly needed, and expect any later scope or event change to trigger re-review.
 
-**Test outside your own account before you submit.** Use a second Zoom account on a different tenant, and a Beta authorization URL if you need outside testers. Submit as soon as webhooks, scopes and any SDK paths work, not at the rollout date. The longest items are the technical design and security documentation, the test plan, the screenshots and the listing copy.
-- compliance review happens before security testing
-- reviewers authorize the app with a test account that simulates an external user, and check that each declared scope is used
-- you also need Developer Pack credits to get an RTMS app approved
+## 3.4 Public documentation
 
-### 3.2 Production infrastructure
+Host documentation on a domain you control and verify it opens in a signed-out browser. Cover four topics:
 
-- Stable production URLs on a domain you control. HTTPS only. Zoom supports TLS 1.2 and above only. TLS 1.0 and 1.1 are not supported and must be refused.
-- If a CDN or proxy sits in front, check both hops, viewer to CDN and CDN to origin.
-- Do not use a generated CDN hostname such as `d123example.cloudfront.net` as the production domain. You cannot add Zoom's verification record under it and you do not control its certificate settings. On CloudFront use a custom domain, an ACM certificate in `us-east-1`, a `TLSv1.2_2021` or newer policy, and an HTTPS-only origin allowing only TLS 1.2.
-- Verify every Marketplace domain with Zoom. A DNS TXT record is the most reliable check. A verification file must be served at the exact path and content, with no redirect, no authentication and no single-page-app rewrite.
-- Production OAuth uses the production Client ID and the registered production redirect URI.
+- **Add:** prerequisites, who can install, OAuth steps, and what success looks like.
+- **Use:** core workflows, what each scope does, admin enablement, and host approval.
+- **Troubleshoot:** map symptoms to causes, starting with `rtms.request_status`.
+- **Remove:** how to uninstall, token deletion, data retention and deletion requests, effect on scheduled jobs, and how to reconnect later.
 
-### 3.3 Scopes
+State plainly that Zoom displays the app in the active-app indicator, that admin and host approval apply, and what you store. Template to adapt:
 
-Make a table of every scope. Each one needs a product feature that uses it and a reviewer step that exercises it. Remove any scope that has neither. Prefer granular scopes, and use admin scopes only when the use case needs them. Expect a changed scope or event list to go through review again.
+> This app uses Zoom Realtime Media Streams. It does not join as a participant. While active, Zoom shows it in the meeting's active-app indicator. Your Zoom admin must enable RTMS and this app, and the host may be asked to approve. It receives `<media>` and keeps `<artifacts>` for `<retention>`. Contact `<contact>` to request deletion.
 
-### 3.4 Documentation
+## 3.5 Review package
 
-Host it on a domain you control and open it signed out. Cover four things.
-
-- **Add.** Prerequisites, who can install, the OAuth steps, what success looks like.
-- **Use.** The main workflows, what each scope does, admin enablement and host approval.
-- **Troubleshoot.** Map symptoms to causes, starting from `rtms.request_status`.
-- **Remove.** How to uninstall, what happens to tokens, what you keep and for how long, how a customer asks for deletion, what happens to scheduled jobs, how to reconnect later.
-
-Say plainly that Zoom shows the app in the active-app indicator, that admin and host approval apply, and what you do with the data. A sentence to adapt:
-
-> This app uses Zoom Realtime Media Streams. It does not join as a participant. While it is active, Zoom shows it in the meeting's active-app indicator. Your Zoom admin must enable RTMS and this app, and the host may be asked to approve. It receives `<media>` and keeps `<artifacts>` for `<retention>`. You can ask us to delete them at `<contact>`.
-
-### 3.5 The review package
-
-| Item | Notes |
+| Item | Requirements |
 |---|---|
-| Reviewer test plan | A numbered plan covering starting state, install, each start path, host approval, one test per scope, stop, removal and reinstall |
-| Reviewer accounts | A host and an app user. Dummy data only. A way through 2FA. Credentials go in the private reviewer fields, never in public docs or ordinary replies |
-| Screenshots | Your integration, current branding, production-like URLs, no tokens or personal data. A consent screen alone is not evidence of a working product |
-| Security evidence | Whatever your path requires, such as secure development lifecycle, SAST, DAST and privacy policy, TLS proof. Current and reachable |
-| Architecture statement | A hosted service, no participant, no desktop installer unless you ship one |
+| Reviewer test plan | Numbered steps covering initial state, install, each start path, host approval, one test per scope, stop, removal, and reinstall |
+| Reviewer accounts | A host account and an app-user account with dummy data and a working 2FA path. Put credentials only in private reviewer fields, never in public docs or replies |
+| Screenshots | Current branding, production-like URLs, zero tokens or personal data. Show the working feature, not only a consent modal |
+| Security evidence | Current and reachable documents for your path: SDLC, SAST, DAST, privacy policy, and TLS proof |
+| Architecture statement | Hosted service, no participant tile, no desktop installer (unless you ship one) |
 
-Have someone who did not build the app run the whole plan from a clean browser and machine, and fix whatever they trip over.
+Have someone who did not build the app run the entire test plan from a clean browser and machine, and fix every snag before submitting.
 
-### 3.6 Final checks
+## 3.6 Final checks before submitting
 
-Check your public webhook URL the way Zoom does, with `ZOOM_SECRET_TOKEN` set in `.env`:
+Probe your public webhook URL the way Zoom validates it (with `ZOOM_SECRET_TOKEN` in `.env`):
 
 ```bash
 npm run live:check -- --public-url https://app.acme.io/webhook
 ```
 
-It sends the same `endpoint.url_validation` challenge Zoom sends and checks that your endpoint answers with your secret token. Then confirm each of these by hand before you submit:
+This sends Zoom's `endpoint.url_validation` challenge and confirms your endpoint answers with the matching HMAC. Then verify by hand:
 
-- The distribution path is chosen and you know its evidence requirements.
-- RTMS is active on the test accounts and a concurrency limit is set.
-- Every Marketplace domain passes Zoom's ownership verification.
-- An external TLS scanner confirms TLS 1.0 and 1.1 are refused on every hop. Your own machine cannot prove this, because its OpenSSL may refuse old protocols by itself.
-- Production OAuth uses the production Client ID and the registered production redirect URI.
-- The docs cover add, use, troubleshoot and remove, and they open in a signed-out browser.
-- The listing and docs say plainly that Zoom shows the active-app indicator and that admin and host approval apply.
-- Reviewer credentials work, expose dummy data only and sit in the private credential fields. The reviewer can get past 2FA and any role requirement.
-- Someone who did not build the app ran the whole test plan from a clean browser and machine.
-- Screenshots show the submitted integration and contain no tokens or personal data.
-- Security evidence is current and reachable (secure development lifecycle, SAST, DAST, privacy policy, TLS proof).
-- You re-read every active reviewer note and reply right before you submit.
+- Distribution path selected and its evidence requirements met.
+- RTMS active on the test accounts with a concurrency limit configured.
+- Every Marketplace domain passes Zoom ownership verification.
+- An external TLS scanner confirms TLS 1.0 and 1.1 are refused on every hop (your local OpenSSL may hide old-TLS support by refusing it client-side).
+- Production OAuth uses the production Client ID and registered production redirect URI.
+- Public docs cover add, use, troubleshoot, and remove, and load while signed out.
+- Listing and docs disclose the active-app indicator and admin/host approval requirements.
+- Reviewer accounts work with dummy data, clear 2FA, and live in the private credential fields.
+- A teammate ran the full test plan on a clean browser and machine.
+- Screenshots show the real workflow with no tokens or personal data.
+- Security evidence (SDLC, SAST, DAST, privacy policy, TLS proof) is current and reachable.
+- Every active reviewer note and reply has been re-read before submission.
 
-### 3.7 Submit and resolve review notes
+## 3.7 Working through review notes
 
-1. Read every active reviewer note and its whole reply thread.
-2. Change the actual configuration, document or environment. Replying is not fixing.
-3. Verify the change yourself.
-4. Reply with what changed and where to check it. The field, the exact URL or steps, the expected result.
-5. Re-read the note before you resubmit, and do not call it resolved until it says so.
+1. Read every active reviewer note and its full reply thread.
+2. Fix the underlying configuration, document, or environment. Replying alone fixes nothing.
+3. Verify the fix yourself.
+4. Reply with what changed, the exact URL or field to check, and the expected result.
+5. Re-read the note before resubmitting, and do not assume it is resolved until the reviewer marks it resolved.
 
-### Common rejections and remedies
+## Common rejections and fixes
 
-| Rejection | Prevention |
+| Rejection | Fix |
 |---|---|
-| No removal or user-impact section in the docs | Write it (3.4) |
-| Docs not reachable | Open them signed out |
-| Reviewer cannot reproduce OAuth | Rehearse every literal command from a clean machine |
-| Test account blocked by 2FA | Give the reviewer a working path |
-| Development credentials in production | Check the Client ID and redirect URI before submitting |
-| Scopes without a feature | Remove them, or add a feature and a test step |
-| Screenshots of an unrelated app | Use the real workflow |
-| TLS 1.2 supported but old TLS still accepted | Set the minimum on both hops |
-| A fix claimed without evidence | Give the exact place to look |
+| Missing removal or user-impact docs | Add the Remove section (3.4) |
+| Docs unreachable | Test every link signed out |
+| Reviewer cannot complete OAuth | Rehearse every step on a clean machine |
+| Test account blocked by 2FA | Provide a working 2FA path in private reviewer notes |
+| Development credentials in production | Verify production Client ID and redirect URI |
+| Unused scopes | Remove them, or add a feature and a test step |
+| Screenshots from another app | Capture the submitted integration |
+| Old TLS still accepted | Enforce TLS 1.2+ on both CDN and origin |
+| Claiming a fix without proof | Name the exact field, URL, and expected output |
 
----
 ## Adapting this sample
 
-Store your reviewer-facing evidence in this folder as you produce it. The test plan, the security documents, the listing copy. When review comes back with a note, change the actual configuration first, then the copy here, so the two never drift.
+Keep your reviewer-facing evidence in this folder (test plan, security summaries, listing copy). When review returns a note, update your live configuration first and then the copy here so they stay in sync.
 
 ---
 
 ## Elsewhere in the guide
 
-All nine parts link below. Start from the [overview](../readme.md).
+Start from the [overview](../readme.md).
 
-- [00 Design](../00-design/readme.md) - Production architecture: failure drills, media choices, observability, the webhook SLO
-- [10 Integration Advisor](../10-integration-advisor/readme.md) - Step 1. What changes, which sample to start from, the gap-checker
-- [20 Configure](../20-configure/readme.md) - Step 2. The Marketplace app: manifest, scopes, events, credentials
-- [40 Prepare](../40-prepare/readme.md) - Step 4. Admin enablement, host approval, consent, the status codes
-- [50 Start And Approval](../50-start-and-approval/readme.md) - Step 5. The webhook endpoint, deduplication, claims, the tenant gate, OAuth
-- [60 Stream Lifecycle Client](../60-stream-lifecycle-client/readme.md) - Step 6. Signaling and media sockets, keep-alives, reconnect, generations
-- [61 Media And Participants](../61-media-and-participants/readme.md) - Step 6. The participant registry, the camera selector, media profiles
-- [70 Reporting Dashboard](../70-reporting-dashboard/readme.md) - Step 7. The dashboard, alerts, the event contract, the production checklist
-- [The root readme](../readme.md) - the seven steps, the plan and licensing checks, the reuse table
-
+- [00 Design](../00-design/readme.md) - Production architecture, failover drills, media choices, observability, webhook SLO
+- [10 Integration Advisor](../10-integration-advisor/readme.md) - Step 1: what changes, starter samples, gap checker
+- [20 Configure](../20-configure/readme.md) - Step 2: Marketplace manifest, scopes, events, credentials
+- [40 Prepare](../40-prepare/readme.md) - Step 4: admin enablement, host approval, consent, status codes
+- [50 Start and Approval](../50-start-and-approval/readme.md) - Step 5: webhook intake, claims, tenant gate, OAuth
+- [60 Stream Lifecycle Client](../60-stream-lifecycle-client/readme.md) - Step 6: signaling, media, keep-alives, reconnect, manifests
+- [61 Media and Participants](../61-media-and-participants/readme.md) - Step 6: participant registry, camera selector, media profiles
+- [70 Reporting Dashboard](../70-reporting-dashboard/readme.md) - Step 7: dashboard, alerts, event contract, rollout

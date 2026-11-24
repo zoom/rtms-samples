@@ -3,6 +3,7 @@ import assert from 'node:assert/strict';
 import { STREAM_STATE } from '../shared/codes.js';
 import { createMemoryTrace } from '../shared/trace.js';
 import { createStreamClient } from './src/streamClient.js';
+import { createTranscriptStore } from './src/transcriptStore.js';
 import { createMockRtmsServer } from './mockRtmsServer.js';
 
 async function until(description, condition, timeoutMs = 1000) {
@@ -139,6 +140,36 @@ test('mock server replacement drives client.refresh to a new real socket pair', 
     const result = await done;
     assert.equal(result.stop.name, 'receiver_request_close');
     assert.notEqual(result.manifest.stream_id, undefined);
+  } finally {
+    await server.close();
+  }
+});
+
+test('transcript revisions with sibling sentence_id and attribute replace the sentence in place', async () => {
+  const server = await createMockRtmsServer();
+  const store = createTranscriptStore();
+  const client = createStreamClient({
+    envelope: { product: 'meeting', tenantId: 'acme', meetingId: 'tx-meeting', streamId: 'tx-stream', serverUrls: server.urls },
+    clientId: 'mock-client',
+    clientSecret: 'mock-secret',
+    media: ['transcript'],
+    onPacket: (packet) => { if (packet.mediaType === 'transcript') store.add(packet); }
+  });
+  const done = client.start();
+  try {
+    await until('transcript socket ready', () => everySocketReady(client) && client.phase === 'client_ready_sent');
+    server.media('transcript', { timestamp: 1000, user_id: 1, user_name: 'Ana', sentence_id: 42, attribute: 1, data: 'Hello ward' });
+    server.media('transcript', { timestamp: 1200, user_id: 1, user_name: 'Ana', sentence_id: 42, attribute: 2, data: 'Hello world' });
+    server.media('transcript', { timestamp: 1300, user_id: 2, user_name: 'Ben', sentence_id: 99, attribute: 2, data: 'Missed initial packet' });
+    await until('three transcript packets processed', () => client.snapshot().stats.packets === 3);
+
+    assert.equal(store.lines().length, 2);
+    assert.equal(store.lines()[0].text, 'Hello world');
+    assert.equal(store.lines()[0].sentenceId, 42);
+    assert.equal(store.lines()[1].text, 'Missed initial packet');
+
+    client.close(50);
+    await done;
   } finally {
     await server.close();
   }

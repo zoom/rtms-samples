@@ -21,8 +21,10 @@ export function createTranscriptStore() {
 
   function add(packet) {
     const event = parse(packet);
-    const id = event.sentence_id ?? event.sentenceId ?? event.id ?? null;
-    const attribute = Number(event.attribute ?? 1);
+    const id = packet.sentenceId ?? event.sentence_id ?? event.sentenceId ?? event.id ?? null;
+    const channelId = packet.channelId ?? event.channel_id ?? null;
+    const key = id !== null ? (channelId !== null ? `${channelId}:${id}` : String(id)) : null;
+    const attribute = Number(packet.attribute ?? event.attribute ?? 1);
     const isRevision = attribute === 2 || String(event.type || '').toUpperCase() === 'UPDATE';
     const line = {
       ts: packet.timestamp,
@@ -33,15 +35,14 @@ export function createTranscriptStore() {
       text: String(event.text ?? event.content ?? event.transcript ?? event.data ?? '')
     };
 
-    if (isRevision && id !== null && bySentenceId.has(id)) {
-      const index = bySentenceId.get(id);
+    if (isRevision && key !== null && bySentenceId.has(key)) {
+      const index = bySentenceId.get(key);
       lines[index] = line;
       return { changed: true, revised: true, line, index };
     }
-    if (isRevision && id !== null) return { changed: false, revised: true, line, index: null };
     const index = lines.push(line) - 1;
-    if (id !== null) bySentenceId.set(id, index);
-    return { changed: true, revised: false, line, index };
+    if (key !== null) bySentenceId.set(key, index);
+    return { changed: true, revised: isRevision, line, index };
   }
 
   return {

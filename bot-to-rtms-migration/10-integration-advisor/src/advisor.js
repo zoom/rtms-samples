@@ -136,7 +136,7 @@ export function advise(input = {}) {
       conditions.push('Use live RTMS for action and recordings for canonical evidence.');
     }
     if (!r.canOperateReconnect) {
-      conditions.push('You must be able to run reconnect, idempotency and tenant policy. Start with samples 03 and 04 before committing.');
+      conditions.push('You must be able to run reconnect, idempotency and tenant policy. Start with 50-start-and-approval and 60-stream-lifecycle-client before committing.');
     }
     conditions.push('The meeting client still shows the active-app indicator. Do not promise invisible capture.');
   }

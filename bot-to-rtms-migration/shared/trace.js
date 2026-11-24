@@ -6,7 +6,7 @@ export const TRACE_SCHEMA_VERSION = 1;
 /**
  * Append-only event trace: one JSON object per line.
  *
- * This is a demo trace, not a datastore. The 50, 61 and 62 samples append to it and
+ * This is a demo trace, not a datastore. The 50, 60 and 61 samples append to it and
  * the reporting dashboard reads it. In production send the same events to your own logging or
  * analytics pipeline. Do not put secrets or raw media in a trace line.
  */

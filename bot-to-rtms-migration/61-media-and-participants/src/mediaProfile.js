@@ -9,7 +9,7 @@
 export const CODES = Object.freeze({
   contentType: { rawAudio: 2, rawVideo: 3, fileStream: 4, text: 5 },
   audioCodec: { l16: 1, g711: 2, g722: 3, opus: 4 },
-  videoCodec: { jpg: 5, png: 6, h264: 7 },
+  videoCodec: { jpg: 5, h264: 7 },
   sampleRate: { 8000: 0, 16000: 1, 32000: 2, 48000: 3 },
   channels: { mono: 1, stereo: 2 },
   audioDataOpt: { mixed: 1, multiStreams: 2 },
@@ -40,7 +40,8 @@ export function buildMediaParams(mediaType, options = {}) {
     }
     case 'video': {
       const { codec = 'h264', resolution = 'hd', fps = 25, mode = 'activeSpeaker' } = options;
-      if (!(codec in CODES.videoCodec)) errors.push(`unknown video codec "${codec}"`);
+      if (codec === 'png') errors.push('PNG was removed in RTMS protocol V2; use jpg or h264');
+      else if (!(codec in CODES.videoCodec)) errors.push(`unknown video codec "${codec}"`);
       if (!(resolution in CODES.resolution)) errors.push(`resolution must be one of ${Object.keys(CODES.resolution).join(', ')}`);
       if (!['activeSpeaker', 'individual'].includes(mode)) errors.push('video mode must be activeSpeaker or individual');
       if (!Number.isInteger(fps) || fps < 1 || fps > 30) errors.push('fps must be a whole number from 1 to 30');
@@ -54,8 +55,10 @@ export function buildMediaParams(mediaType, options = {}) {
     }
     case 'share': {
       const { codec = 'jpg', resolution = 'hd', fps = 1 } = options;
-      if (!(codec in CODES.videoCodec)) errors.push(`unknown share codec "${codec}"`);
+      if (codec === 'png') errors.push('PNG was removed in RTMS protocol V2; use jpg or h264');
+      else if (!(codec in CODES.videoCodec)) errors.push(`unknown share codec "${codec}"`);
       if (!(resolution in CODES.resolution)) errors.push(`resolution must be one of ${Object.keys(CODES.resolution).join(', ')}`);
+      if (!Number.isInteger(fps) || fps < 1 || fps > 30) errors.push('fps must be a whole number from 1 to 30');
       if (errors.length) return { params: null, warnings, errors };
       warnings.push('Screen share is its own stream, separate from camera video.');
       return { params: { content_type: CODES.contentType.rawVideo, codec: CODES.videoCodec[codec], resolution: CODES.resolution[resolution], fps }, warnings, errors };
@@ -92,7 +95,7 @@ export function fromSdkRaw(sdk = {}) {
     const height = Number(sdk.video.height) || 720;
     const resolution = height >= 1440 ? 'qhd' : height >= 1080 ? 'fhd' : height >= 720 ? 'hd' : 'sd';
     out.video = buildMediaParams('video', { codec: 'h264', resolution, fps: Math.min(30, Number(sdk.video.fps) || 25) });
-    out.notes.push(`${sdk.video.format || 'Raw'} frames become H.264 (${resolution}). Decode to YUV in your pipeline, or request JPG or PNG frames for screen share.`);
+    out.notes.push(`${sdk.video.format || 'Raw'} frames become H.264 (${resolution}). Decode to YUV in your pipeline, or request JPG frames for screen share.`);
   }
   out.notes.push('Persist sequence, timestamp and user metadata. Do not assume frame ordering survives a reconnect.');
   return out;

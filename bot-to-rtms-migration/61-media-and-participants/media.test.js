@@ -82,6 +82,12 @@ test('registry: video interval lifecycle, implicit participants and role changes
   assert.equal(r.setRole(7, 'cohost', 10), false);
   r.handleEvent({ event_type: J, timestamp: 11, participants: people([7, 'Zed']) });
   assert.equal(r.get(7).implicit, false, 'a real join clears the implicit flag');
+
+  // Implicit active speaker (seen speaking before any join event) must still close cleanly on leave.
+  r.handleEvent({ event_type: SPK, timestamp: 20, user_id: 8, user_name: 'May' });
+  assert.equal(r.get(8).present, true);
+  r.handleEvent({ event_type: L, timestamp: 30, user_id: 8 });
+  assert.deepEqual([r.get(8).present, r.get(8).speaking[0].to, r.attributeAudio(35).userId], [false, 30, null]);
 });
 
 test('registry: ignores events without a stream timestamp or unrelated types, links Zoom App IDs, finalizes intervals', () => {
@@ -222,6 +228,9 @@ test('media profile: valid params, stereo needs Opus, ranges are enforced', () =
   assert.ok(buildMediaParams('chat').warnings[0].includes('receive-only'));
   assert.ok(buildMediaParams('hologram').errors.length);
   assert.equal(buildMediaParams('share').params.fps, 1);
+  assert.ok(buildMediaParams('video', { codec: 'png' }).errors[0].includes('V2'));
+  assert.ok(buildMediaParams('share', { codec: 'png' }).errors[0].includes('V2'));
+  assert.ok(buildMediaParams('share', { fps: 60 }).errors.length);
 });
 
 test('media profile: translates what a Meeting SDK bot consumed', () => {

@@ -233,6 +233,7 @@ export function createStartService({
       const prior = releasedStreams.get(s.streamId);
       if (decision.purge || decision.alert) {
         trace.append('stream_stopped', { ...base, tenantId: prior?.tenantId ?? null, held: false, purge: decision.purge, late: true });
+        if (decision.alert) onAlert({ type: 'stop_alert', ...base, action: decision.action });
         if (decision.purge) return onStreamStopped({ streamId: s.streamId, tenantId: prior?.tenantId ?? null, meetingId: prior?.meetingId ?? s.meetingId }, decision);
       } else {
         trace.append('stream_stopped', { ...base, held: false });
@@ -404,6 +405,7 @@ export function createStartService({
     rememberReleased(stream);
     active.delete(stream.key);
     claims.release(stream.key, workerId, stream.generation, reason);
+    if (state.concurrency.level === 'limited') state.concurrency = { ...state.concurrency, level: 'near', at: now() };
     trace.append('stream_released', { streamId, meetingId: stream.meetingId, tenantId: stream.tenantId, reason });
     return { released: true };
   }

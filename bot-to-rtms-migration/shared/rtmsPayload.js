@@ -37,9 +37,9 @@ export function productFromEvent(event = '') {
   return 'unknown';
 }
 
-export const isStartedEvent = (event = '') => event.endsWith('.rtms_started') || event === 'contact_center.voice_rtms_started';
-export const isStoppedEvent = (event = '') => event.endsWith('.rtms_stopped') || event === 'contact_center.voice_rtms_stopped';
-export const isInterruptedEvent = (event = '') => event.endsWith('.rtms_interrupted') || event === 'contact_center.voice_rtms_interrupted';
+export const isStartedEvent = (event = '') => event.endsWith('.rtms_started') || event === 'contact_center.voice_rtms_started' || event === 'phone.call_rtms_started';
+export const isStoppedEvent = (event = '') => event.endsWith('.rtms_stopped') || event === 'contact_center.voice_rtms_stopped' || event === 'phone.call_rtms_stopped';
+export const isInterruptedEvent = (event = '') => event.endsWith('.rtms_interrupted') || event === 'contact_center.voice_rtms_interrupted' || event === 'phone.call_rtms_interrupted';
 
 /** The handshake field that carries the meeting or session identity, by product. */
 export const ENTITY_KEYS = Object.freeze({

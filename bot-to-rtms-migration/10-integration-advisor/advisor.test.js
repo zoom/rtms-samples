@@ -43,7 +43,7 @@ test('no live action means recordings, not RTMS', () => {
 });
 
 test('conditions: reconnect readiness, contact center entitlement, canonical recording', () => {
-  assert.ok(advise({ canOperateReconnect: false }).conditions.some((c) => c.includes('samples 03 and 04')));
+  assert.ok(advise({ canOperateReconnect: false }).conditions.some((c) => c.includes('50-start-and-approval and 60-stream-lifecycle-client')));
   assert.ok(advise({ contactCenter: true }).conditions.some((c) => c.includes('entitlement')));
   const r = advise({ canonicalRecording: true });
   assert.equal(r.recommendation, 'rtms');

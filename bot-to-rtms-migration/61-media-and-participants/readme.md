@@ -1,127 +1,113 @@
-# 61 Media and participants
+# 61 Media and participants (Step 6: participants and cameras)
 
-## Run this folder alone
+Maps what a Meeting SDK bot consumed (raw PCM/YUV frames, a participant roster, and simultaneous cameras) onto RTMS equivalents: negotiated media parameters, a stream-scoped participant registry keyed by RTMS user ID, mixed-audio speaker attribution, and single-camera video subscriptions.
 
 **Contents**
 
-- [Run this folder alone](#run-this-folder-alone) and [Meeting SDK bot vs RTMS](#meeting-sdk-bot-vs-rtms) - commands, then what changes in your pipeline
-- [The parts](#parts) - participant registry, camera selector, media profiles
-- [Run inside the full service](#run-inside-the-full-service) and [Adapting this sample](#adapting-this-sample)
-- [Webinars](#webinars) and [files and tests](#files-and-tests)
-- [Guide part six: participants and cameras](#guide-part-six-participants-and-cameras) - the rules for identity, attribution and the one-camera rule
+- [Run this folder alone](#run-this-folder-alone)
+- [How media handling differs from a bot](#how-media-handling-differs-from-a-bot)
+- [Core components](#core-components)
+- [Run inside the live service](#run-inside-the-live-service)
+- [Webinars](#webinars)
+- [Adapting this sample](#adapting-this-sample)
+- [Files and tests](#files-and-tests)
 
+## Run this folder alone
 
 ```bash
-npm run demo:61    # offline canned stream: participants, video subscription and media profiles
-npm run test:61    # the same components plus edge cases
+npm run demo:61    # offline canned stream: participants, video subscription, media profiles
+npm run test:61    # unit tests and edge cases
 ```
 
-No environment is required. `demo:61` feeds a fixed event and media sequence through the participant registry and video-subscription manager, negotiates audio and video parameters, translates an example Meeting SDK configuration, and prints the attributions. Expect two participants, two subscription requests, selected and unselected frames, speaker-derived audio attribution, and the numeric RTMS media parameters.
+No environment variables are needed. `demo:61` feeds canned RTMS events through the participant registry and video-subscription manager, builds negotiated audio/video parameters, translates a sample Meeting SDK raw config with `fromSdkRaw()`, and prints frame/audio attributions.
 
-Maps what a Meeting SDK bot consumed (raw PCM and YUV, a participant roster, per-person video) onto what RTMS delivers, namely negotiated media formats, a stream-scoped participant registry, mixed-audio speaker attribution, and one camera at a time.
+## How media handling differs from a bot
 
-## Meeting SDK bot vs RTMS
-
-| A Meeting SDK bot | RTMS |
+| Meeting SDK bot | RTMS |
 |---|---|
-| Raw PCM and YUV frames. | A negotiated audio codec, sample rate and channels. H.264 video or image frames. You decode in your pipeline. |
-| A roster with display names. | Track people by RTMS user ID. Names repeat and change. |
-| Per-participant audio and every camera it can render. | Mixed audio (speaker from active-speaker events), per-participant audio only where enabled, and **one** selected individual camera at a time. |
-| A participant leaving ends only that person. | Same, but you must close their intervals and clear a video subscription that depended on them. The stream continues. |
+| Raw PCM samples and YUV frames per participant | Negotiated audio codecs (L16, Opus, G711, G722) and H.264 or JPG video frames; your pipeline decodes and muxes |
+| Roster keyed by display name | Stream-scoped registry keyed by RTMS user ID (display names repeat and change) |
+| Per-participant audio and every visible camera | Mixed audio attributed via active-speaker events (per-participant audio only where enabled) and one selected camera at a time |
+| Leaving ends only that participant | Leaving closes their presence, video, and speaking intervals and clears any active video subscription while the stream continues |
 
-### Pipeline changes
+### Three pipeline changes
 
-The SDK hands you decoded, ready-to-use data, raw PCM samples and YUV frames, one callback per participant, no container. RTMS hands you encoded chunks instead, L16 or Opus audio and H.264 video bitstreams on type-scoped sockets, plus the muxing problem the SDK never gave you. Three shifts follow.
+1. **You own decoding.** Validate and lock codecs with `buildMediaParams()` or `fromSdkRaw()` before connecting.
+2. **YUV becomes H.264.** You receive an encoded bitstream where I frames stand alone and P frames depend on prior frames. Segment boundaries, post-gap recovery, and seeking must wait for the next I frame; a dropped P frame corrupts subsequent frames until the next I frame resets the picture.
+3. **You own attribution.** Match mixed audio timestamps to active-speaker intervals and video frames to the currently confirmed subscription. Bind per-participant audio sockets/channels directly to the registry rather than guessing.
 
-1. **You own decoding.** Pick codecs your pipeline can decode and lock them with `fromSdkRaw()` before the first byte.
-2. **YUV becomes H.264.** No more per-frame pixels. You receive a bitstream with keyframes only where the encoder put them, so do not expect to cut or seek on any frame.
+The lifecycle client in `60-stream-lifecycle-client` handles segment boundaries, parameter changes, gaps, and chunk dedupe; your storage writer hooks `onPacket`.
 
-    - An I frame stands alone and starts a new group.
-    - A P frame depends on the frames before it, so segment starts, dropped stretches and post-gap recovery all wait for an I frame.
-    - The upside is bandwidth a raw or intra-only pipeline cannot match.
-    - The cost is that dependency chain. A corrupted or missing P frame does not just lose that frame, it smears into everything built on it until the next I frame resets the picture.
-3. **Attribution becomes your bookkeeping.** Match audio frames to active-speaker intervals and video frames to the current subscription, both covered above.
+## Core components
 
-The stream client records segment boundaries, parameter changes, gaps and dedupes replays. The writer that turns packets into a file stays yours, hooking `onPacket` in 60-stream-lifecycle-client.
+### Participant registry ([src/participants.js](src/participants.js))
 
-## Parts
+Create one registry per stream (`tenant + meeting UUID + rtms_stream_id`). All presence, video-on, and speaking intervals use Zoom's stream clock (event and packet timestamps) so they align with media packets.
 
-**Participant registry** ([src/participants.js](src/participants.js)). One registry per stream: tenant, meeting UUID, `rtms_stream_id`. Keyed by user ID. Records presence, video-on and speaking intervals on the **stream clock** (event and packet timestamps), so they line up with the media.
+- Keyed by RTMS user ID. Duplicate joins do not duplicate people; a join with a new name logs a rename. Two present users named "Sam" receive unique labels `Sam (id 1002)` and `Sam (id 1003)`.
+- Leaving closes presence, video, and speaking intervals and notifies listeners of `video_off` before `leave`.
+- Mixed audio attribution checks active-speaker intervals only. Silence returns `null` (`no_active_speaker`) instead of guessing the previous speaker.
+- Individual video frames are attributed only when the user's video interval covers the frame timestamp. Departed users never receive frames.
+- Users first observed on video-on or active-speaker events are marked `implicit` and `present` until a real join clears `implicit`, ensuring a subsequent leave event still closes their intervals cleanly.
+- `linkZoomAppParticipant(uuid, userId)` maps Zoom App participant UUIDs to stream-scoped RTMS user IDs (never join RTMS user IDs across different streams, as they are only unique within a meeting). Roles are not included in these RTMS events, so feed them via `setRole()`.
+- `finalize(ts)` closes open intervals at the final stream timestamp and returns the `participants` block for `manifest.json`.
 
-- A duplicate join is not a second person. A join with a new name is a rename. Two people called "Sam" stay two people and get labels `Sam (id 1002)` and `Sam (id 1003)` while both are present.
-- Leaving closes presence, video and speaking, and tells listeners video ended before it says they left.
-- Mixed audio is attributed from active-speaker intervals only. With no active speaker the answer is "nobody", never "the last person who talked".
-- Video frames are accepted only while the person's video interval covers the frame. A departed person gets nothing by position or from a stale cache.
-- Someone first seen on a video event is marked `implicit` until a real join arrives.
-- `linkZoomAppParticipant(uuid, userId)` keeps the explicit Zoom App participant UUID to RTMS user ID mapping. The RTMS user ID is unique within its meeting only - not a global ID - so every mapping and interval lives inside one stream's registry and is never joined across streams. Roles are not carried by the RTMS events used here, so `setRole()` takes them from your own source.
-- `finalize(ts)` closes every open interval and returns the `participants` block for the stream manifest.
+### Video subscription manager ([src/videoSubscription.js](src/videoSubscription.js))
 
-**Video subscription manager** ([src/videoSubscription.js](src/videoSubscription.js)). Keeps `current` (confirmed) and `desired`, never more than one request in flight, and takes the next single step: unsubscribe the current person, then subscribe the next.
+Tracks `current` (server-confirmed) and `desired` user IDs with at most one `VIDEO_SUBSCRIPTION_REQ` in flight, switching cameras by unsubscribing `current` before subscribing `desired`.
 
-- Refuses someone whose video is off, and drops a pending subscribe if their video went off while waiting.
-- If the selected person turns video off or leaves, it clears the selection without sending anything (the server already ended it) and the stream continues. `afterVideoEnds: 'next'` selects another person whose video is on.
-- If the video socket reconnects, the old subscription is gone, so it subscribes again.
-- A subscribe that times out may or may not have taken effect, so it sends a cleanup unsubscribe before trying anything else.
-- `attributeFrame()` counts frames that are not for the current subscription instead of attributing them.
+- Rejects users whose video is off, and drops a queued subscribe if their video turns off before sending.
+- When the currently subscribed person turns video off or leaves, clears `current` without sending an unsubscribe (Zoom already ended it) and keeps the stream alive. Set `afterVideoEnds: 'next'` to switch automatically to another user with video on.
+- On video socket reconnect (`handleVideoSocketRecovered()`), re-subscribes the desired user because the old connection's subscription is lost.
+- If a subscribe times out, sends a cleanup unsubscribe before starting another request so server state stays deterministic.
+- `attributeFrame()` rejects and counts frames not matching `current`.
 
-**Media profile** ([src/mediaProfile.js](src/mediaProfile.js)). Builds `media_params` per concrete media type and refuses invalid combinations (stereo needs Opus, fps range, unknown codec). `fromSdkRaw()` turns what your bot consumed into RTMS parameters and says what changes. The accepted values mirror the constants in Zoom's reference manager. [src/mediaProfile.js](src/mediaProfile.js) is the in-repo source of truth.
+### Media profile ([src/mediaProfile.js](src/mediaProfile.js))
 
-## Run inside the full service
+Builds `media_params` per concrete media type and rejects invalid settings before connecting: stereo requires Opus, fps must be an integer from 1 to 30 for both video and screen share, and PNG is rejected under protocol V2 (use `jpg` or `h264`). `fromSdkRaw()` translates a Meeting SDK raw audio/video specification into RTMS parameters and prints migration notes.
 
-These parts are wired into the live session, so they run on a real stream with `npm run live` (setup is in the "Connect to Zoom" section of the 50-start-and-approval readme):
+## Run inside the live service
+
+These components are already wired into [60-stream-lifecycle-client/src/liveSession.js](../60-stream-lifecycle-client/src/liveSession.js):
 
 ```bash
 RTMS_MEDIA=audio,transcript npm run live                               # participants and active speaker
-RTMS_MEDIA=audio,video RTMS_VIDEO_MODE=individual npm run live         # one camera at a time
+RTMS_MEDIA=audio,video RTMS_VIDEO_MODE=individual npm run live         # single selected camera
 ```
 
-- The registry fills from the participant and speaker events the client subscribes to. The log shows `participant join`, `participant leave` and `participant rename` with RTMS user IDs, and the finished `manifest.json` carries a `participants` block with every presence, video and speaking interval.
-- With `RTMS_VIDEO_MODE=individual` the live session selects the first person whose video is on, switches to another when that person turns video off or leaves, and subscribes again if the video socket reconnects. The log carries the subscription outcomes as `video_subscription_*` trace events.
-- `RTMS_AUDIO_*`, `RTMS_VIDEO_*` and `RTMS_TRANSCRIPT_*` set the negotiated formats. [src/mediaProfile.js](src/mediaProfile.js) refuses invalid combinations before anything connects, and `fromSdkRaw()` maps what your bot consumed today onto RTMS parameters.
+- Live logs show `participant join`, `participant leave`, `participant rename`, and (in individual video mode) `video_subscription_*` trace events.
+- With `RTMS_VIDEO_MODE=individual`, the session subscribes to the first participant with video on, switches on `video_off` or `leave`, and re-subscribes after video socket reconnects.
+- Configure formats via `RTMS_AUDIO_*`, `RTMS_VIDEO_*`, and `RTMS_TRANSCRIPT_*`. Invalid combinations fail at startup before opening sockets.
 
-Two things to confirm on your first real run, because they depend on Zoom's behavior and not on this code. One is whether a given meeting actually sends the individual-video events. The other is what status Zoom returns for a refused subscription. The subscription manager treats any non-zero status as a failure and cleans up, so it does not depend on a specific code.
-
-## Adapting this sample
-
-- **Media formats.** Set `RTMS_AUDIO_*`, `RTMS_VIDEO_*` and `RTMS_TRANSCRIPT_*`, or edit [src/mediaProfile.js](src/mediaProfile.js) to change the defaults. Invalid combinations are refused before connecting, so a wrong codec fails fast and locally. Use `fromSdkRaw()` to translate what your old bot consumed.
-- **Camera policy.** Who gets the single video slot is your product decision. The selector in [src/videoSubscription.js](src/videoSubscription.js) picks the first person whose video is on. Change `afterVideoEnds` and the selection rule, not the one-request-at-a-time machinery around it.
-- **Identity.** `linkZoomAppParticipant()` joins your Zoom App user to the RTMS user ID, and `setRole()` takes roles from your own source, because RTMS events do not carry them. Wire both to your session store.
-- **Attribution rules.** Speaker attribution and video-frame gating live in [src/participants.js](src/participants.js). The invariants (departed people get nothing, no speaker means nobody) are tested in [media.test.js](media.test.js). Keep them while you extend.
+On your first live video run, confirm that your meeting emits individual-video events and inspect the status codes returned on any refused subscription (the manager treats any non-zero status as a failure and cleans up).
 
 ## Webinars
 
-Design around panelist media first. Attendee streams may not be individually available, so test attendee visibility before you promise webinar capture.
+Build around panelist media first. Attendee streams may not be individually available in webinars, so test attendee visibility on a real webinar before promising it.
+
+## Adapting this sample
+
+- **Media formats:** tune `RTMS_AUDIO_*`, `RTMS_VIDEO_*`, and `RTMS_TRANSCRIPT_*`, or adjust defaults in [src/mediaProfile.js](src/mediaProfile.js).
+- **Camera selection policy:** change `afterVideoEnds` and the user-selection rule in [liveSession.js](../60-stream-lifecycle-client/src/liveSession.js) while keeping the single-in-flight state machine in [src/videoSubscription.js](src/videoSubscription.js).
+- **Identity and roles:** wire `linkZoomAppParticipant()` and `setRole()` to your session store.
+- **Attribution invariants:** keep the guarantees tested in [media.test.js](media.test.js) (no frames attributed to departed users, no speaker guessed during silence).
 
 ## Files and tests
 
-[src/participants.js](src/participants.js), [src/videoSubscription.js](src/videoSubscription.js), [src/mediaProfile.js](src/mediaProfile.js), [offlineDemo.js](offlineDemo.js), [demo.js](demo.js), [demo.test.js](demo.test.js) (1 test), [media.test.js](media.test.js) (14 tests: registry, subscription manager, media profile).
-
----
-
-## Guide part six: participants and cameras
-
-### Participants and cameras
-
-- **Identify people by their RTMS user ID, never by display name.** Names repeat and change. Keep a registry per stream, closed intervals for presence, video-on and speaking, all on the stream clock (the event and packet timestamps).
-- **Mixed audio.** Attribute a frame to the active-speaker interval that covers its timestamp. Do not guess from silence, because with no active speaker the answer is "nobody".
-- **Per-participant audio.** Bind the socket and channel metadata to the registry, not to a guess. For a Zoom App user, keep an explicit map from the Zoom App participant UUID to the RTMS user ID. RTMS does not replace your identity resolution, so duplicate names and renames need your own handling.
-- **One camera at a time.** To switch, unsubscribe the current person, then subscribe the next. Keep one request in flight. If the selected person turns video off or leaves, clear the selection (Zoom already ended it) and carry on. If the video socket reconnects, subscribe again. Never attribute a frame to someone who is not the current subscription.
-- **If a subscribed participant leaves,** only that person's video interval ends. Close it, remove them from the selection and keep the stream.
-- **Formats.** `RTMS_AUDIO_*`, `RTMS_VIDEO_*` and `RTMS_TRANSCRIPT_*` set what you negotiate, and invalid combinations (stereo without Opus, an fps out of range) are refused before anything connects.
+- Source: [src/participants.js](src/participants.js), [src/videoSubscription.js](src/videoSubscription.js), [src/mediaProfile.js](src/mediaProfile.js), [offlineDemo.js](offlineDemo.js), [demo.js](demo.js).
+- Tests (`npm run test:61`, 15 tests): [demo.test.js](demo.test.js) (1 test), [media.test.js](media.test.js) (14 tests covering registry, subscription state machine, and V2 media profiles).
 
 ---
 
 ## Elsewhere in the guide
 
-All nine parts link below. Start from the [overview](../readme.md).
+Start from the [overview](../readme.md).
 
-- [00 Design](../00-design/readme.md) - Production architecture: failure drills, media choices, observability, the webhook SLO
-- [10 Integration Advisor](../10-integration-advisor/readme.md) - Step 1. What changes, which sample to start from, the gap-checker
-- [20 Configure](../20-configure/readme.md) - Step 2. The Marketplace app: manifest, scopes, events, credentials
-- [30 Publish](../30-publish/readme.md) - Step 3. Review, evidence and the rejections to avoid
-- [40 Prepare](../40-prepare/readme.md) - Step 4. Admin enablement, host approval, consent, the status codes
-- [50 Start And Approval](../50-start-and-approval/readme.md) - Step 5. The webhook endpoint, deduplication, claims, the tenant gate, OAuth
-- [60 Stream Lifecycle Client](../60-stream-lifecycle-client/readme.md) - Step 6. Signaling and media sockets, keep-alives, reconnect, generations
-- [70 Reporting Dashboard](../70-reporting-dashboard/readme.md) - Step 7. The dashboard, alerts, the event contract, the production checklist
-- [The root readme](../readme.md) - the seven steps, the plan and licensing checks, the reuse table
-
+- [00 Design](../00-design/readme.md) - Production architecture, failover drills, media choices, observability, webhook SLO
+- [10 Integration Advisor](../10-integration-advisor/readme.md) - Step 1: what changes, starter samples, gap checker
+- [20 Configure](../20-configure/readme.md) - Step 2: Marketplace manifest, scopes, events, credentials
+- [30 Publish](../30-publish/readme.md) - Step 3: review package, checks, common rejections
+- [40 Prepare](../40-prepare/readme.md) - Step 4: admin enablement, host approval, consent, status codes
+- [50 Start and Approval](../50-start-and-approval/readme.md) - Step 5: webhook intake, claims, tenant gate, OAuth
+- [60 Stream Lifecycle Client](../60-stream-lifecycle-client/readme.md) - Step 6: signaling, media, keep-alives, reconnect, manifests
+- [70 Reporting Dashboard](../70-reporting-dashboard/readme.md) - Step 7: dashboard, alerts, event contract, rollout

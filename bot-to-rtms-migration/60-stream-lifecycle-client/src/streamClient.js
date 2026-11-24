@@ -453,7 +453,9 @@ export function createStreamClient({
     const bytes = type === 'transcript' || type === 'chat'
       ? Buffer.from(typeof content.data === 'string' ? content.data : JSON.stringify(content.data), 'utf8')
       : Buffer.from(String(content.data), 'base64');
-    const timestamp = Number(content.timestamp);
+    const rawTs = Number(content.timestamp);
+    const hasTs = Number.isFinite(rawTs);
+    const timestamp = hasTs ? rawTs : now();
     const id = chunkId({ tenantId: envelope.tenantId, meetingId: envelope.meetingId, streamId: envelope.streamId, mediaType: type, timestamp, bytes });
     if (seen.has(id)) {
       stats.duplicatesDropped += 1; // buffered media replayed after a reconnect
@@ -472,21 +474,36 @@ export function createStreamClient({
     }
 
     const previous = lastTs[type];
-    if (previous !== undefined && timestamp < previous) stats.lateArrivals += 1; // buffered media that fills a gap
-    if (pendingGap[type] !== undefined) {
+    if (hasTs && previous !== undefined && timestamp < previous) stats.lateArrivals += 1; // buffered media that fills a gap
+    if (hasTs && pendingGap[type] !== undefined && timestamp >= pendingGap[type]) {
       const ms = timestamp - pendingGap[type];
       if (ms > gapThresholdMs) gaps.push({ mediaType: type, fromTs: pendingGap[type], toTs: timestamp, ms, cause: 'reconnect' });
       delete pendingGap[type];
     }
-    if (previous === undefined || timestamp > previous) lastTs[type] = timestamp;
+    if (hasTs && (previous === undefined || timestamp > previous)) lastTs[type] = timestamp;
 
     let segment = openSegments[type];
     if (!segment) segment = openSegment(type, pendingBoundary[type] || (segments.some((s) => s.mediaType === type) ? 'resume' : 'start'), timestamp);
     delete pendingBoundary[type];
     segment.packets += 1;
     segment.bytes += bytes.length;
-    segment.lastTs = Math.max(segment.lastTs, timestamp);
-    onPacket({ mediaType: type, userId: content.user_id, userName: content.user_name, timestamp, bytes, chunkId: id, segmentIndex: segment.index });
+    if (hasTs) segment.lastTs = Math.max(segment.lastTs, timestamp);
+    onPacket({
+      mediaType: type,
+      userId: content.user_id,
+      userName: content.user_name,
+      channelId: content.channel_id ?? null,
+      sentenceId: content.sentence_id ?? null,
+      attribute: content.attribute ?? null,
+      source: content.source ?? null,
+      language: content.language ?? null,
+      startTime: content.start_time ?? null,
+      endTime: content.end_time ?? null,
+      timestamp,
+      bytes,
+      chunkId: id,
+      segmentIndex: segment.index
+    });
   }
 
   // --- segments -------------------------------------------------------------
