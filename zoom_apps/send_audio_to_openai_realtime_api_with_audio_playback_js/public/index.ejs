@@ -7,9 +7,7 @@
   <title>OpenAI Realtime Zoom App</title>
   <script src="https://appssdk.zoom.us/sdk.js"></script>
   <style>
-    * {
-      box-sizing: border-box;
-    }
+    * { box-sizing: border-box; }
 
     body {
       margin: 0;
@@ -49,8 +47,8 @@
 
     main {
       display: grid;
-      grid-template-rows: auto 1fr;
-      gap: 12px;
+      grid-template-rows: auto auto 1fr auto;
+      gap: 10px;
       min-height: 0;
       flex: 1;
       padding: 12px;
@@ -63,6 +61,33 @@
       align-items: center;
     }
 
+    .divider {
+      width: 1px;
+      height: 24px;
+      background: #d9dde3;
+      margin: 0 2px;
+    }
+
+    .telemetry-bar {
+      display: flex;
+      flex-wrap: wrap;
+      gap: 8px;
+      align-items: center;
+      font-size: 12px;
+      color: #475569;
+      background: #ffffff;
+      border: 1px solid #d9dde3;
+      border-radius: 8px;
+      padding: 7px 10px;
+    }
+
+    .telemetry-pill {
+      background: #f1f5f9;
+      border-radius: 999px;
+      padding: 3px 9px;
+      font-variant-numeric: tabular-nums;
+    }
+
     button {
       border: 1px solid #c9d2e3;
       background: #ffffff;
@@ -71,12 +96,25 @@
       min-height: 36px;
       padding: 0 12px;
       font: inherit;
+      font-size: 13px;
       cursor: pointer;
     }
 
     button.primary {
       background: #2563eb;
       border-color: #2563eb;
+      color: #ffffff;
+    }
+
+    button.active-toggle {
+      background: #0f766e;
+      border-color: #0f766e;
+      color: #ffffff;
+    }
+
+    button.warn-toggle {
+      background: #b45309;
+      border-color: #b45309;
       color: #ffffff;
     }
 
@@ -128,6 +166,45 @@
       color: #202124;
     }
 
+    .tool-card {
+      margin: 8px 0 10px;
+      border: 1px solid #cbd5e1;
+      border-left: 4px solid #2563eb;
+      border-radius: 6px;
+      background: #f8fafc;
+      padding: 8px 10px;
+      font-size: 12px;
+      color: #1e293b;
+    }
+
+    .tool-card.completed { border-left-color: #16a34a; }
+    .tool-card.failed { border-left-color: #dc2626; }
+    .tool-card.ready { border-left-color: #0f766e; }
+
+    .tool-card-header {
+      display: flex;
+      justify-content: space-between;
+      align-items: center;
+      font-weight: 600;
+      margin-bottom: 4px;
+      gap: 8px;
+    }
+
+    .tool-card-badge {
+      font-size: 11px;
+      text-transform: uppercase;
+      padding: 2px 6px;
+      border-radius: 999px;
+      background: #e2e8f0;
+      color: #334155;
+    }
+
+    .tool-card-body {
+      color: #475569;
+      word-break: break-word;
+      white-space: pre-wrap;
+    }
+
     .note {
       display: block;
       width: fit-content;
@@ -141,15 +218,29 @@
       font-size: 12px;
     }
 
+    .prompt-form {
+      display: flex;
+      gap: 8px;
+      align-items: center;
+    }
+
+    .prompt-input {
+      flex: 1;
+      min-height: 38px;
+      border: 1px solid #c9d2e3;
+      border-radius: 6px;
+      padding: 0 12px;
+      font: inherit;
+      font-size: 14px;
+      background: #ffffff;
+    }
+
     @media (max-width: 640px) {
       header {
         align-items: flex-start;
         flex-direction: column;
       }
-
-      .status {
-        max-width: 100%;
-      }
+      .status { max-width: 100%; }
     }
   </style>
 </head>
@@ -161,18 +252,40 @@
   </header>
 
   <main>
-    <section class="toolbar">
+    <section class="toolbar" aria-label="RTMS and Audio Controls">
       <button id="startRtmsBtn" class="primary" type="button">Start RTMS</button>
       <button id="stopRtmsBtn" class="danger" type="button">Stop RTMS</button>
+      <span class="divider" aria-hidden="true"></span>
+      <button id="enableAudioBtn" type="button">Enable Audio</button>
+      <button id="mutePlaybackBtn" type="button">Mute Playback</button>
+      <button id="speakerSafeBtn" type="button" title="Pause mic audio forwarding while the assistant is speaking to prevent speaker echo self-interruption">Speaker-Safe: Off</button>
+    </section>
+
+    <section class="telemetry-bar" aria-label="Session Telemetry">
+      <span id="telemetryResponses" class="telemetry-pill">Turns: 0</span>
+      <span id="telemetryTokens" class="telemetry-pill">Tokens: 0 in / 0 out</span>
+      <span id="telemetryCost" class="telemetry-pill">Est. Cost: $0.000</span>
     </section>
 
     <section id="conversation" class="conversation" aria-live="polite">
-      <span class="note">Start RTMS, then speak in the meeting.</span>
+      <span class="note">Click Enable Audio (if joining an active stream) or Start RTMS, then speak or type below.</span>
     </section>
+
+    <form id="promptForm" class="prompt-form">
+      <input
+        id="promptInput"
+        class="prompt-input"
+        type="text"
+        placeholder="Type a hybrid text prompt to OpenAI Realtime..."
+        autocomplete="off"
+      />
+      <button id="sendPromptBtn" class="primary" type="submit">Send</button>
+    </form>
   </main>
 
   <script>
-    const SERVER_WEBSOCKET_URL = "<%= websocket_url %>";
+    const SERVER_WEBSOCKET_URL = <%- JSON.stringify(websocket_url) %>;
+    const WS_AUTH_TOKEN = <%- JSON.stringify(ws_auth_token || '') %>;
   </script>
   <script src="audio-client.js"></script>
   <script>
@@ -180,19 +293,31 @@
     const conversationEl = document.getElementById('conversation');
     const startRtmsBtn = document.getElementById('startRtmsBtn');
     const stopRtmsBtn = document.getElementById('stopRtmsBtn');
+    const enableAudioBtn = document.getElementById('enableAudioBtn');
+    const mutePlaybackBtn = document.getElementById('mutePlaybackBtn');
+    const speakerSafeBtn = document.getElementById('speakerSafeBtn');
+    const telemetryResponsesEl = document.getElementById('telemetryResponses');
+    const telemetryTokensEl = document.getElementById('telemetryTokens');
+    const telemetryCostEl = document.getElementById('telemetryCost');
+    const promptForm = document.getElementById('promptForm');
+    const promptInput = document.getElementById('promptInput');
 
-    const client = new RealtimeAudioClient(SERVER_WEBSOCKET_URL);
+    const client = new RealtimeAudioClient(SERVER_WEBSOCKET_URL, { authToken: WS_AUTH_TOKEN });
     const zoomState = {
       ready: false,
+      sdkInitialized: false,
+      rtmsListenerAttached: false,
       meetingUUID: '',
       meetingID: '',
       meetingTopic: '',
+      userID: '',
       userName: '',
       rtmsState: 'unknown',
     };
 
     let assistantBubble = null;
     let assistantBuffer = '';
+    const toolCardsByItemId = new Map();
 
     function setStatus(message) {
       statusEl.textContent = message;
@@ -219,15 +344,11 @@
     }
 
     function appendAssistantText(delta) {
-      if (!delta) {
-        return;
-      }
-
+      if (!delta) return;
       if (!assistantBubble) {
         assistantBuffer = '';
         assistantBubble = addMessage('', 'assistant');
       }
-
       assistantBuffer += delta;
       assistantBubble.textContent = assistantBuffer;
       conversationEl.scrollTop = conversationEl.scrollHeight;
@@ -242,12 +363,82 @@
           assistantBubble.textContent = cleanFinalText;
         }
       }
-
       assistantBubble = null;
       assistantBuffer = '';
     }
 
-    function setRtmsState(nextState, rawStatus = null) {
+    function upsertMcpToolCard(eventData) {
+      const itemId = eventData.itemId || `mcp_${Date.now()}`;
+      let card = toolCardsByItemId.get(itemId);
+      if (!card) {
+        card = document.createElement('div');
+        card.className = 'tool-card';
+
+        const header = document.createElement('div');
+        header.className = 'tool-card-header';
+        const title = document.createElement('span');
+        const badge = document.createElement('span');
+        badge.className = 'tool-card-badge';
+        header.appendChild(title);
+        header.appendChild(badge);
+
+        const body = document.createElement('div');
+        body.className = 'tool-card-body';
+
+        card.appendChild(header);
+        card.appendChild(body);
+        card._titleEl = title;
+        card._badgeEl = badge;
+        card._bodyEl = body;
+
+        toolCardsByItemId.set(itemId, card);
+        conversationEl.appendChild(card);
+      }
+
+      const status = eventData.status || 'running';
+      card.className = `tool-card ${status}`;
+
+      const labelParts = [eventData.serverLabel, eventData.toolName].filter(Boolean);
+      card._titleEl.textContent = `MCP Tool: ${labelParts.join('.') || 'Tool Call'}`;
+      card._badgeEl.textContent = status;
+
+      const bodyLines = [];
+      if (eventData.argumentsPreview) {
+        bodyLines.push(`Args: ${eventData.argumentsPreview}`);
+      }
+      if (eventData.summary) {
+        bodyLines.push(eventData.summary);
+      }
+      card._bodyEl.textContent = bodyLines.join('\n') || 'Working...';
+      conversationEl.scrollTop = conversationEl.scrollHeight;
+    }
+
+    function updateTelemetry(usageData) {
+      const total = usageData?.sessionTotal;
+      if (!total) return;
+      telemetryResponsesEl.textContent = `Turns: ${total.responses || 0}`;
+      telemetryTokensEl.textContent = `Tokens: ${total.inputTokens || 0} in / ${total.outputTokens || 0} out`;
+      telemetryCostEl.textContent = `Est. Cost: $${Number(total.estimatedModelCostUsd || 0).toFixed(4)}`;
+    }
+
+    function updateAudioControlButtons() {
+      const state = client.getAudioState();
+      if (state === 'running') {
+        enableAudioBtn.textContent = 'Audio Ready';
+        enableAudioBtn.classList.add('active-toggle');
+      } else {
+        enableAudioBtn.textContent = 'Enable Audio';
+        enableAudioBtn.classList.remove('active-toggle');
+      }
+
+      mutePlaybackBtn.textContent = client.isMuted ? 'Unmute Playback' : 'Mute Playback';
+      mutePlaybackBtn.classList.toggle('warn-toggle', client.isMuted);
+
+      speakerSafeBtn.textContent = client.speakerSafeMode ? 'Speaker-Safe: On' : 'Speaker-Safe: Off';
+      speakerSafeBtn.classList.toggle('active-toggle', client.speakerSafeMode);
+    }
+
+    function setRtmsState(nextState) {
       zoomState.rtmsState = nextState;
       const active = nextState === 'active';
       const pending = nextState === 'starting' || nextState === 'stopping' || nextState === 'checking';
@@ -257,21 +448,14 @@
       stopRtmsBtn.disabled = unavailable || pending || !active;
       startRtmsBtn.textContent = nextState === 'starting' ? 'Starting...' : 'Start RTMS';
       stopRtmsBtn.textContent = nextState === 'stopping' ? 'Stopping...' : 'Stop RTMS';
-
-      if (rawStatus) {
-        console.debug('RTMS status raw:', rawStatus);
-      }
     }
 
     function deriveRtmsState(status) {
       if (Array.isArray(status)) {
         return status.length > 0 ? 'active' : 'inactive';
       }
-
       const text = JSON.stringify(status || '').toLowerCase();
-      if (!text || text === '\"\"') {
-        return 'inactive';
-      }
+      if (!text || text === '""') return 'inactive';
       if (text.includes('stopped') || text.includes('inactive') || text.includes('not_started') || text.includes('none')) {
         return 'inactive';
       }
@@ -291,7 +475,7 @@
       try {
         const rtmsStatus = await window.zoomSdk.getRTMSStatus();
         const nextState = deriveRtmsState(rtmsStatus);
-        setRtmsState(nextState, rtmsStatus);
+        setRtmsState(nextState);
         setStatus(nextState === 'active' ? 'RTMS active' : 'RTMS inactive');
       } catch (error) {
         console.error('Failed to get RTMS status:', error);
@@ -300,12 +484,18 @@
       }
     }
 
-    async function initializeZoomSdk() {
+    async function initializeZoomSdkOnce() {
+      if (zoomState.sdkInitialized) {
+        if (zoomState.meetingUUID && zoomState.userID) {
+          client.setRegistration(zoomState.meetingUUID, zoomState.userID, WS_AUTH_TOKEN);
+        }
+        return;
+      }
+
       const sdk = window.zoomSdk;
       if (!sdk) {
         setStatus('Open this page inside Zoom to use Zoom App controls.');
-        startRtmsBtn.disabled = true;
-        stopRtmsBtn.disabled = true;
+        setRtmsState('unavailable');
         return;
       }
 
@@ -326,38 +516,38 @@
           ],
         });
 
-        const [runningContext, meetingContext, userContext, meetingUUID] = await Promise.all([
-          sdk.getRunningContext(),
-          sdk.getMeetingContext(),
+        const [meetingContext, userContext, meetingUUID] = await Promise.all([
+          sdk.getMeetingContext().catch(() => ({})),
           sdk.getUserContext(),
           sdk.getMeetingUUID(),
         ]);
 
         zoomState.ready = true;
+        zoomState.sdkInitialized = true;
         zoomState.meetingUUID = meetingUUID?.meetingUUID || '';
         zoomState.meetingID = meetingContext?.meetingID || '';
         zoomState.meetingTopic = meetingContext?.meetingTopic || '';
+        zoomState.userID = userContext?.participantUUID || userContext?.participantId || userContext?.screenName || 'zoom-user';
         zoomState.userName = userContext?.screenName || userContext?.displayName || '';
 
-        client.sendReady({
-          meeting_uuid: zoomState.meetingUUID,
-          meeting_id: zoomState.meetingID,
-          topic: zoomState.meetingTopic,
-          user_name: zoomState.userName,
-          running_context: runningContext?.context || '',
-        });
+        client.setRegistration(zoomState.meetingUUID, zoomState.userID, WS_AUTH_TOKEN);
 
-        const handleRtmsStatusChange = (event) => {
-          const nextState = deriveRtmsState(event);
-          setRtmsState(nextState, event);
-          setStatus(nextState === 'active' ? 'RTMS active' : 'RTMS inactive');
-          addNote(`RTMS status: ${event?.status || JSON.stringify(event)}`);
-        };
+        // Attach onRTMSStatusChange exactly once to prevent duplicate listeners on WS reconnect
+        if (!zoomState.rtmsListenerAttached) {
+          const handleRtmsStatusChange = (event) => {
+            const nextState = deriveRtmsState(event);
+            setRtmsState(nextState);
+            setStatus(nextState === 'active' ? 'RTMS active' : 'RTMS inactive');
+            addNote(`RTMS status: ${event?.status || JSON.stringify(event)}`);
+          };
 
-        if (typeof sdk.onRTMSStatusChange === 'function') {
-          sdk.onRTMSStatusChange(handleRtmsStatusChange);
-        } else if (typeof sdk.on === 'function') {
-          sdk.on('onRTMSStatusChange', handleRtmsStatusChange);
+          if (typeof sdk.onRTMSStatusChange === 'function') {
+            sdk.onRTMSStatusChange(handleRtmsStatusChange);
+            zoomState.rtmsListenerAttached = true;
+          } else if (typeof sdk.on === 'function') {
+            sdk.on('onRTMSStatusChange', handleRtmsStatusChange);
+            zoomState.rtmsListenerAttached = true;
+          }
         }
 
         setStatus('Zoom App ready');
@@ -373,6 +563,7 @@
       try {
         setRtmsState('starting');
         await client.enablePlayback();
+        updateAudioControlButtons();
         await window.zoomSdk.startRTMS();
         addNote('Requested RTMS start');
         await refreshRtmsStatus();
@@ -395,10 +586,60 @@
       }
     });
 
-    client.onReady = () => {
-      setStatus('Frontend WebSocket connected');
-      setRtmsState('unavailable');
-      initializeZoomSdk();
+    enableAudioBtn.addEventListener('click', async () => {
+      try {
+        const state = await client.enablePlayback();
+        updateAudioControlButtons();
+        addNote(`Audio playback unlocked (${state})`);
+      } catch (error) {
+        addNote(`Failed to unlock audio: ${error.message || error}`);
+      }
+    });
+
+    mutePlaybackBtn.addEventListener('click', () => {
+      const muted = client.setMuted(!client.isMuted);
+      updateAudioControlButtons();
+      addNote(muted ? 'Playback muted' : 'Playback unmuted');
+    });
+
+    speakerSafeBtn.addEventListener('click', () => {
+      const enabled = client.setSpeakerSafeMode(!client.speakerSafeMode);
+      updateAudioControlButtons();
+      addNote(
+        enabled
+          ? 'Speaker-Safe (Half-Duplex) enabled: mic audio pauses while assistant speaks'
+          : 'Speaker-Safe disabled: full-duplex barge-in active',
+      );
+    });
+
+    promptForm.addEventListener('submit', async (event) => {
+      event.preventDefault();
+      const text = promptInput.value.trim();
+      if (!text) return;
+
+      try {
+        await client.enablePlayback();
+        updateAudioControlButtons();
+        client.sendText(text);
+        addMessage(text, 'user');
+        promptInput.value = '';
+      } catch (error) {
+        addNote(`Could not send prompt: ${error.message || error}`);
+      }
+    });
+
+    client.onConnected = () => {
+      setStatus('WebSocket connected, registering...');
+      initializeZoomSdkOnce();
+    };
+
+    client.onRegistered = () => {
+      setStatus('Connected to OpenAI Realtime backend');
+      addNote('Registered for meeting audio stream');
+    };
+
+    client.onDisconnected = () => {
+      setStatus('WebSocket disconnected');
     };
 
     client.onStatus = (message) => {
@@ -421,11 +662,20 @@
     };
 
     client.onAudioStart = () => {
+      updateAudioControlButtons();
       setStatus('Assistant speaking...');
     };
 
     client.onAudioDone = () => {
       setStatus('Assistant finished speaking');
+    };
+
+    client.onMcpToolEvent = (toolEvent) => {
+      upsertMcpToolCard(toolEvent);
+    };
+
+    client.onUsage = (usageData) => {
+      updateTelemetry(usageData);
     };
 
     client.onInterrupted = () => {
@@ -440,6 +690,8 @@
     };
 
     window.addEventListener('load', async () => {
+      updateAudioControlButtons();
+      setRtmsState('unavailable');
       try {
         await client.connect();
       } catch (error) {

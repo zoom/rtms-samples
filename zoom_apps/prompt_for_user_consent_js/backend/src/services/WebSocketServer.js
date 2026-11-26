@@ -1,3 +1,5 @@
+const { verifySocketJoin } = require('../middleware/security');
+
 /**
  * WebSocket Server for real-time state synchronization
  */
@@ -13,8 +15,37 @@ class WebSocketServer {
     this.io.on('connection', (socket) => {
       console.log(`WebSocket client connected: ${socket.id}`);
 
-      // Handle client joining a meeting room
-      socket.on('join_meeting', (meetingId) => {
+      // Handle client joining a meeting room (with Zoom App context verification)
+      socket.on('join_meeting', (payload, ack) => {
+        const isObj = payload && typeof payload === 'object';
+        const meetingId = isObj ? payload.meetingId : payload;
+        const contextHeader =
+          (isObj ? payload.zoomAppContext : null) ||
+          socket.handshake?.auth?.zoomAppContext ||
+          socket.handshake?.headers?.['x-zoom-app-context'];
+        const authToken =
+          (isObj ? payload.authToken : null) ||
+          socket.handshake?.auth?.authToken ||
+          socket.handshake?.headers?.['x-zoom-app-token'];
+        const session = socket.request?.session || null;
+
+        const verification = verifySocketJoin({
+          meetingId,
+          contextHeader,
+          authToken,
+          session
+        });
+
+        if (!verification.authorized) {
+          console.warn(`Rejected join_meeting for socket ${socket.id}: ${verification.reason}`);
+          socket.emit('join_error', { error: 'Unauthorized meeting join', reason: verification.reason });
+          if (typeof ack === 'function') {
+            ack({ ok: false, error: 'Unauthorized meeting join', reason: verification.reason });
+          }
+          return;
+        }
+
+        socket.zoomContext = verification.context;
         console.log(`Client ${socket.id} joining meeting ${meetingId}`);
         socket.join(meetingId);
 
@@ -22,6 +53,10 @@ class WebSocketServer {
           this.connections.set(meetingId, new Set());
         }
         this.connections.get(meetingId).add(socket.id);
+
+        if (typeof ack === 'function') {
+          ack({ ok: true, meetingId });
+        }
       });
 
       // Handle client leaving a meeting room
@@ -41,7 +76,6 @@ class WebSocketServer {
       socket.on('disconnect', () => {
         console.log(`WebSocket client disconnected: ${socket.id}`);
 
-        // Remove from all meeting rooms
         this.connections.forEach((sockets, meetingId) => {
           if (sockets.has(socket.id)) {
             sockets.delete(socket.id);

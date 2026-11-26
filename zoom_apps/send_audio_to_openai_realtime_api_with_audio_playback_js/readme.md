@@ -1,23 +1,19 @@
 # Send Audio to OpenAI Realtime API with Zoom App Audio Playback
 
-This Zoom App sample builds on [`audio/send_audio_to_openai_realtime_api`](../../audio/send_audio_to_openai_realtime_api) and selectively reuses the browser playback pattern from [`zoom_apps/ai_chat_with_audio_playback_js`](../ai_chat_with_audio_playback_js).
-
-It streams live Zoom RTMS meeting audio to the OpenAI Realtime API, enables configured MCP tools, receives OpenAI Realtime audio output, and plays that audio inside the Zoom App webview.
+This Zoom App sample streams live Zoom RTMS mixed meeting audio to the OpenAI Realtime API (with optional MCP tools), receives OpenAI Realtime PCM16 audio output, and plays gapless audio inside the Zoom App webview alongside hybrid text prompting, live MCP tool-call cards, and token/cost telemetry.
 
 ## What This Sample Does
 
-1. Runs an Express app with a Zoom App frontend.
-2. Uses the Zoom App SDK frontend to start and stop RTMS.
-3. Receives Zoom RTMS mixed audio as mono L16.
-4. Resamples RTMS audio to 24 kHz PCM16 for OpenAI Realtime.
-5. Configures `gpt-realtime-2` for audio output with a selectable voice.
-6. Streams OpenAI output PCM audio chunks to the Zoom App frontend over WebSocket.
-7. Plays audio in the Zoom App webview using Web Audio.
-8. Shows the assistant's spoken transcript in the Zoom App page.
-9. Stops queued/current assistant audio when the user interrupts with new speech.
-10. Sends playback truncation metadata back to OpenAI using `conversation.item.truncate`.
+1. Runs an Express app with a Zoom App frontend and meeting-scoped authenticated WebSocket (`FrontendWssManager`).
+2. Uses the Zoom App SDK frontend to start and stop RTMS, unlock browser audio even when joining an active stream, toggle playback mute, and toggle **Speaker-Safe (Half-Duplex)** mode.
+3. Receives Zoom RTMS mixed audio as mono L16 and resamples 48 kHz -> 24 kHz using a 23-tap Blackman-windowed low-pass FIR half-band decimation filter with cross-chunk continuity.
+4. Streams 24 kHz PCM16 audio to OpenAI Realtime (`gpt-realtime-2`) with server VAD (`create_response: true`, `interrupt_response: true`) and optional allowlisted HTTPS MCP servers.
+5. Plays assistant PCM16 audio seamlessly using scheduled Web Audio (`source.start(nextPlayTime)`) with a ~60 ms jitter buffer.
+6. Supports **hybrid voice + text prompts** via the built-in text composer wired to `conversation.item.create` + `response.create`.
+7. Renders live **MCP tool-call status cards** and real-time **token/cost telemetry** in the Zoom App UI.
+8. Stops queued/scheduled assistant audio immediately on barge-in and sends accurate `conversation.item.truncate` timing back to OpenAI.
 
-This plays audio inside the Zoom App webview. It does not inject the assistant audio as a meeting participant microphone track.
+Playback is local to the Zoom App webview and does not inject assistant audio as a meeting participant microphone track.
 
 ## Quick Start
 
@@ -27,13 +23,11 @@ cp .env.example .env
 npm start
 ```
 
-Expose the app over HTTPS for Zoom App testing:
+Run unit tests:
 
 ```bash
-ngrok http 5050
+npm test
 ```
-
-Configure your Zoom App domain allowlist with the HTTPS ngrok or deployed domain. Set `FRONTEND_WSS_URL_TO_CONNECT_TO` to the matching `wss://.../ws` URL.
 
 ## Environment Variables
 
@@ -41,94 +35,34 @@ Configure your Zoom App domain allowlist with the HTTPS ngrok or deployed domain
 |----------|----------|-------------|
 | `ZOOM_SECRET_TOKEN` | Yes | Zoom webhook secret token |
 | `ZOOM_CLIENT_ID` | Yes | Zoom app client ID |
-| `ZOOM_CLIENT_SECRET` | Yes | Zoom app client secret |
+| `ZOOM_CLIENT_SECRET` | Yes | Zoom app client secret (also verifies `x-zoom-app-context`) |
 | `PORT` | No | Server port, default `5050` |
 | `WEBHOOK_PATH` | No | Webhook path, default `/webhook` |
-| `FRONTEND_WSS_URL_TO_CONNECT_TO` | No | Public frontend WebSocket URL. If omitted, the server derives `/ws` from the request host |
+| `FRONTEND_WSS_URL_TO_CONNECT_TO` | No | Public frontend WebSocket URL. Auto-derived from request host if omitted |
+| `FRONTEND_WSS_AUTH_TOKEN` | No | Optional static shared token for frontend WS registration |
+| `ALLOW_PRE_RTMS_REGISTRATION` | No | Set `true` in local dev to allow WS registration before RTMS starts |
 | `MODE` | No | `webhook` or `websocket`, default `webhook` |
 | `OPENAI_API_KEY` | Yes | OpenAI API key |
 | `OPENAI_REALTIME_MODEL` | No | Realtime model, default `gpt-realtime-2` |
 | `OPENAI_REALTIME_VOICE` | No | Audio output voice, default `marin` |
 | `OPENAI_AUDIO_SAMPLE_RATE` | No | OpenAI PCM sample rate, must be `24000` |
+| `OPENAI_VAD_CREATE_RESPONSE` | No | Let server VAD trigger responses automatically, default `true` |
 | `OPENAI_REALTIME_TRANSCRIPTION_ENABLED` | No | Enable async input transcription logs and UI transcript messages, default `true` |
 | `OPENAI_REALTIME_TRANSCRIPTION_MODEL` | No | Transcription model, default `gpt-4o-mini-transcribe` |
-| `OPENAI_REALTIME_COST_LOGGING_ENABLED` | No | Log per-response and per-meeting model token cost estimates, default `true` |
-| `OPENAI_FORCE_RESPONSE_AFTER_SPEECH_STOP_MS` | No | If server VAD speech stops but no response starts, force `response.create` after this delay. Default `1800`; set `0` to disable |
-| `OPENAI_RESPONSE_NO_OUTPUT_WARNING_MS` | No | Log and show a status if a response starts but produces no audio/text output after this delay. Default `8000` |
-| `OPENAI_MCP_LONG_RUNNING_WARNING_MS` | No | Log and show a status if an MCP call is still running after this delay. Default `10000` |
-| `OPENAI_IGNORE_INTERRUPTS_AFTER_ASSISTANT_AUDIO_START_MS` | No | Ignore very early `speech_started` after assistant audio begins to reduce self-interruption from speaker echo. Default `700` |
+| `OPENAI_REALTIME_COST_LOGGING_ENABLED` | No | Log and display per-response and cumulative token/cost estimates, default `true` |
+| `OPENAI_SPEAKER_SAFE_TAIL_COOLDOWN_MS` | No | Cooldown after assistant speech finishes before un-gating mic in Speaker-Safe mode, default `450` |
 | `MCP_SERVERS_JSON` | No | JSON array of HTTPS MCP servers and explicit tool allowlists |
-| `AUDIO_SAMPLE_RATE` | No | RTMS input sample rate. Use `8000`, `16000`, `32000`, or `48000`; default `48000` |
+| `AUDIO_SAMPLE_RATE` | No | RTMS input sample rate (`8000`, `16000`, `32000`, or `48000`), default `48000` |
 | `TARGET_CHUNK_DURATION_MS` | No | Audio chunk size sent to OpenAI, default `100` |
-
-MCP servers can be attached to the OpenAI Realtime session. This example enables only the stock server's `get_stock_info` tool and requires no server credential:
-
-```dotenv
-MCP_SERVERS_JSON='[{"id":"stocks","url":"https://mcp.stockmarketscan.com/mcp","authType":"none","allowedTools":["get_stock_info"]}]'
-```
-
-Each entry requires a unique `id`, an HTTPS `url`, and a non-empty `allowedTools` array. Use `authType: "none"` only for a server that intentionally allows unauthenticated access. Transcript context and tool arguments handled by an external MCP server cross that provider's trust boundary, so keep the allowlist minimal and do not use untrusted servers for confidential meetings.
-
-When MCP is available, the backend logs tool discovery events such as:
-
-```text
-MCP tools ready on stocks: get_stock_info
-```
-
-## Interruption Behavior
-
-The Realtime session sets:
-
-```js
-turn_detection: {
-  type: 'server_vad',
-  create_response: true,
-  interrupt_response: true
-}
-```
-
-When OpenAI emits `input_audio_buffer.speech_started`, the backend broadcasts an `interrupt` message to the Zoom App frontend. The frontend immediately stops the active Web Audio source, clears queued audio chunks, and sends the last played audio position back to the backend. `interrupt_response: true` lets OpenAI cancel the active response, and the backend sends `conversation.item.truncate` so the server-side conversation state better matches what the user actually heard.
-
-This is the same practical pattern used by realtime voice demos: stop local playback immediately, cancel active generation where needed, then synchronize the model conversation state.
-
-## Notes
-
-- Use headphones during testing if the meeting microphone can pick up the Zoom App webview audio.
-- OpenAI output audio is PCM16 at 24 kHz and is played by the browser. RTMS input defaults to 48 kHz and is downsampled to 24 kHz before being sent to OpenAI.
-- The frontend uses `getRTMSStatus` and `onRTMSStatusChange` to keep the Start RTMS and Stop RTMS buttons aligned with the current Zoom RTMS state.
-- If the assistant response seems delayed, watch for `User speech stopped`, `Creating response`, `Response created`, and `outputAudioDeltas` logs. These show whether the issue is VAD turn detection, OpenAI response generation, or browser playback.
-- Use headphones during testing. If the meeting microphone hears the Zoom App's speaker output, Realtime may detect that as new user speech and interrupt the assistant.
-- Cost logs are estimates from Realtime `response.done` usage events. They are directional and may differ from actual billing.
-- Raw MCP outputs are hidden from logs by default. Console logs show compact result summaries, while the assistant is instructed to summarize MCP results instead of reading raw payloads aloud.
 
 ## Key Files
 
 | File | Purpose |
 |------|---------|
-| `index.js` | Express app, Zoom RTMS setup, webhook/websocket event handling |
-| `openaiRealtime.js` | OpenAI Realtime WebSocket client, audio input/output, Zoom MCP config, interruption handling |
-| `frontendWss.js` | WebSocket bridge between backend and Zoom App frontend |
-| `public/audio-client.js` | Browser-side PCM playback queue and interruption/truncation reporting |
-| `public/index.ejs` | Zoom App UI |
+| `index.js` | Express app, `RTMSManager`, `FrontendWssManager`, and webhook/websocket event handling |
+| `frontendAuth.js` | `x-zoom-app-context` verification, HMAC token minting, and `authorizeRegistration` |
+| `audioResampler.js` | Low-pass FIR half-band decimation filter & resampler |
+| `openaiRealtime.js` | Per-meeting OpenAI Realtime client, MCP tool events, usage telemetry, and Speaker-Safe gating |
+| `public/audio-client.js` | Gapless scheduled Web Audio playback, hybrid text messaging, and auto-reconnecting WS client |
+| `public/index.ejs` | Zoom App UI with audio controls, telemetry bar, MCP tool cards, and hybrid prompt bar |
 | `.env.example` | Environment variable template |
-
-## Docker
-
-The project sends RTMS mixed audio to OpenAI Realtime and plays the model's audio response in a Zoom App webview. Its multi-stage Dockerfile keeps build tooling out of the final runtime image and does not hard-code a CPU architecture.
-
-Build and run it from the `rtms-samples` repository root:
-
-```bash
-docker build -f zoom_apps/send_audio_to_openai_realtime_api_with_audio_playback_js/Dockerfile -t rtms-zoom_apps-send_audio_to_openai_realtime_api_with_audio_playback_js .
-docker run --rm --env-file zoom_apps/send_audio_to_openai_realtime_api_with_audio_playback_js/.env -p 5050:5050 rtms-zoom_apps-send_audio_to_openai_realtime_api_with_audio_playback_js
-```
-
-Run the build from the repository root because the Dockerfile uses repository-relative paths. Runtime secrets are supplied with `--env-file` and are excluded from the image build context.
-
-## Webhook Delivery Authentication
-
-Normal Zoom webhook deliveries are verified against the exact raw request body using
-`x-zm-signature` and `x-zm-request-timestamp`. Configure `ZOOM_SECRET_TOKEN` with the
-Marketplace app's webhook Secret Token. Requests with missing, invalid, or stale
-signatures are rejected; the default replay window is 300 seconds and can be changed
-with `WEBHOOK_TIMESTAMP_TOLERANCE_SECONDS`.

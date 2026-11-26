@@ -4,12 +4,17 @@ import fs from 'fs';
 import path from 'path';
 
 const START_CODE_4 = Buffer.from([0x00, 0x00, 0x00, 0x01]);
+const SILENCE_PACER_INTERVAL_MS = 100;
+const SILENCE_GAP_THRESHOLD_MS = 120;
+// 16kHz * 1 channel * 2 bytes (s16le) * 0.1s = 3200 bytes
+const SILENCE_CHUNK_100MS = Buffer.alloc(3200, 0);
 
 function ensureDir(dirPath) {
   fs.mkdirSync(dirPath, { recursive: true });
 }
 
 function cleanDir(dirPath, keepFiles = new Set(['.gitkeep'])) {
+  if (!dirPath) return;
   ensureDir(dirPath);
   for (const entry of fs.readdirSync(dirPath)) {
     if (keepFiles.has(entry)) continue;
@@ -130,14 +135,16 @@ export class HlsPipeline extends EventEmitter {
     this.ffmpegPath = options.ffmpegPath || 'ffmpeg';
     this.hlsDir = options.hlsDir;
     this.clipDir = options.clipDir;
+    this.playlistUrl = options.playlistUrl || '/hls/stream.m3u8';
     this.threadQueueSize = Number(options.threadQueueSize || 1024);
     this.videoFps = Number(options.videoFps || 25);
-    this.frameFps = Number(options.frameFps || 0.33);
+    this.frameFps = Number(options.frameFps || 5);
     this.hlsSegmentSeconds = Number(options.hlsSegmentSeconds || 2);
-    this.clipSegmentSeconds = Number(options.clipSegmentSeconds || 4);
+    this.clipSegmentSeconds = Number(options.clipSegmentSeconds || 2);
     this.hlsListSize = Number(options.hlsListSize || 6);
-    this.clipStableAgeMs = Number(options.clipStableAgeMs || Math.max(this.clipSegmentSeconds * 1000 + 1000, 5000));
+    this.clipStableAgeMs = Number(options.clipStableAgeMs || Math.max(this.clipSegmentSeconds * 750, 1000));
     this.clipMinBytes = Number(options.clipMinBytes || 4096);
+    this.maxClips = Math.max(Number(options.maxClips || 12), 2);
     this.enabled = options.enabled !== false;
     this.vendorName = options.vendorName || 'Deepfake Detector';
 
@@ -146,6 +153,9 @@ export class HlsPipeline extends EventEmitter {
     this.started = false;
     this.readyAnnounced = false;
     this.readyTimer = null;
+    this.silenceTimer = null;
+    this.pruneTimer = null;
+    this.lastAudioWriteAt = 0;
     this.isStopping = false;
     this.playlistPath = path.join(this.hlsDir, 'stream.m3u8');
     this.segmentPattern = path.join(this.hlsDir, 'segment_%03d.ts');
@@ -160,14 +170,78 @@ export class HlsPipeline extends EventEmitter {
     if (!this.enabled || this.started) return;
 
     this.isStopping = false;
-    cleanDir(this.hlsDir);
-    cleanDir(this.clipDir);
+    this.cleanOutputs();
 
     this.hlsProcess = this.startHlsProcess();
     this.clipProcess = this.startClipProcess();
     this.started = true;
     this.readyAnnounced = false;
+    this.lastAudioWriteAt = 0;
     this.waitForOutputs();
+    this.startSilencePacer();
+    this.startClipPruner();
+  }
+
+  cleanOutputs() {
+    cleanDir(this.hlsDir);
+    cleanDir(this.clipDir);
+  }
+
+  startSilencePacer() {
+    if (this.silenceTimer) return;
+    this.silenceTimer = setInterval(() => {
+      if (!this.started || !this.hlsProcess) return;
+      const now = Date.now();
+      if (this.lastAudioWriteAt === 0 || (now - this.lastAudioWriteAt) >= SILENCE_GAP_THRESHOLD_MS) {
+        safeWrite(this.hlsProcess?.stdio?.[4], SILENCE_CHUNK_100MS, 'silence pad to HLS');
+      }
+    }, SILENCE_PACER_INTERVAL_MS);
+    this.silenceTimer.unref?.();
+  }
+
+  stopSilencePacer() {
+    if (this.silenceTimer) {
+      clearInterval(this.silenceTimer);
+      this.silenceTimer = null;
+    }
+  }
+
+  startClipPruner() {
+    if (this.pruneTimer) return;
+    this.pruneTimer = setInterval(() => {
+      this.pruneOldClips();
+    }, Math.max(this.clipSegmentSeconds * 1000, 2000));
+    this.pruneTimer.unref?.();
+  }
+
+  stopClipPruner() {
+    if (this.pruneTimer) {
+      clearInterval(this.pruneTimer);
+      this.pruneTimer = null;
+    }
+  }
+
+  pruneOldClips() {
+    try {
+      if (!this.clipDir || !fs.existsSync(this.clipDir)) return 0;
+      const files = fs.readdirSync(this.clipDir)
+        .filter((entry) => entry.endsWith('.mp4'))
+        .map((entry) => {
+          const clipPath = path.join(this.clipDir, entry);
+          const stats = fs.statSync(clipPath);
+          return { path: clipPath, mtimeMs: stats.mtimeMs };
+        })
+        .sort((a, b) => b.mtimeMs - a.mtimeMs);
+
+      let removed = 0;
+      for (const file of files.slice(this.maxClips)) {
+        fs.rmSync(file.path, { force: true });
+        removed += 1;
+      }
+      return removed;
+    } catch {
+      return 0;
+    }
   }
 
   waitForOutputs() {
@@ -188,13 +262,14 @@ export class HlsPipeline extends EventEmitter {
           clearInterval(this.readyTimer);
           this.readyTimer = null;
           this.emit('started', {
-            playlistUrl: '/hls/stream.m3u8'
+            playlistUrl: this.playlistUrl
           });
         }
       } catch {
         // Keep polling until ffmpeg has produced the initial playlist.
       }
     }, 250);
+    this.readyTimer.unref?.();
   }
 
   startHlsProcess() {
@@ -204,8 +279,8 @@ export class HlsPipeline extends EventEmitter {
       '-loglevel', 'warning',
       '-fflags', 'nobuffer',
       '-flags', 'low_delay',
-      '-probesize', '50M',
-      '-analyzeduration', '50M',
+      '-probesize', '1M',
+      '-analyzeduration', '1M',
       '-thread_queue_size', queueSize,
       '-framerate', String(this.videoFps),
       '-f', 'h264',
@@ -259,15 +334,15 @@ export class HlsPipeline extends EventEmitter {
   }
 
   startClipProcess() {
-    const fps = Math.max(this.frameFps || 0.33, 0.1);
+    const fps = Math.max(this.frameFps || 5, 0.1);
     const gop = Math.max(Math.round(fps * this.clipSegmentSeconds), 1);
     const queueSize = String(Math.max(this.threadQueueSize || 1024, 64));
     const args = [
       '-hide_banner',
       '-loglevel', 'warning',
       '-fflags', 'nobuffer',
-      '-probesize', '50M',
-      '-analyzeduration', '50M',
+      '-probesize', '1M',
+      '-analyzeduration', '1M',
       '-thread_queue_size', queueSize,
       '-framerate', String(this.videoFps),
       '-f', 'h264',
@@ -329,6 +404,8 @@ export class HlsPipeline extends EventEmitter {
       clearInterval(this.readyTimer);
       this.readyTimer = null;
     }
+    this.stopSilencePacer();
+    this.stopClipPruner();
 
     this.started = false;
     this.readyAnnounced = false;
@@ -410,11 +487,14 @@ export class HlsPipeline extends EventEmitter {
   writeAudio(buffer) {
     if (!this.enabled || !buffer?.length) return;
     if (!this.started) return;
+    this.lastAudioWriteAt = Date.now();
     safeWrite(this.hlsProcess?.stdio?.[4], buffer, 'audio to HLS');
   }
 
   getLatestClip() {
     try {
+      this.pruneOldClips();
+      if (!this.clipDir || !fs.existsSync(this.clipDir)) return null;
       const files = fs.readdirSync(this.clipDir)
         .filter((entry) => entry.endsWith('.mp4'))
         .map((entry) => {
@@ -446,12 +526,16 @@ export class HlsPipeline extends EventEmitter {
     return Boolean(this.getLatestClip());
   }
 
-  stop() {
+  stop({ clean = true, emitReset = false, reason = 'stopped' } = {}) {
+    const wasStarted = this.started || Boolean(this.hlsProcess) || Boolean(this.clipProcess);
     this.isStopping = true;
     if (this.readyTimer) {
       clearInterval(this.readyTimer);
       this.readyTimer = null;
     }
+    this.stopSilencePacer();
+    this.stopClipPruner();
+
     for (const child of [this.hlsProcess, this.clipProcess]) {
       if (!child || child.killed) continue;
       for (const stream of child.stdio || []) {
@@ -470,10 +554,19 @@ export class HlsPipeline extends EventEmitter {
     this.clipProcess = null;
     this.started = false;
     this.readyAnnounced = false;
+    this.lastAudioWriteAt = 0;
     this.latestSps = null;
     this.latestPps = null;
     this.videoPrimed = false;
     this.waitingForDecoderConfigLogged = false;
+
+    if (clean) {
+      this.cleanOutputs();
+    }
+
+    if (emitReset && wasStarted) {
+      this.emit('reset', { reason });
+    }
   }
 }
 

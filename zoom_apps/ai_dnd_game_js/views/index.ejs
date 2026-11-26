@@ -2,190 +2,721 @@
 <html lang="en">
 <head>
   <meta charset="UTF-8" />
-  <title>Zoom D&D App</title>
-
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>Live D&D via Zoom RTMS</title>
   <script src="https://appssdk.zoom.us/sdk.js"></script>
-
   <style>
+    * { box-sizing: border-box; margin: 0; padding: 0; }
+    :root {
+      --bg: #111827;
+      --surface: #1f2937;
+      --surface-2: #273244;
+      --border: #374151;
+      --text: #f3f4f6;
+      --muted: #9ca3af;
+      --gold: #f59e0b;
+      --accent: #6366f1;
+      --accent-hover: #4f46e5;
+      --success: #10b981;
+      --danger: #ef4444;
+    }
     body {
-      font-family: Arial, sans-serif;
-      padding: 20px;
-      background-color: #f8f9fa;
+      font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
+      background: var(--bg);
+      color: var(--text);
+      height: 100vh;
+      display: flex;
+      flex-direction: column;
+      overflow: hidden;
+    }
+    header {
+      background: var(--surface);
+      border-bottom: 1px solid var(--border);
+      padding: 0.65rem 0.9rem;
+      display: flex;
+      flex-wrap: wrap;
+      align-items: center;
+      justify-content: space-between;
+      gap: 0.5rem;
+    }
+    .title-row { display: flex; align-items: center; gap: 0.45rem; font-weight: 700; font-size: 0.95rem; }
+    .badge {
+      font-size: 0.7rem;
+      font-weight: 600;
+      padding: 0.15rem 0.5rem;
+      border-radius: 999px;
+      border: 1px solid var(--border);
+      background: var(--surface-2);
+      color: var(--muted);
+    }
+    .badge.ok { background: rgba(16,185,129,0.18); color: #6ee7b7; border-color: #10b981; }
+    .badge.warn { background: rgba(245,158,11,0.18); color: #fcd34d; border-color: #f59e0b; }
+    .badge.err { background: rgba(239,68,68,0.18); color: #fca5a5; border-color: #ef4444; }
+    .btn-group { display: flex; flex-wrap: wrap; gap: 0.35rem; align-items: center; }
+    button, input, select {
+      font-family: inherit;
+      font-size: 0.78rem;
+      border-radius: 7px;
+      border: 1px solid var(--border);
+      padding: 0.35rem 0.65rem;
+      background: var(--surface-2);
+      color: var(--text);
+    }
+    button { cursor: pointer; font-weight: 600; }
+    button:hover { filter: brightness(1.12); }
+    button.primary { background: var(--accent); border-color: var(--accent); color: #fff; }
+    button.gold { background: var(--gold); border-color: var(--gold); color: #111827; }
+    button.danger { background: var(--danger); border-color: var(--danger); color: #fff; }
+    button.success { background: var(--success); border-color: var(--success); color: #052e16; }
+
+    .scene-banner {
+      background: linear-gradient(135deg, #1e1b4b, #1f2937);
+      border-bottom: 1px solid var(--border);
+      padding: 0.65rem 0.9rem;
+      display: flex;
+      justify-content: space-between;
+      align-items: center;
+      gap: 0.5rem;
+    }
+    .scene-title { font-size: 0.95rem; font-weight: 700; color: #fde68a; }
+    .scene-meta { font-size: 0.75rem; color: var(--muted); margin-top: 0.15rem; }
+
+    .transcript-strip {
+      background: #0b1120;
+      border-bottom: 1px solid var(--border);
+      padding: 0.45rem 0.9rem;
+      font-size: 0.78rem;
+      color: #cbd5e1;
+      white-space: nowrap;
+      overflow: hidden;
+      text-overflow: ellipsis;
     }
 
-    #latest,
-    #dm-log {
-      background: #fff;
-      padding: 10px;
-      margin-top: 10px;
-      border: 1px solid #ddd;
-      border-radius: 4px;
+    .layout {
+      flex: 1;
+      display: grid;
+      grid-template-columns: 1fr 270px;
+      gap: 0.7rem;
+      padding: 0.7rem;
+      overflow: hidden;
     }
-
-    h1, h2 {
-      margin-bottom: 10px;
+    @media (max-width: 760px) {
+      .layout { grid-template-columns: 1fr; overflow-y: auto; }
     }
-
-    pre {
-      background: #f4f4f4;
-      padding: 10px;
-      border-radius: 4px;
-      overflow-x: auto;
+    .panel {
+      background: var(--surface);
+      border: 1px solid var(--border);
+      border-radius: 10px;
+      display: flex;
+      flex-direction: column;
+      overflow: hidden;
+      min-height: 0;
     }
-
-    .error {
-      color: red;
+    .panel-header {
+      padding: 0.55rem 0.75rem;
+      border-bottom: 1px solid var(--border);
+      font-size: 0.8rem;
+      font-weight: 700;
+      color: #e5e7eb;
+      display: flex;
+      justify-content: space-between;
+      align-items: center;
     }
-
-    #dm-content {
-      max-height: 300px;
+    .dm-log {
+      flex: 1;
       overflow-y: auto;
+      padding: 0.75rem;
+      display: flex;
+      flex-direction: column;
+      gap: 0.65rem;
     }
+    .log-entry {
+      background: var(--surface-2);
+      border: 1px solid var(--border);
+      border-radius: 8px;
+      padding: 0.6rem 0.75rem;
+      font-size: 0.84rem;
+      line-height: 1.45;
+      white-space: pre-wrap;
+    }
+    .log-entry.dice {
+      border-color: var(--gold);
+      background: rgba(245,158,11,0.1);
+    }
+    .log-player {
+      font-size: 0.74rem;
+      color: #93c5fd;
+      margin-bottom: 0.3rem;
+      font-weight: 600;
+    }
+    .log-dm-label {
+      font-size: 0.72rem;
+      color: #fde68a;
+      font-weight: 700;
+      text-transform: uppercase;
+      letter-spacing: 0.04em;
+      margin-bottom: 0.2rem;
+    }
+    .actions-section {
+      border-top: 1px solid var(--border);
+      padding: 0.6rem 0.75rem;
+      display: flex;
+      flex-direction: column;
+      gap: 0.45rem;
+    }
+    .suggested-actions {
+      display: flex;
+      flex-wrap: wrap;
+      gap: 0.35rem;
+    }
+    .action-chip {
+      font-size: 0.74rem;
+      background: #312e81;
+      border-color: #4f46e5;
+      color: #e0e7ff;
+    }
+    .action-input-row {
+      display: flex;
+      gap: 0.4rem;
+    }
+    .action-input-row input { flex: 1; }
+
+    .sidebar {
+      display: flex;
+      flex-direction: column;
+      gap: 0.7rem;
+      overflow-y: auto;
+      min-height: 0;
+    }
+    .dice-box, .party-box {
+      padding: 0.65rem;
+      display: flex;
+      flex-direction: column;
+      gap: 0.5rem;
+    }
+    .dice-buttons {
+      display: grid;
+      grid-template-columns: repeat(3, 1fr);
+      gap: 0.35rem;
+    }
+    .dice-inputs {
+      display: flex;
+      gap: 0.35rem;
+    }
+    .dice-inputs input { width: 100%; }
+    .suggested-roll-box {
+      background: rgba(245,158,11,0.12);
+      border: 1px solid var(--gold);
+      border-radius: 8px;
+      padding: 0.5rem;
+      font-size: 0.75rem;
+      display: flex;
+      flex-direction: column;
+      gap: 0.35rem;
+    }
+    .party-card {
+      background: var(--surface-2);
+      border: 1px solid var(--border);
+      border-radius: 8px;
+      padding: 0.5rem;
+      font-size: 0.76rem;
+    }
+    .party-card-top {
+      display: flex;
+      justify-content: space-between;
+      font-weight: 700;
+      margin-bottom: 0.25rem;
+    }
+    .hp-bar {
+      height: 6px;
+      background: #111827;
+      border-radius: 999px;
+      overflow: hidden;
+      margin: 0.25rem 0;
+    }
+    .hp-fill {
+      height: 100%;
+      background: var(--success);
+    }
+    .inv-text { color: var(--muted); font-size: 0.72rem; }
+    .hidden { display: none !important; }
   </style>
 </head>
 <body>
-  <h1>Live D&D via Zoom</h1>
+  <header>
+    <div class="title-row">
+      <span>D&D Live DM</span>
+      <span id="ws-badge" class="badge">Connecting...</span>
+      <span id="rtms-badge" class="badge">RTMS: Idle</span>
+    </div>
+    <div class="btn-group">
+      <button id="btn-start-rtms" class="primary">Start RTMS</button>
+      <button id="btn-stop-rtms">Stop RTMS</button>
+      <button id="btn-ooc" class="success">In-Character</button>
+      <button id="btn-reset" class="danger">Reset Campaign</button>
+    </div>
+  </header>
 
-  <div id="latest">Waiting for transcript...</div>
-
-  <div id="dm-log">
-    <h2>Dungeon Master Log</h2>
-    <div id="dm-content">Waiting for DM response...</div>
+  <div class="scene-banner">
+    <div>
+      <div id="scene-title" class="scene-title">The Lantern & Wyvern Tavern</div>
+      <div id="scene-meta" class="scene-meta">Crossroads of Briarwood · Mood: Mysterious</div>
+    </div>
+    <span id="campaign-badge" class="badge warn">Campaign #1</span>
   </div>
 
-  <div id="output">Initializing...</div>
+  <div id="transcript-strip" class="transcript-strip">Live Transcript: Waiting for adventurers to speak...</div>
+
+  <div class="layout">
+    <section class="panel">
+      <div class="panel-header">
+        <span>Dungeon Master Chronicle</span>
+        <span id="ooc-status" class="badge ok">DM Listening</span>
+      </div>
+      <div id="dm-log" class="dm-log"></div>
+      <div class="actions-section">
+        <div id="suggested-actions" class="suggested-actions"></div>
+        <div class="action-input-row">
+          <input id="action-input" type="text" placeholder="Declare an action or speak in Zoom..." />
+          <button id="btn-send-action" class="primary">Act</button>
+        </div>
+      </div>
+    </section>
+
+    <aside class="sidebar">
+      <section class="panel">
+        <div class="panel-header">
+          <span>Dice Roller</span>
+          <span id="last-roll-badge" class="badge">Ready</span>
+        </div>
+        <div class="dice-box">
+          <div id="suggested-roll-box" class="suggested-roll-box hidden">
+            <div id="suggested-roll-text"></div>
+            <button id="btn-suggested-roll" class="gold">Roll Suggested Check</button>
+          </div>
+          <div class="dice-inputs">
+            <input id="dice-skill" type="text" placeholder="Skill (e.g. Stealth)" />
+            <input id="dice-mod" type="number" value="0" style="width: 68px;" title="Modifier" />
+          </div>
+          <div class="dice-buttons">
+            <button data-die="1d4">d4</button>
+            <button data-die="1d6">d6</button>
+            <button data-die="1d8">d8</button>
+            <button data-die="1d10">d10</button>
+            <button data-die="1d12">d12</button>
+            <button data-die="1d20" class="gold">d20</button>
+          </div>
+        </div>
+      </section>
+
+      <section class="panel" style="flex: 1;">
+        <div class="panel-header">
+          <span>Party Roster</span>
+          <span id="party-count" class="badge">0</span>
+        </div>
+        <div id="party-list" class="party-box"></div>
+      </section>
+    </aside>
+  </div>
 
   <script>
-    const socket = new WebSocket('<%= websocketUrl %>');
+    const WEBSOCKET_URL = <%- JSON.stringify(websocketUrl).replace(/</g, '\\u003c') %>;
+    const WS_AUTH_TOKEN = <%- JSON.stringify(typeof wsAuthToken === 'string' ? wsAuthToken : '').replace(/</g, '\\u003c') %>;
 
-    function registerWithBackend(meetingUUID, userID) {
-      if (socket.readyState === WebSocket.OPEN) {
-        socket.send(JSON.stringify({
-          type: 'register',
-          meetingUUID: meetingUUID,
-          userID: String(userID)
-        }));
-        console.log('Sent registration:', meetingUUID, userID);
-      } else {
-        setTimeout(() => registerWithBackend(meetingUUID, userID), 500);
+    (function () {
+      const wsBadge = document.getElementById('ws-badge');
+      const rtmsBadge = document.getElementById('rtms-badge');
+      const campaignBadge = document.getElementById('campaign-badge');
+      const oocStatus = document.getElementById('ooc-status');
+      const btnStartRtms = document.getElementById('btn-start-rtms');
+      const btnStopRtms = document.getElementById('btn-stop-rtms');
+      const btnOoc = document.getElementById('btn-ooc');
+      const btnReset = document.getElementById('btn-reset');
+      const sceneTitle = document.getElementById('scene-title');
+      const sceneMeta = document.getElementById('scene-meta');
+      const transcriptStrip = document.getElementById('transcript-strip');
+      const dmLog = document.getElementById('dm-log');
+      const suggestedActionsEl = document.getElementById('suggested-actions');
+      const actionInput = document.getElementById('action-input');
+      const btnSendAction = document.getElementById('btn-send-action');
+      const suggestedRollBox = document.getElementById('suggested-roll-box');
+      const suggestedRollText = document.getElementById('suggested-roll-text');
+      const btnSuggestedRoll = document.getElementById('btn-suggested-roll');
+      const diceSkill = document.getElementById('dice-skill');
+      const diceMod = document.getElementById('dice-mod');
+      const lastRollBadge = document.getElementById('last-roll-badge');
+      const partyList = document.getElementById('party-list');
+      const partyCount = document.getElementById('party-count');
+
+      let socket = null;
+      let reconnectAttempts = 0;
+      let reconnectTimer = null;
+      let manualClose = false;
+      let isRegistered = false;
+      let zoomReady = false;
+      let currentMeetingUUID = '';
+      let currentUserID = '';
+      let currentPlayerName = 'Adventurer';
+      let inCharacter = true;
+      let currentSuggestedRoll = null;
+
+      function setBadge(el, text, kind) {
+        el.textContent = text;
+        el.className = 'badge' + (kind ? ' ' + kind : '');
       }
-    }
 
-    socket.onopen = () => {
-      console.log('WebSocket connected');
-    };
-
-    socket.onmessage = (event) => {
-      try {
-        const msg = JSON.parse(event.data);
-
-        if (msg.type === 'ping') {
-          socket.send(JSON.stringify({ type: 'pong' }));
-          return;
-        }
-
-        if (msg.type === 'connected') {
-          console.log('Connected to backend, waiting for Zoom context to register...');
-          return;
-        }
-
-        if (msg.type === 'registration_success') {
-          console.log('Registered with backend:', msg.meetingUUID, msg.userID);
-          return;
-        }
-
-        if (msg.type === 'error') {
-          console.error('Backend error:', msg.message);
-          return;
-        }
-
-        if (msg.type === 'transcript') {
-          document.getElementById('latest').innerText =
-            `[${new Date(msg.timestamp).toLocaleTimeString()}] ${msg.user}: ${msg.content}`;
-        }
-
-        if (msg.type === 'dm_response') {
-          const log = document.getElementById('dm-content');
-          const time = new Date(msg.timestamp).toLocaleTimeString();
-          const user = msg.user || msg.speaker;
-          const playerText = msg.content || msg.playerText;
-          let narration = msg.gameresponse?.narration || msg.narration;
-
-          narration = narration.replace(/\n/g, '<br>');
-
-          log.innerHTML += `
-            <div style="margin-top: 10px;">
-              <strong>[${time}] ${user}:</strong> ${playerText}<br />
-              <em>DM:</em><br />${narration}
-            </div>
-          `;
-          log.scrollTop = log.scrollHeight;
-        }
-      } catch (err) {
-        console.warn('Non-JSON or invalid message:', event.data);
+      function sendWs(payload) {
+        if (!socket || socket.readyState !== WebSocket.OPEN) return false;
+        socket.send(JSON.stringify(payload));
+        return true;
       }
-    };
 
-    socket.onerror = (err) => {
-      console.error('WebSocket error:', err);
-    };
+      function renderScene(scene) {
+        if (!scene) return;
+        sceneTitle.textContent = scene.title || 'Unknown Realm';
+        sceneMeta.textContent = `${scene.location || 'Wilderness'} · Mood: ${scene.mood || 'Adventurous'}`;
 
-    socket.onclose = () => {
-      console.warn('WebSocket connection closed');
-    };
-
-    // Zoom SDK integration
-    (async () => {
-      try {
-        const configResponse = await zoomSdk.config({
-          version: '1.10.0',
-          capabilities: [
-            'getSupportedJsApis',
-            'getRunningContext',
-            'getMeetingContext',
-            'getUserContext',
-            'getMeetingUUID',
-            'getAppContext'
-          ]
+        suggestedActionsEl.textContent = '';
+        (scene.suggestedActions || []).forEach((actionText) => {
+          const btn = document.createElement('button');
+          btn.className = 'action-chip';
+          btn.textContent = actionText;
+          btn.addEventListener('click', () => {
+            if (!isRegistered) return;
+            sendWs({ type: 'player_action', playerName: currentPlayerName, text: actionText });
+          });
+          suggestedActionsEl.appendChild(btn);
         });
 
-        const supportedApis = await zoomSdk.getSupportedJsApis();
-        const runningContext = await zoomSdk.getRunningContext();
-        const meetingContext = await zoomSdk.getMeetingContext();
-        const userContext = await zoomSdk.getUserContext();
-        const meetingUUID = await zoomSdk.getMeetingUUID();
-        const appContext = await zoomSdk.getAppContext();
+        currentSuggestedRoll = scene.suggestedRoll || null;
+        if (currentSuggestedRoll && currentSuggestedRoll.skill) {
+          suggestedRollBox.classList.remove('hidden');
+          const dcLabel = currentSuggestedRoll.dc != null ? ` (DC ${currentSuggestedRoll.dc})` : '';
+          suggestedRollText.textContent = `DM suggests: ${currentSuggestedRoll.skill} ${currentSuggestedRoll.formula || '1d20'}${dcLabel} — ${currentSuggestedRoll.reason || ''}`;
+        } else {
+          suggestedRollBox.classList.add('hidden');
+        }
+      }
 
-        if (meetingUUID?.meetingUUID && userContext?.participantUUID) {
-          registerWithBackend(meetingUUID.meetingUUID, userContext.participantUUID);
+      function renderParty(party) {
+        partyList.textContent = '';
+        const members = Array.isArray(party) ? party : [];
+        partyCount.textContent = String(members.length);
+
+        if (members.length === 0) {
+          const empty = document.createElement('div');
+          empty.className = 'inv-text';
+          empty.textContent = 'Speak in the meeting to join the adventuring party.';
+          partyList.appendChild(empty);
+          return;
         }
 
-        document.getElementById('output').innerHTML = `
-          <h2>Supported JS APIs:</h2>
-          <pre>${JSON.stringify(supportedApis, null, 2)}</pre>
+        members.forEach((m) => {
+          const card = document.createElement('div');
+          card.className = 'party-card';
 
-          <h2>Running Context:</h2>
-          <pre>${JSON.stringify(runningContext, null, 2)}</pre>
+          const top = document.createElement('div');
+          top.className = 'party-card-top';
+          const nameEl = document.createElement('span');
+          nameEl.textContent = `${m.name} (${m.className})`;
+          const statsEl = document.createElement('span');
+          statsEl.textContent = `HP ${m.hp}/${m.maxHp} · ${m.gold}g`;
+          top.appendChild(nameEl);
+          top.appendChild(statsEl);
 
-          <h2>Meeting Context:</h2>
-          <pre>${JSON.stringify(meetingContext, null, 2)}</pre>
+          const bar = document.createElement('div');
+          bar.className = 'hp-bar';
+          const fill = document.createElement('div');
+          fill.className = 'hp-fill';
+          const pct = m.maxHp > 0 ? Math.max(0, Math.min(100, Math.round((m.hp / m.maxHp) * 100))) : 0;
+          fill.style.width = `${pct}%`;
+          bar.appendChild(fill);
 
-          <h2>User Context:</h2>
-          <pre>${JSON.stringify(userContext, null, 2)}</pre>
+          const inv = document.createElement('div');
+          inv.className = 'inv-text';
+          inv.textContent = `AC ${m.ac} · Bag: ${(m.inventory || []).join(', ') || 'Empty'}`;
 
-          <h2>Meeting UUID:</h2>
-          <pre>${JSON.stringify(meetingUUID, null, 2)}</pre>
-
-          <h2>App Context:</h2>
-          <pre>${JSON.stringify(appContext, null, 2)}</pre>
-        `;
-      } catch (error) {
-        console.error('Error retrieving Zoom context:', error);
-        document.getElementById('output').innerHTML = `
-          <p class="error">An error occurred while retrieving Zoom context information.</p>
-          <pre class="error">${error}</pre>
-        `;
+          card.appendChild(top);
+          card.appendChild(bar);
+          card.appendChild(inv);
+          partyList.appendChild(card);
+        });
       }
+
+      function appendLogEntry({ playerLabel, dmText, isDice }) {
+        const div = document.createElement('div');
+        div.className = 'log-entry' + (isDice ? ' dice' : '');
+
+        if (playerLabel) {
+          const p = document.createElement('div');
+          p.className = 'log-player';
+          p.textContent = playerLabel;
+          div.appendChild(p);
+        }
+
+        if (dmText) {
+          const label = document.createElement('div');
+          label.className = 'log-dm-label';
+          label.textContent = isDice ? 'Dice Roll' : 'Dungeon Master';
+          div.appendChild(label);
+
+          const body = document.createElement('div');
+          body.textContent = dmText;
+          div.appendChild(body);
+        }
+
+        dmLog.appendChild(div);
+        dmLog.scrollTop = dmLog.scrollHeight;
+      }
+
+      function renderFullState(state) {
+        if (!state) return;
+        inCharacter = state.inCharacter !== false;
+        campaignBadge.textContent = `Campaign #${state.campaignNumber || 1}`;
+        btnOoc.textContent = inCharacter ? 'In-Character' : 'OOC (Paused)';
+        btnOoc.className = inCharacter ? 'success' : 'gold';
+        setBadge(oocStatus, inCharacter ? 'DM Listening' : 'OOC Paused', inCharacter ? 'ok' : 'warn');
+
+        renderScene(state.scene);
+        renderParty(state.party);
+
+        dmLog.textContent = '';
+        (state.log || []).forEach((entry) => {
+          const time = new Date(entry.timestamp || Date.now()).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' });
+          appendLogEntry({
+            playerLabel: entry.playerText ? `[${time}] ${entry.playerText}` : null,
+            dmText: entry.narration,
+            isDice: false
+          });
+        });
+      }
+
+      function connectWs() {
+        if (reconnectTimer) {
+          clearTimeout(reconnectTimer);
+          reconnectTimer = null;
+        }
+        if (socket && (socket.readyState === WebSocket.OPEN || socket.readyState === WebSocket.CONNECTING)) {
+          socket.onclose = null;
+          socket.close(1000, 'Reconnecting');
+        }
+
+        socket = new WebSocket(WEBSOCKET_URL);
+        socket.onopen = () => {
+          reconnectAttempts = 0;
+          isRegistered = false;
+          setBadge(wsBadge, 'Registering...', 'warn');
+          if (currentMeetingUUID && currentUserID) {
+            sendWs({
+              type: 'register',
+              meetingUUID: currentMeetingUUID,
+              userID: currentUserID,
+              token: WS_AUTH_TOKEN
+            });
+          }
+        };
+
+        socket.onmessage = (event) => {
+          let msg;
+          try {
+            msg = JSON.parse(event.data);
+          } catch {
+            return;
+          }
+
+          if (msg.type === 'ping') {
+            sendWs({ type: 'pong' });
+            return;
+          }
+          if (msg.type === 'connected') {
+            if (currentMeetingUUID && currentUserID && !isRegistered) {
+              sendWs({
+                type: 'register',
+                meetingUUID: currentMeetingUUID,
+                userID: currentUserID,
+                token: WS_AUTH_TOKEN
+              });
+            }
+            return;
+          }
+          if (msg.type === 'registration_success') {
+            isRegistered = true;
+            setBadge(wsBadge, 'Connected', 'ok');
+            sendWs({ type: 'sync_state', playerName: currentPlayerName });
+            return;
+          }
+          if (msg.type === 'campaign_state') {
+            renderFullState(msg.state);
+            return;
+          }
+          if (msg.type === 'rtms_status') {
+            setBadge(rtmsBadge, `RTMS: ${msg.status}`, msg.status === 'started' ? 'ok' : '');
+            if (msg.state) renderFullState(msg.state);
+            return;
+          }
+          if (msg.type === 'transcript_turn' && msg.transcript) {
+            const t = msg.transcript;
+            const time = new Date(t.timestamp || Date.now()).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit', second: '2-digit' });
+            const tag = t.inCharacter ? '' : ' [OOC]';
+            transcriptStrip.textContent = `[${time}]${tag} ${t.userName}: ${t.text}`;
+            if (Array.isArray(msg.party)) renderParty(msg.party);
+            return;
+          }
+          if (msg.type === 'dice_result' && msg.roll) {
+            const r = msg.roll;
+            lastRollBadge.textContent = `${r.formula}: ${r.total}`;
+            const outcomeText = r.outcome ? ` · ${r.outcome.replace('_', ' ').toUpperCase()}` : '';
+            appendLogEntry({
+              playerLabel: `${r.playerName} rolled ${r.formula}${r.skill ? ' (' + r.skill + ')' : ''}`,
+              dmText: `Rolls: [${r.rolls.join(', ')}]${r.modifier ? (r.modifier > 0 ? ' + ' + r.modifier : ' - ' + Math.abs(r.modifier)) : ''} = ${r.total}${r.dc != null ? ' vs DC ' + r.dc : ''}${outcomeText}`,
+              isDice: true
+            });
+            if (msg.state) renderParty(msg.state.party);
+            return;
+          }
+          if (msg.type === 'dm_response') {
+            const time = new Date(msg.timestamp || Date.now()).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' });
+            appendLogEntry({
+              playerLabel: `[${time}] ${msg.user || 'Party'}: ${msg.content || ''}`,
+              dmText: msg.gameresponse?.narration || '',
+              isDice: false
+            });
+            if (msg.gameresponse?.scene) renderScene(msg.gameresponse.scene);
+            if (msg.state?.party) renderParty(msg.state.party);
+            return;
+          }
+          if (msg.type === 'error') {
+            appendLogEntry({ playerLabel: 'System Notice', dmText: msg.message || 'Backend error', isDice: true });
+          }
+        };
+
+        socket.onclose = () => {
+          isRegistered = false;
+          setBadge(wsBadge, 'Reconnecting...', 'err');
+          if (!manualClose) {
+            reconnectAttempts += 1;
+            const delay = Math.min(1000 * Math.pow(2, reconnectAttempts - 1), 15000);
+            reconnectTimer = setTimeout(connectWs, delay);
+          }
+        };
+      }
+
+      document.querySelectorAll('[data-die]').forEach((btn) => {
+        btn.addEventListener('click', () => {
+          if (!isRegistered) return;
+          sendWs({
+            type: 'dice_roll',
+            playerName: currentPlayerName,
+            formula: btn.getAttribute('data-die'),
+            modifier: Number(diceMod.value) || 0,
+            skill: diceSkill.value.trim(),
+            narrate: true
+          });
+        });
+      });
+
+      btnSuggestedRoll.addEventListener('click', () => {
+        if (!isRegistered || !currentSuggestedRoll) return;
+        sendWs({
+          type: 'dice_roll',
+          playerName: currentPlayerName,
+          formula: currentSuggestedRoll.formula || '1d20',
+          modifier: Number(diceMod.value) || 0,
+          skill: currentSuggestedRoll.skill || '',
+          dc: currentSuggestedRoll.dc,
+          narrate: true
+        });
+      });
+
+      function sendManualAction() {
+        const text = actionInput.value.trim();
+        if (!text || !isRegistered) return;
+        sendWs({ type: 'player_action', playerName: currentPlayerName, text });
+        actionInput.value = '';
+      }
+
+      btnSendAction.addEventListener('click', sendManualAction);
+      actionInput.addEventListener('keydown', (e) => {
+        if (e.key === 'Enter') {
+          e.preventDefault();
+          sendManualAction();
+        }
+      });
+
+      btnOoc.addEventListener('click', () => {
+        if (!isRegistered) return;
+        sendWs({ type: 'toggle_ooc', inCharacter: !inCharacter });
+      });
+
+      btnReset.addEventListener('click', () => {
+        if (!isRegistered) return;
+        sendWs({ type: 'reset_campaign' });
+      });
+
+      btnStartRtms.addEventListener('click', async () => {
+        if (!zoomReady || typeof zoomSdk === 'undefined') return;
+        try {
+          await zoomSdk.startRTMS();
+          setBadge(rtmsBadge, 'RTMS: Starting...', 'warn');
+        } catch (err) {
+          appendLogEntry({ playerLabel: 'Zoom SDK', dmText: `Start RTMS failed: ${err?.message || err}`, isDice: true });
+        }
+      });
+
+      btnStopRtms.addEventListener('click', async () => {
+        if (!zoomReady || typeof zoomSdk === 'undefined') return;
+        try {
+          await zoomSdk.stopRTMS();
+          setBadge(rtmsBadge, 'RTMS: Stopping...', 'warn');
+        } catch (err) {
+          appendLogEntry({ playerLabel: 'Zoom SDK', dmText: `Stop RTMS failed: ${err?.message || err}`, isDice: true });
+        }
+      });
+
+      async function bootstrap() {
+        if (typeof zoomSdk !== 'undefined') {
+          try {
+            await zoomSdk.config({
+              version: '1.10.0',
+              capabilities: [
+                'getMeetingContext',
+                'getUserContext',
+                'getMeetingUUID',
+                'startRTMS',
+                'stopRTMS',
+                'onRTMSStatusChange'
+              ]
+            });
+            zoomReady = true;
+            const [uuidRes, userRes] = await Promise.all([
+              zoomSdk.getMeetingUUID().catch(() => null),
+              zoomSdk.getUserContext().catch(() => null)
+            ]);
+            currentMeetingUUID = uuidRes?.meetingUUID || '';
+            currentUserID = userRes?.participantUUID || userRes?.participantId || '';
+            currentPlayerName = userRes?.screenName || 'Adventurer';
+            if (typeof zoomSdk.onRTMSStatusChange === 'function') {
+              zoomSdk.onRTMSStatusChange((ev) => {
+                const st = ev?.status || ev?.state || 'Updated';
+                setBadge(rtmsBadge, `RTMS: ${st}`, st === 'started' ? 'ok' : 'warn');
+              });
+            }
+          } catch (err) {
+            console.warn('[ZoomSDK] Fallback mode:', err);
+          }
+        }
+
+        const params = new URLSearchParams(window.location.search);
+        if (!currentMeetingUUID) currentMeetingUUID = params.get('meetingUUID') || 'local-dev-meeting';
+        if (!currentUserID) currentUserID = params.get('userID') || 'local-dev-user';
+        connectWs();
+      }
+
+      window.addEventListener('load', bootstrap);
+      window.addEventListener('beforeunload', () => {
+        manualClose = true;
+        if (socket) socket.close(1000, 'Unload');
+      });
     })();
   </script>
 </body>

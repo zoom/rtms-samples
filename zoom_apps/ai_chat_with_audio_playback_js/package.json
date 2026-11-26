@@ -2,14 +2,15 @@
   "name": "rtms-sample",
   "version": "1.0.0",
   "type": "module",
+  "scripts": {
+    "start": "node index.js",
+    "test": "node --test tests/*.test.js"
+  },
   "dependencies": {
     "@deepgram/sdk": "^4.11.0",
     "dotenv": "^16.5.0",
     "ejs": "^3.1.10",
     "express": "^4.21.2",
-    "node-fetch": "^3.3.2",
-    "openai": "^5.10.2",
-    "uuid": "^11.1.0",
     "ws": "^8.16.0"
   }
 }

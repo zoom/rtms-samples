@@ -6,6 +6,8 @@ import { fileURLToPath } from 'url';
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = path.dirname(__filename);
 
+const DEFAULT_FETCH_TIMEOUT_MS = 15000;
+
 function execFileJson(command, args, options = {}) {
   return new Promise((resolve, reject) => {
     execFile(command, args, { timeout: options.timeout || 120000 }, (error, stdout, stderr) => {
@@ -25,6 +27,27 @@ function execFileJson(command, args, options = {}) {
   });
 }
 
+async function fetchWithTimeout(url, options = {}, timeoutMs = DEFAULT_FETCH_TIMEOUT_MS, label = 'Deepfake service') {
+  const effectiveTimeout = Math.max(Number(timeoutMs) || DEFAULT_FETCH_TIMEOUT_MS, 100);
+  const controller = new AbortController();
+  const timer = setTimeout(() => controller.abort(), effectiveTimeout);
+  timer.unref?.();
+
+  try {
+    return await fetch(url, {
+      ...options,
+      signal: controller.signal
+    });
+  } catch (error) {
+    if (error?.name === 'AbortError') {
+      throw new Error(`${label} request timed out after ${effectiveTimeout}ms`);
+    }
+    throw error;
+  } finally {
+    clearTimeout(timer);
+  }
+}
+
 function canonicalizeLabel(label) {
   const raw = String(label || '').trim().toLowerCase();
   if (['real', 'realism', 'authentic', 'genuine', 'bonafide', 'bona_fide', 'bona fide', 'human'].includes(raw)) return 'real';
@@ -32,7 +55,7 @@ function canonicalizeLabel(label) {
   return raw;
 }
 
-function normalizeScores(rawResult) {
+export function normalizeScores(rawResult) {
   if (!rawResult) return {};
 
   if (rawResult.scores) {
@@ -58,7 +81,7 @@ function normalizeScores(rawResult) {
   return rawResult;
 }
 
-function buildDecision(scores, threshold) {
+export function buildDecision(scores, threshold) {
   const realScore = Number(scores.real ?? scores.Real ?? scores.REAL ?? 0);
   const fakeScore = Number(scores.fake ?? scores.Fake ?? scores.FAKE ?? 0);
   const label = realScore >= fakeScore ? 'real' : 'fake';
@@ -130,7 +153,7 @@ function getHealthUrl(serviceUrl) {
   return url.toString();
 }
 
-async function postBinaryService({ filePath, serviceUrl, apiKey, modelName, metadata, contentType, errorLabel }) {
+async function postBinaryService({ filePath, serviceUrl, apiKey, modelName, metadata, contentType, errorLabel, timeoutMs }) {
   if (!serviceUrl) {
     throw new Error(`${errorLabel} service URL is required for service mode`);
   }
@@ -150,11 +173,16 @@ async function postBinaryService({ filePath, serviceUrl, apiKey, modelName, meta
     headers.Authorization = `Bearer ${apiKey}`;
   }
 
-  const response = await fetch(serviceUrl, {
-    method: 'POST',
-    headers,
-    body: mediaBuffer
-  });
+  const response = await fetchWithTimeout(
+    serviceUrl,
+    {
+      method: 'POST',
+      headers,
+      body: mediaBuffer
+    },
+    timeoutMs,
+    errorLabel
+  );
 
   if (!response.ok) {
     const body = await response.text();
@@ -164,7 +192,7 @@ async function postBinaryService({ filePath, serviceUrl, apiKey, modelName, meta
   return response.json();
 }
 
-async function postAudioPcmService({ filePath, serviceUrl, apiKey, metadata = {}, errorLabel }) {
+async function postAudioPcmService({ filePath, serviceUrl, apiKey, metadata = {}, errorLabel, timeoutMs }) {
   if (!serviceUrl) {
     throw new Error(`${errorLabel} service URL is required for service mode`);
   }
@@ -195,16 +223,20 @@ async function postAudioPcmService({ filePath, serviceUrl, apiKey, metadata = {}
     'X-Clip-Name': path.basename(filePath),
     'X-Zoom-User-Id': String(zoomUserId),
     'X-Zoom-User-Name': String(zoomUserName),
-    'X-Audio-Metadata': JSON.stringify(audioMetadata)
+    'X-Audio-Metadata': JSON.stringify(audioMetadata),
+    Authorization: `Bearer ${apiKey}`
   };
 
-  headers.Authorization = `Bearer ${apiKey}`;
-
-  const response = await fetch(serviceUrl, {
-    method: 'POST',
-    headers,
-    body: audioBuffer
-  });
+  const response = await fetchWithTimeout(
+    serviceUrl,
+    {
+      method: 'POST',
+      headers,
+      body: audioBuffer
+    },
+    timeoutMs,
+    errorLabel
+  );
 
   if (!response.ok) {
     const body = await response.text();
@@ -229,7 +261,10 @@ export class DeepfakeClient {
     this.pythonBin = options.pythonBin || 'python3';
     this.threshold = Number(options.threshold || 0.75);
     this.vendorName = options.vendorName || this.modelName;
-    this.scriptPath = '/var/www/your-deepfake-service/classify_clip.py';
+    this.timeoutMs = Number(options.timeoutMs || process.env.DEEPFAKE_FETCH_TIMEOUT_MS || DEFAULT_FETCH_TIMEOUT_MS);
+    this.scriptPath = options.scriptPath
+      || process.env.DEEPFAKE_LOCAL_SCRIPT_PATH
+      || path.join(__dirname, 'classify_clip.py');
   }
 
   async checkHealth() {
@@ -249,7 +284,12 @@ export class DeepfakeClient {
         headers.Authorization = `Bearer ${this.apiKey}`;
       }
 
-      const response = await fetch(healthUrl, { headers });
+      const response = await fetchWithTimeout(
+        healthUrl,
+        { headers },
+        this.timeoutMs,
+        'Video deepfake health check'
+      );
       if (!response.ok) {
         const body = await response.text();
         throw new Error(`Deepfake service health check failed: ${response.status} ${body}`);
@@ -316,7 +356,7 @@ export class DeepfakeClient {
       this.scriptPath,
       '--video', videoPath,
       '--model', this.modelName
-    ]);
+    ], { timeout: Math.max(this.timeoutMs, 30000) });
   }
 
   async classifyService(videoPath, metadata = {}) {
@@ -327,7 +367,8 @@ export class DeepfakeClient {
       modelName: this.modelName,
       metadata,
       contentType: 'video/mp4',
-      errorLabel: 'Video deepfake'
+      errorLabel: 'Video deepfake',
+      timeoutMs: this.timeoutMs
     });
   }
 }
@@ -345,6 +386,8 @@ export class AudioDeepfakeClient {
     this.apiKey = options.apiKey || '';
     this.threshold = Number(options.threshold || 0.75);
     this.vendorName = options.vendorName || this.modelName;
+    this.timeoutMs = Number(options.timeoutMs || process.env.DEEPFAKE_FETCH_TIMEOUT_MS || DEFAULT_FETCH_TIMEOUT_MS);
+    this.healthcheckEnabled = options.healthcheckEnabled === true;
   }
 
   async checkHealth() {
@@ -357,6 +400,15 @@ export class AudioDeepfakeClient {
       };
     }
 
+    if (!this.healthcheckEnabled) {
+      return {
+        ok: true,
+        mode: this.mode,
+        skipped: true,
+        reason: 'Audio deepfake health check disabled (AUDIO_DEEPFAKE_HEALTHCHECK_ENABLED=false)'
+      };
+    }
+
     const healthUrl = getHealthUrl(this.serviceUrl);
     if (!this.apiKey) {
       throw new Error('Audio deepfake service API key is required');
@@ -365,7 +417,12 @@ export class AudioDeepfakeClient {
       Authorization: `Bearer ${this.apiKey}`
     };
 
-    const response = await fetch(healthUrl, { headers });
+    const response = await fetchWithTimeout(
+      healthUrl,
+      { headers },
+      this.timeoutMs,
+      'Audio deepfake health check'
+    );
     if (!response.ok) {
       const body = await response.text();
       throw new Error(`Audio deepfake service health check failed: ${response.status} ${body}`);
@@ -395,7 +452,8 @@ export class AudioDeepfakeClient {
       serviceUrl: this.serviceUrl,
       apiKey: this.apiKey,
       metadata,
-      errorLabel: 'Audio deepfake'
+      errorLabel: 'Audio deepfake',
+      timeoutMs: this.timeoutMs
     });
 
     const scores = normalizeScores(rawResult);

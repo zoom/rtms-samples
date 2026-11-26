@@ -2,17 +2,23 @@ import WebSocket from 'ws';
 import dotenv from 'dotenv';
 import path from 'path';
 import { fileURLToPath } from 'url';
+import { createResamplerState, resamplePcm16Mono } from './audioResampler.js';
 
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = path.dirname(__filename);
 
 dotenv.config({ path: path.join(__dirname, '.env') });
 
-const mcpServers = parseMcpServers(process.env.MCP_SERVERS_JSON || '');
+let mcpServers = [];
+try {
+  mcpServers = parseMcpServers(process.env.MCP_SERVERS_JSON || '');
+} catch (error) {
+  console.error(`[OpenAI Realtime] Invalid MCP_SERVERS_JSON: ${error.message}`);
+}
 
 const CONFIG = {
   ENABLED: process.env.OPENAI_REALTIME_ENABLED !== 'false',
-  OPENAI_API_KEY: process.env.OPENAI_API_KEY,
+  OPENAI_API_KEY: process.env.OPENAI_API_KEY || '',
   MODEL: process.env.OPENAI_REALTIME_MODEL || 'gpt-realtime-2',
   VOICE: process.env.OPENAI_REALTIME_VOICE || 'marin',
   SAFETY_IDENTIFIER: process.env.OPENAI_SAFETY_IDENTIFIER || '',
@@ -21,10 +27,11 @@ const CONFIG = {
   TARGET_CHUNK_DURATION_MS: Number.parseInt(process.env.TARGET_CHUNK_DURATION_MS || '100', 10),
   MAX_QUEUED_AUDIO_BYTES: Number.parseInt(process.env.OPENAI_MAX_QUEUED_AUDIO_BYTES || '2097152', 10),
   RECONNECT_DELAY_MS: Number.parseInt(process.env.OPENAI_REALTIME_RECONNECT_DELAY_MS || '2000', 10),
-  FORCE_RESPONSE_AFTER_SPEECH_STOP_MS: Number.parseInt(process.env.OPENAI_FORCE_RESPONSE_AFTER_SPEECH_STOP_MS || '1800', 10),
+  CREATE_RESPONSE_ON_VAD: process.env.OPENAI_VAD_CREATE_RESPONSE !== 'false',
   RESPONSE_NO_OUTPUT_WARNING_MS: Number.parseInt(process.env.OPENAI_RESPONSE_NO_OUTPUT_WARNING_MS || '8000', 10),
   MCP_LONG_RUNNING_WARNING_MS: Number.parseInt(process.env.OPENAI_MCP_LONG_RUNNING_WARNING_MS || '10000', 10),
   IGNORE_INTERRUPTS_AFTER_ASSISTANT_AUDIO_START_MS: Number.parseInt(process.env.OPENAI_IGNORE_INTERRUPTS_AFTER_ASSISTANT_AUDIO_START_MS || '700', 10),
+  SPEAKER_SAFE_TAIL_COOLDOWN_MS: Number.parseInt(process.env.OPENAI_SPEAKER_SAFE_TAIL_COOLDOWN_MS || '450', 10),
   TRANSCRIPTION_ENABLED: process.env.OPENAI_REALTIME_TRANSCRIPTION_ENABLED !== 'false',
   TRANSCRIPTION_MODEL: process.env.OPENAI_REALTIME_TRANSCRIPTION_MODEL || 'gpt-4o-mini-transcribe',
   MCP_SERVERS: mcpServers,
@@ -43,32 +50,32 @@ const CHANNELS = 1;
 const BYTES_PER_SAMPLE = 2;
 const SOURCE_CHUNK_SIZE = Math.max(
   BYTES_PER_SAMPLE,
-  Math.floor(CONFIG.SOURCE_SAMPLE_RATE * CHANNELS * BYTES_PER_SAMPLE * CONFIG.TARGET_CHUNK_DURATION_MS / 1000),
+  Math.floor((CONFIG.SOURCE_SAMPLE_RATE * CHANNELS * BYTES_PER_SAMPLE * CONFIG.TARGET_CHUNK_DURATION_MS) / 1000),
 );
 
 const sessions = new Map();
 
 let frontendCallbacks = {
-  broadcast: () => {},
+  broadcastToMeeting: () => {},
 };
 
-if (CONFIG.ENABLED && !CONFIG.OPENAI_API_KEY) {
-  console.error('[OpenAI Realtime] OPENAI_API_KEY is required when OPENAI_REALTIME_ENABLED is true');
-  process.exit(1);
-}
-
-if (CONFIG.ENABLED && CONFIG.TARGET_SAMPLE_RATE !== 24000) {
-  console.error('[OpenAI Realtime] OPENAI_AUDIO_SAMPLE_RATE must be 24000 for Realtime pcm16 input/output');
-  process.exit(1);
-}
-
-console.log('[OpenAI Realtime] Bridge initialized');
-console.log(`[OpenAI Realtime] Model: ${CONFIG.MODEL}`);
-console.log(`[OpenAI Realtime] Voice: ${CONFIG.VOICE}`);
-console.log(`[OpenAI Realtime] Audio: ${CONFIG.SOURCE_SAMPLE_RATE}Hz RTMS -> ${CONFIG.TARGET_SAMPLE_RATE}Hz OpenAI, chunk ${CONFIG.TARGET_CHUNK_DURATION_MS}ms`);
-console.log(`[OpenAI Realtime] MCP servers: ${CONFIG.MCP_SERVERS.map((server) => `${server.id} (${server.allowedTools.join(', ')})`).join('; ') || 'none'}`);
-if (CONFIG.COST_LOGGING_ENABLED) {
-  console.log(`[OpenAI Realtime] Cost logging: enabled, pricing per 1M tokens textIn=$${CONFIG.PRICING.TEXT_INPUT_PER_1M} textOut=$${CONFIG.PRICING.TEXT_OUTPUT_PER_1M} audioIn=$${CONFIG.PRICING.AUDIO_INPUT_PER_1M} audioOut=$${CONFIG.PRICING.AUDIO_OUTPUT_PER_1M}`);
+export function validateOpenAIConfig() {
+  if (!CONFIG.ENABLED) {
+    return { valid: true };
+  }
+  if (!CONFIG.OPENAI_API_KEY) {
+    return {
+      valid: false,
+      error: 'OPENAI_API_KEY is required when OPENAI_REALTIME_ENABLED is true',
+    };
+  }
+  if (CONFIG.TARGET_SAMPLE_RATE !== 24000) {
+    return {
+      valid: false,
+      error: 'OPENAI_AUDIO_SAMPLE_RATE must be 24000 for Realtime pcm16 input/output',
+    };
+  }
+  return { valid: true };
 }
 
 export function setRealtimeFrontendCallbacks(callbacks = {}) {
@@ -79,13 +86,24 @@ export function setRealtimeFrontendCallbacks(callbacks = {}) {
 }
 
 export function initializeRealtimeSession(meetingUuid) {
+  if (!meetingUuid) {
+    return null;
+  }
+
   if (!CONFIG.ENABLED) {
     console.log('[OpenAI Realtime] Disabled by OPENAI_REALTIME_ENABLED=false');
-    return;
+    return null;
+  }
+
+  const validation = validateOpenAIConfig();
+  if (!validation.valid) {
+    console.error(`[OpenAI Realtime] ${validation.error}`);
+    broadcastToMeeting(meetingUuid, { type: 'error', data: validation.error });
+    return null;
   }
 
   if (sessions.has(meetingUuid)) {
-    return;
+    return sessions.get(meetingUuid);
   }
 
   const session = {
@@ -94,6 +112,7 @@ export function initializeRealtimeSession(meetingUuid) {
     sessionReady: false,
     stopRequested: false,
     sourceAudioBuffer: [],
+    resamplerState: createResamplerState(),
     queuedAudio: [],
     queuedAudioBytes: 0,
     totalSourceBytes: 0,
@@ -110,24 +129,70 @@ export function initializeRealtimeSession(meetingUuid) {
     outputAudioBytes: 0,
     outputTranscriptDeltas: 0,
     currentResponseAudioStartedAt: 0,
-    speechResponseTimer: null,
     responseWatchdogTimer: null,
     mcpWatchdogTimer: null,
+    speakerSafeMode: false,
+    clientPlaybackActive: false,
+    assistantAudioTailUntil: 0,
     usage: createUsageLedger(),
   };
 
   sessions.set(meetingUuid, session);
   console.log(`[OpenAI Realtime] Initializing session for meeting ${meetingUuid}`);
   connectRealtime(session);
+  return session;
+}
+
+export function setSpeakerSafeMode(meetingUuid, enabled) {
+  const session = getSession(meetingUuid);
+  if (!session) {
+    return false;
+  }
+  session.speakerSafeMode = Boolean(enabled);
+  console.log(`[OpenAI Realtime] [${meetingUuid.slice(0, 8)}] Speaker-Safe half-duplex mode=${session.speakerSafeMode}`);
+  return true;
+}
+
+export function setClientPlaybackActive(meetingUuid, playing) {
+  const session = getSession(meetingUuid);
+  if (!session) {
+    return false;
+  }
+  session.clientPlaybackActive = Boolean(playing);
+  if (!playing) {
+    session.assistantAudioTailUntil = Date.now() + CONFIG.SPEAKER_SAFE_TAIL_COOLDOWN_MS;
+  }
+  return true;
+}
+
+export function shouldSuppressMicAudio(session, now = Date.now()) {
+  if (!session?.speakerSafeMode) {
+    return false;
+  }
+  if (session.clientPlaybackActive) {
+    return true;
+  }
+  if (session.assistantAudioTailUntil > now) {
+    return true;
+  }
+  return false;
 }
 
 export function sendAudioChunk(buffer, meetingUuid, userId = 0) {
-  if (!CONFIG.ENABLED || !buffer || buffer.length === 0) {
+  if (!CONFIG.ENABLED || !buffer || buffer.length === 0 || !meetingUuid) {
     return;
   }
 
-  const session = sessions.get(meetingUuid);
+  // Auto-create session if RTMS audio arrives before rtms_started webhook
+  let session = sessions.get(meetingUuid);
+  if (!session) {
+    session = initializeRealtimeSession(meetingUuid);
+  }
   if (!session || session.stopRequested) {
+    return;
+  }
+
+  if (shouldSuppressMicAudio(session)) {
     return;
   }
 
@@ -139,7 +204,12 @@ export function sendAudioChunk(buffer, meetingUuid, userId = 0) {
 
   while (combined.length >= SOURCE_CHUNK_SIZE) {
     const sourceChunk = combined.subarray(0, SOURCE_CHUNK_SIZE);
-    const targetChunk = resamplePcm16Mono(sourceChunk, CONFIG.SOURCE_SAMPLE_RATE, CONFIG.TARGET_SAMPLE_RATE);
+    const targetChunk = resamplePcm16Mono(
+      sourceChunk,
+      CONFIG.SOURCE_SAMPLE_RATE,
+      CONFIG.TARGET_SAMPLE_RATE,
+      session.resamplerState,
+    );
     sendRealtimeAudio(session, targetChunk);
     combined = combined.subarray(SOURCE_CHUNK_SIZE);
   }
@@ -148,19 +218,25 @@ export function sendAudioChunk(buffer, meetingUuid, userId = 0) {
 
   if (session.chunkCount % 100 === 0) {
     const elapsedSeconds = ((Date.now() - session.startedAt) / 1000).toFixed(1);
-    console.log(`[OpenAI Realtime] [${meetingUuid.slice(0, 8)}] chunks=${session.chunkCount} rtmsBytes=${session.totalSourceBytes} openaiBytes=${session.sentAudioBytes} queuedBytes=${session.queuedAudioBytes} ready=${session.sessionReady} ws=${readyStateName(session.ws)} elapsed=${elapsedSeconds}s lastUser=${userId}`);
+    console.log(
+      `[OpenAI Realtime] [${meetingUuid.slice(0, 8)}] chunks=${session.chunkCount} rtmsBytes=${session.totalSourceBytes} openaiBytes=${session.sentAudioBytes} queuedBytes=${session.queuedAudioBytes} ready=${session.sessionReady} ws=${readyStateName(session.ws)} elapsed=${elapsedSeconds}s lastUser=${userId}`,
+    );
   }
 }
 
-export function sendTextMessageToRealtime(text, meetingUuid = null) {
-  const session = getSession(meetingUuid);
+export function sendTextMessageToRealtime(text, meetingUuid) {
   const cleanText = String(text || '').trim();
-  if (!session || !cleanText) {
+  if (!meetingUuid || !cleanText) {
     return false;
   }
 
+  const session = getSession(meetingUuid);
+  if (!session) {
+    throw new Error('No active OpenAI Realtime session for this meeting. Start RTMS first.');
+  }
+
   if (!session.sessionReady || !session.ws || session.ws.readyState !== WebSocket.OPEN) {
-    throw new Error('OpenAI Realtime session is not ready');
+    throw new Error('OpenAI Realtime session is not ready yet');
   }
 
   sendEvent(session, {
@@ -178,12 +254,11 @@ export function sendTextMessageToRealtime(text, meetingUuid = null) {
   });
 
   sendResponseCreate(session, 'text_message');
-
   return true;
 }
 
 export function truncateRealtimeAudioPlayback({
-  meetingUuid = null,
+  meetingUuid,
   responseId = null,
   itemId,
   contentIndex = 0,
@@ -224,14 +299,17 @@ export async function cleanupMeeting(meetingUuid) {
   console.log(`[OpenAI Realtime] Cleaning up meeting ${meetingUuid}`);
   logUsageTotals(session, 'meeting cleanup');
   session.stopRequested = true;
+  session.sourceAudioBuffer = [];
+  session.queuedAudio = [];
+  session.queuedAudioBytes = 0;
 
   if (session.reconnectTimer) {
     clearTimeout(session.reconnectTimer);
+    session.reconnectTimer = null;
   }
   clearSessionTimers(session);
 
-  flushRemainingSourceAudio(session);
-  broadcast({
+  broadcastToMeeting(meetingUuid, {
     type: 'interrupt',
     data: 'meeting_stopped',
     metadata: {
@@ -239,9 +317,13 @@ export async function cleanupMeeting(meetingUuid) {
     },
   });
 
-  if (session.ws && session.ws.readyState === WebSocket.OPEN) {
+  if (session.ws) {
     try {
-      session.ws.close(1000, 'meeting stopped');
+      if (session.ws.readyState === WebSocket.OPEN) {
+        session.ws.close(1000, 'meeting stopped');
+      } else if (session.ws.readyState === WebSocket.CONNECTING) {
+        session.ws.terminate();
+      }
     } catch (error) {
       console.error(`[OpenAI Realtime] Error closing WebSocket for meeting ${meetingUuid}: ${error.message}`);
     }
@@ -280,6 +362,10 @@ function connectRealtime(session) {
   session.sessionReady = false;
 
   ws.on('open', () => {
+    if (session.stopRequested) {
+      ws.close(1000, 'meeting stopped');
+      return;
+    }
     console.log(`[OpenAI Realtime] Connected for meeting ${session.meetingUuid}`);
     sendEvent(session, buildSessionUpdateEvent(session.meetingUuid));
   });
@@ -303,7 +389,7 @@ function connectRealtime(session) {
   });
 }
 
-function buildSessionUpdateEvent(meetingUuid) {
+export function buildSessionUpdateEvent(meetingUuid) {
   const session = {
     type: 'realtime',
     model: CONFIG.MODEL,
@@ -323,7 +409,7 @@ function buildSessionUpdateEvent(meetingUuid) {
           threshold: 0.5,
           prefix_padding_ms: 300,
           silence_duration_ms: 500,
-          create_response: true,
+          create_response: CONFIG.CREATE_RESPONSE_ON_VAD,
           interrupt_response: true,
         },
       },
@@ -364,9 +450,7 @@ function buildInstructions(meetingUuid) {
 
 function buildMcpInstructionLines() {
   if (CONFIG.MCP_SERVERS.length === 0) {
-    return [
-      'MCP tools are not configured for this session.',
-    ];
+    return ['MCP tools are not configured for this session.'];
   }
 
   return [
@@ -376,7 +460,7 @@ function buildMcpInstructionLines() {
 }
 
 function buildTools() {
-  const tools = CONFIG.MCP_SERVERS.map((server) => ({
+  return CONFIG.MCP_SERVERS.map((server) => ({
     type: 'mcp',
     server_label: server.id,
     server_url: server.url,
@@ -384,8 +468,6 @@ function buildTools() {
     allowed_tools: server.allowedTools,
     ...(server.authorization ? { authorization: server.authorization } : {}),
   }));
-
-  return tools;
 }
 
 function handleRealtimeEvent(session, rawMessage) {
@@ -404,14 +486,13 @@ function handleRealtimeEvent(session, rawMessage) {
     case 'session.updated':
       session.sessionReady = true;
       console.log(`[OpenAI Realtime] Session updated for meeting ${session.meetingUuid}; flushing queuedBytes=${session.queuedAudioBytes}`);
-      broadcast({ type: 'status', data: 'OpenAI Realtime session ready' });
+      broadcastToMeeting(session.meetingUuid, { type: 'status', data: 'OpenAI Realtime session ready' });
       flushQueuedAudio(session);
       break;
     case 'response.created':
       session.activeResponseId = event.response?.id || event.response_id || session.activeResponseId;
       session.activeResponseStartedAt = Date.now();
       session.activeResponseHadOutput = false;
-      clearTimer(session, 'speechResponseTimer');
       startResponseWatchdog(session);
       console.log(`[OpenAI Realtime] Response created ${session.activeResponseId || 'unknown'} for meeting ${session.meetingUuid}`);
       break;
@@ -422,11 +503,13 @@ function handleRealtimeEvent(session, rawMessage) {
       handleSpeechStarted(session, event);
       break;
     case 'input_audio_buffer.speech_stopped':
-      handleSpeechStopped(session, event);
+      // Note: With turn_detection.create_response: true, OpenAI server VAD creates the response
+      // automatically — do NOT force a duplicate response.create after a fixed timer.
+      console.log(`[OpenAI Realtime] User speech stopped for meeting ${session.meetingUuid} at audioEndMs=${event.audio_end_ms ?? 'unknown'}`);
       break;
     case 'conversation.item.input_audio_transcription.completed':
       console.log(`[OpenAI Realtime] Transcript: ${event.transcript || ''}`);
-      broadcast({
+      broadcastToMeeting(session.meetingUuid, {
         type: 'transcript',
         data: event.transcript || '',
         metadata: {
@@ -443,7 +526,7 @@ function handleRealtimeEvent(session, rawMessage) {
     case 'response.audio_transcript.delta':
       markResponseOutput(session, 'audio_transcript');
       session.outputTranscriptDeltas += 1;
-      broadcast({
+      broadcastToMeeting(session.meetingUuid, {
         type: 'text',
         data: event.delta || '',
         metadata: {
@@ -456,7 +539,7 @@ function handleRealtimeEvent(session, rawMessage) {
     case 'response.output_audio_transcript.done':
     case 'response.audio_transcript.done':
       console.log(`[OpenAI Realtime] Assistant transcript: ${event.transcript || ''}`);
-      broadcast({
+      broadcastToMeeting(session.meetingUuid, {
         type: 'text_done',
         data: event.transcript || '',
         metadata: {
@@ -467,7 +550,8 @@ function handleRealtimeEvent(session, rawMessage) {
       break;
     case 'response.output_audio.done':
     case 'response.audio.done':
-      broadcast({
+      session.assistantAudioTailUntil = Date.now() + CONFIG.SPEAKER_SAFE_TAIL_COOLDOWN_MS;
+      broadcastToMeeting(session.meetingUuid, {
         type: 'audio_done',
         metadata: {
           responseId: event.response_id,
@@ -478,31 +562,71 @@ function handleRealtimeEvent(session, rawMessage) {
     case 'mcp_list_tools.completed':
       console.log(`[OpenAI Realtime] MCP tool listing complete for item ${event.item_id}`);
       break;
-    case 'mcp_list_tools.failed':
-      console.error(`[OpenAI Realtime] MCP tool listing failed for item ${event.item_id}: ${summarizeMcpFailure(event)}`);
-      broadcast({ type: 'error', data: `Zoom MCP tool listing failed: ${summarizeMcpFailure(event)}` });
+    case 'mcp_list_tools.failed': {
+      const reason = summarizeMcpFailure(event);
+      console.error(`[OpenAI Realtime] MCP tool listing failed for item ${event.item_id}: ${reason}`);
+      broadcastToMeeting(session.meetingUuid, {
+        type: 'mcp_tool_event',
+        data: {
+          status: 'failed',
+          itemId: event.item_id,
+          toolName: 'list_tools',
+          summary: reason,
+        },
+      });
+      broadcastToMeeting(session.meetingUuid, { type: 'error', data: `MCP tool listing failed: ${reason}` });
       break;
+    }
     case 'conversation.item.done':
-      handleConversationItemDone(event.item);
+      handleConversationItemDone(session, event.item);
       break;
     case 'response.mcp_call_arguments.done':
       console.log(`[OpenAI Realtime] MCP call arguments: ${event.arguments}`);
+      broadcastToMeeting(session.meetingUuid, {
+        type: 'mcp_tool_event',
+        data: {
+          status: 'running',
+          itemId: event.item_id,
+          toolName: event.name || 'MCP tool',
+          argumentsPreview: previewText(event.arguments, 180),
+        },
+      });
       break;
     case 'response.mcp_call.in_progress':
       console.log(`[OpenAI Realtime] Running MCP tool for item ${event.item_id}`);
-      broadcast({ type: 'status', data: 'Running Zoom MCP tool...' });
+      broadcastToMeeting(session.meetingUuid, {
+        type: 'mcp_tool_event',
+        data: {
+          status: 'running',
+          itemId: event.item_id,
+          toolName: event.name || 'MCP tool',
+          summary: 'Executing MCP tool call...',
+        },
+      });
+      broadcastToMeeting(session.meetingUuid, { type: 'status', data: 'Running MCP tool...' });
       startMcpWatchdog(session, event.item_id);
       break;
-    case 'response.mcp_call.failed':
+    case 'response.mcp_call.failed': {
+      const reason = summarizeMcpFailure(event);
       console.error(`[OpenAI Realtime] MCP tool call failed for item ${event.item_id}`);
-      broadcast({ type: 'error', data: 'Zoom MCP tool call failed' });
+      broadcastToMeeting(session.meetingUuid, {
+        type: 'mcp_tool_event',
+        data: {
+          status: 'failed',
+          itemId: event.item_id,
+          toolName: event.name || 'MCP tool',
+          summary: reason,
+        },
+      });
+      broadcastToMeeting(session.meetingUuid, { type: 'error', data: `MCP tool call failed: ${reason}` });
       clearTimer(session, 'mcpWatchdogTimer');
       break;
+    }
     case 'response.output_item.done':
       handleOutputItemDone(session, event.item);
       break;
     case 'response.done':
-      logUsage(session, event.response?.usage);
+      logAndBroadcastUsage(session, event.response?.usage);
       clearTimer(session, 'responseWatchdogTimer');
       clearTimer(session, 'mcpWatchdogTimer');
       if ((event.response?.id || event.response_id) === session.activeResponseId) {
@@ -525,12 +649,14 @@ function handleSpeechStarted(session, event) {
   const audioStartedAt = session.currentResponseAudioStartedAt;
   const assistantAudioAgeMs = audioStartedAt ? now - audioStartedAt : Number.POSITIVE_INFINITY;
   if (assistantAudioAgeMs < CONFIG.IGNORE_INTERRUPTS_AFTER_ASSISTANT_AUDIO_START_MS) {
-    console.log(`[OpenAI Realtime] Ignoring speech_started ${Math.round(assistantAudioAgeMs)}ms after assistant audio started to avoid self-interrupt`);
+    console.log(
+      `[OpenAI Realtime] Ignoring speech_started ${Math.round(assistantAudioAgeMs)}ms after assistant audio started to avoid self-interrupt`,
+    );
     return;
   }
 
   console.log(`[OpenAI Realtime] User speech started; interrupting playback for meeting ${session.meetingUuid}`);
-  broadcast({
+  broadcastToMeeting(session.meetingUuid, {
     type: 'interrupt',
     data: 'speech_started',
     metadata: {
@@ -538,28 +664,6 @@ function handleSpeechStarted(session, event) {
       audioStartMs: event.audio_start_ms,
     },
   });
-}
-
-function handleSpeechStopped(session, event) {
-  console.log(`[OpenAI Realtime] User speech stopped for meeting ${session.meetingUuid} at audioEndMs=${event.audio_end_ms ?? 'unknown'}`);
-
-  if (CONFIG.FORCE_RESPONSE_AFTER_SPEECH_STOP_MS <= 0) {
-    return;
-  }
-
-  clearTimer(session, 'speechResponseTimer');
-  session.speechResponseTimer = setTimeout(() => {
-    session.speechResponseTimer = null;
-    if (session.stopRequested || !session.sessionReady || session.activeResponseId) {
-      return;
-    }
-
-    try {
-      sendResponseCreate(session, 'speech_stopped_watchdog');
-    } catch (error) {
-      console.error(`[OpenAI Realtime] Failed to force response after speech stop: ${error.message}`);
-    }
-  }, CONFIG.FORCE_RESPONSE_AFTER_SPEECH_STOP_MS);
 }
 
 function handleOutputAudioDelta(session, event) {
@@ -578,14 +682,22 @@ function handleOutputAudioDelta(session, event) {
   if (!session.currentResponseAudioStartedAt) {
     session.currentResponseAudioStartedAt = Date.now();
   }
+  const decodedBytes = Buffer.byteLength(event.delta, 'base64');
+  const chunkDurationMs = (decodedBytes / (CONFIG.TARGET_SAMPLE_RATE * BYTES_PER_SAMPLE)) * 1000;
+  session.assistantAudioTailUntil = Math.max(
+    session.assistantAudioTailUntil,
+    Date.now() + chunkDurationMs + CONFIG.SPEAKER_SAFE_TAIL_COOLDOWN_MS,
+  );
   session.outputAudioDeltas += 1;
-  session.outputAudioBytes += Buffer.byteLength(event.delta, 'base64');
+  session.outputAudioBytes += decodedBytes;
 
   if (session.outputAudioDeltas === 1 || session.outputAudioDeltas % 20 === 0) {
-    console.log(`[OpenAI Realtime] [${session.meetingUuid.slice(0, 8)}] outputAudioDeltas=${session.outputAudioDeltas} outputAudioBytes=${session.outputAudioBytes} response=${event.response_id || 'unknown'}`);
+    console.log(
+      `[OpenAI Realtime] [${session.meetingUuid.slice(0, 8)}] outputAudioDeltas=${session.outputAudioDeltas} outputAudioBytes=${session.outputAudioBytes} response=${event.response_id || 'unknown'}`,
+    );
   }
 
-  broadcast({
+  broadcastToMeeting(session.meetingUuid, {
     type: 'audio',
     data: event.delta,
     metadata: {
@@ -626,23 +738,50 @@ function handleRealtimeError(session, event) {
   }
 
   console.error(`[OpenAI Realtime] API error: ${message}`);
-  broadcast({ type: 'error', data: event.error?.message || 'OpenAI Realtime API error' });
+  broadcastToMeeting(session.meetingUuid, {
+    type: 'error',
+    data: event.error?.message || 'OpenAI Realtime API error',
+  });
 }
 
-function handleConversationItemDone(item) {
+function handleConversationItemDone(session, item) {
   if (!item) {
     return;
   }
 
   if (item.type === 'mcp_list_tools') {
-    const names = (item.tools || []).map((tool) => tool.name).join(', ');
+    const toolNames = (item.tools || []).map((tool) => tool.name);
+    const names = toolNames.join(', ');
     console.log(`[OpenAI Realtime] MCP tools ready on ${item.server_label}: ${names}`);
-    broadcast({ type: 'status', data: `Zoom MCP tools ready: ${names}` });
+    broadcastToMeeting(session.meetingUuid, {
+      type: 'mcp_tool_event',
+      data: {
+        status: 'ready',
+        itemId: item.id || `list_${item.server_label}`,
+        serverLabel: item.server_label,
+        tools: toolNames,
+        summary: names || 'No tools returned',
+      },
+    });
+    broadcastToMeeting(session.meetingUuid, { type: 'status', data: `MCP tools ready (${item.server_label}): ${names}` });
   }
 
   if (item.type === 'mcp_approval_request') {
     console.log(`[OpenAI Realtime] MCP approval required for ${item.server_label}.${item.name}: ${item.arguments}`);
-    broadcast({ type: 'error', data: `MCP approval required for ${item.name}; this sample does not auto-approve.` });
+    broadcastToMeeting(session.meetingUuid, {
+      type: 'mcp_tool_event',
+      data: {
+        status: 'approval_required',
+        itemId: item.id,
+        serverLabel: item.server_label,
+        toolName: item.name,
+        summary: 'Approval required; sample does not auto-approve',
+      },
+    });
+    broadcastToMeeting(session.meetingUuid, {
+      type: 'error',
+      data: `MCP approval required for ${item.name}; this sample does not auto-approve.`,
+    });
   }
 }
 
@@ -654,10 +793,22 @@ function handleOutputItemDone(session, item) {
   if (item.type === 'mcp_call') {
     clearTimer(session, 'mcpWatchdogTimer');
     const rawOutput = safeStringify(item.output);
-    console.log(`[OpenAI Realtime] MCP output from ${item.server_label}.${item.name}: ${summarizeMcpOutputForLog(item.output, rawOutput)}`);
+    const summary = summarizeMcpOutputForLog(item.output, rawOutput);
+    console.log(`[OpenAI Realtime] MCP output from ${item.server_label}.${item.name}: ${summary}`);
     if (CONFIG.LOG_RAW_MCP_OUTPUT) {
       console.log(`[OpenAI Realtime] MCP raw output from ${item.server_label}.${item.name}: ${rawOutput}`);
     }
+    broadcastToMeeting(session.meetingUuid, {
+      type: 'mcp_tool_event',
+      data: {
+        status: item.error ? 'failed' : 'completed',
+        itemId: item.id,
+        serverLabel: item.server_label,
+        toolName: item.name,
+        argumentsPreview: item.arguments ? previewText(item.arguments, 180) : '',
+        summary: item.error ? summarizeMcpFailure({ error: item.error }) : previewText(summary, 220),
+      },
+    });
   }
 }
 
@@ -681,7 +832,10 @@ function startResponseWatchdog(session) {
     if (!session.stopRequested && responseId === session.activeResponseId && !session.activeResponseHadOutput) {
       const elapsedSeconds = ((Date.now() - session.activeResponseStartedAt) / 1000).toFixed(1);
       console.warn(`[OpenAI Realtime] Response ${responseId || 'unknown'} has no audio/text output after ${elapsedSeconds}s`);
-      broadcast({ type: 'status', data: 'Still waiting for OpenAI response output...' });
+      broadcastToMeeting(session.meetingUuid, {
+        type: 'status',
+        data: 'Still waiting for OpenAI response output...',
+      });
     }
   }, CONFIG.RESPONSE_NO_OUTPUT_WARNING_MS);
 }
@@ -696,7 +850,7 @@ function startMcpWatchdog(session, itemId) {
     session.mcpWatchdogTimer = null;
     if (!session.stopRequested) {
       console.warn(`[OpenAI Realtime] MCP call still running after ${CONFIG.MCP_LONG_RUNNING_WARNING_MS}ms item=${itemId || 'unknown'}`);
-      broadcast({ type: 'status', data: 'Still waiting for MCP results...' });
+      broadcastToMeeting(session.meetingUuid, { type: 'status', data: 'Still waiting for MCP results...' });
     }
   }, CONFIG.MCP_LONG_RUNNING_WARNING_MS);
 }
@@ -709,7 +863,6 @@ function clearTimer(session, timerName) {
 }
 
 function clearSessionTimers(session) {
-  clearTimer(session, 'speechResponseTimer');
   clearTimer(session, 'responseWatchdogTimer');
   clearTimer(session, 'mcpWatchdogTimer');
 }
@@ -719,11 +872,9 @@ function summarizeMcpFailure(event) {
   if (!error) {
     return 'check the MCP server URL, authentication, and tool allowlist';
   }
-
   if (typeof error === 'string') {
     return previewText(error, 240);
   }
-
   return previewText(error.message || safeStringify(error), 240);
 }
 
@@ -772,21 +923,9 @@ function flushQueuedAudio(session) {
   }
 }
 
-function flushRemainingSourceAudio(session) {
-  if (!session.sourceAudioBuffer.length) {
-    return;
-  }
-
-  const combined = Buffer.concat(session.sourceAudioBuffer);
-  session.sourceAudioBuffer = [];
-  if (combined.length >= BYTES_PER_SAMPLE) {
-    sendRealtimeAudio(session, resamplePcm16Mono(combined, CONFIG.SOURCE_SAMPLE_RATE, CONFIG.TARGET_SAMPLE_RATE));
-  }
-}
-
 function sendResponseCreate(session, reason) {
   console.log(`[OpenAI Realtime] Creating response for meeting ${session.meetingUuid}; reason=${reason}`);
-  broadcast({ type: 'status', data: 'OpenAI is preparing a response...' });
+  broadcastToMeeting(session.meetingUuid, { type: 'status', data: 'OpenAI is preparing a response...' });
   sendEvent(session, {
     type: 'response.create',
     response: {
@@ -802,63 +941,24 @@ function sendEvent(session, event) {
   session.ws.send(JSON.stringify(event));
 }
 
-function getSession(meetingUuid = null) {
-  if (meetingUuid && sessions.has(meetingUuid)) {
-    return sessions.get(meetingUuid);
+/**
+ * Strictly meeting-scoped session lookup (no cross-meeting fallback).
+ */
+export function getSession(meetingUuid) {
+  if (!meetingUuid) {
+    return null;
   }
-  return sessions.values().next().value || null;
+  return sessions.get(meetingUuid) || null;
 }
 
-function broadcast(message) {
-  frontendCallbacks.broadcast?.(message);
+function broadcastToMeeting(meetingUuid, message) {
+  if (!meetingUuid) {
+    return;
+  }
+  frontendCallbacks.broadcastToMeeting?.(meetingUuid, message);
 }
 
-function resamplePcm16Mono(inputBuffer, sourceRate, targetRate) {
-  if (sourceRate === targetRate) {
-    return inputBuffer;
-  }
-
-  const inputSamples = Math.floor(inputBuffer.length / BYTES_PER_SAMPLE);
-  if (inputSamples === 0) {
-    return Buffer.alloc(0);
-  }
-
-  const outputSamples = Math.max(1, Math.round(inputSamples * targetRate / sourceRate));
-  const outputBuffer = Buffer.alloc(outputSamples * BYTES_PER_SAMPLE);
-
-  for (let outputIndex = 0; outputIndex < outputSamples; outputIndex += 1) {
-    const sourcePosition = outputIndex * sourceRate / targetRate;
-    const sourceIndex = Math.floor(sourcePosition);
-    const nextSourceIndex = Math.min(sourceIndex + 1, inputSamples - 1);
-    const fraction = sourcePosition - sourceIndex;
-
-    const sample = lerp(
-      inputBuffer.readInt16LE(sourceIndex * BYTES_PER_SAMPLE),
-      inputBuffer.readInt16LE(nextSourceIndex * BYTES_PER_SAMPLE),
-      fraction,
-    );
-
-    outputBuffer.writeInt16LE(clampPcm16(Math.round(sample)), outputIndex * BYTES_PER_SAMPLE);
-  }
-
-  return outputBuffer;
-}
-
-function lerp(a, b, amount) {
-  return a + ((b - a) * amount);
-}
-
-function clampPcm16(value) {
-  if (value > 32767) {
-    return 32767;
-  }
-  if (value < -32768) {
-    return -32768;
-  }
-  return value;
-}
-
-function logUsage(session, usage) {
+function logAndBroadcastUsage(session, usage) {
   if (!usage) {
     console.log('[OpenAI Realtime] Response done');
     return;
@@ -868,8 +968,24 @@ function logUsage(session, usage) {
   const estimatedCost = estimateUsageCost(responseUsage);
   addUsage(session.usage, responseUsage, estimatedCost);
 
-  console.log(`[OpenAI Realtime] Response done usage input=${responseUsage.inputTokens} output=${responseUsage.outputTokens} audioIn=${responseUsage.audioInputTokens} textIn=${responseUsage.textInputTokens} audioOut=${responseUsage.audioOutputTokens} textOut=${responseUsage.textOutputTokens} cachedIn=${responseUsage.cachedInputTokens} estimatedCost=$${formatUsd(estimatedCost)} cumulativeEstimatedCost=$${formatUsd(session.usage.estimatedModelCostUsd)}`);
+  console.log(
+    `[OpenAI Realtime] Response done usage input=${responseUsage.inputTokens} output=${responseUsage.outputTokens} audioIn=${responseUsage.audioInputTokens} textIn=${responseUsage.textInputTokens} audioOut=${responseUsage.audioOutputTokens} textOut=${responseUsage.textOutputTokens} cachedIn=${responseUsage.cachedInputTokens} estimatedCost=$${formatUsd(estimatedCost)} cumulativeEstimatedCost=$${formatUsd(session.usage.estimatedModelCostUsd)}`,
+  );
   logUsageTotals(session, 'meeting total');
+
+  broadcastToMeeting(session.meetingUuid, {
+    type: 'usage',
+    data: {
+      lastResponse: {
+        ...responseUsage,
+        estimatedCostUsd: Number(estimatedCost.toFixed(6)),
+      },
+      sessionTotal: {
+        ...session.usage,
+        estimatedModelCostUsd: Number(session.usage.estimatedModelCostUsd.toFixed(6)),
+      },
+    },
+  });
 }
 
 function createUsageLedger() {
@@ -886,7 +1002,7 @@ function createUsageLedger() {
   };
 }
 
-function normalizeUsage(usage) {
+export function normalizeUsage(usage) {
   const inputTokens = usage.input_tokens ?? usage.total_input_tokens ?? 0;
   const outputTokens = usage.output_tokens ?? usage.total_output_tokens ?? 0;
   const inputDetails = usage.input_token_details || {};
@@ -919,7 +1035,7 @@ function addUsage(total, usage, estimatedCost) {
   total.estimatedModelCostUsd += estimatedCost;
 }
 
-function estimateUsageCost(usage) {
+export function estimateUsageCost(usage) {
   if (!CONFIG.COST_LOGGING_ENABLED) {
     return 0;
   }
@@ -938,10 +1054,12 @@ function logUsageTotals(session, label) {
   }
 
   const total = session.usage;
-  console.log(`[OpenAI Realtime] ${label} responses=${total.responses} input=${total.inputTokens} output=${total.outputTokens} audioIn=${total.audioInputTokens} textIn=${total.textInputTokens} audioOut=${total.audioOutputTokens} textOut=${total.textOutputTokens} cachedIn=${total.cachedInputTokens} cumulativeEstimatedCost=$${formatUsd(total.estimatedModelCostUsd)}`);
+  console.log(
+    `[OpenAI Realtime] ${label} responses=${total.responses} input=${total.inputTokens} output=${total.outputTokens} audioIn=${total.audioInputTokens} textIn=${total.textInputTokens} audioOut=${total.audioOutputTokens} textOut=${total.textOutputTokens} cachedIn=${total.cachedInputTokens} cumulativeEstimatedCost=$${formatUsd(total.estimatedModelCostUsd)}`,
+  );
 }
 
-function parseMcpServers(rawValue) {
+export function parseMcpServers(rawValue) {
   if (!rawValue.trim()) {
     return [];
   }
@@ -1017,7 +1135,6 @@ function safeStringify(value) {
   if (typeof value === 'string') {
     return value;
   }
-
   try {
     return JSON.stringify(value);
   } catch {
@@ -1033,15 +1150,12 @@ function summarizeMcpOutputForLog(output, rawOutput = safeStringify(output)) {
   if (parsed === null || parsed === undefined) {
     return `${prefix} empty`;
   }
-
   if (Array.isArray(parsed)) {
     return `${prefix} arrayItems=${parsed.length} preview=${previewText(summarizeArray(parsed))}`;
   }
-
   if (typeof parsed === 'object') {
     return `${prefix} ${summarizeObject(parsed)}`;
   }
-
   return `${prefix} preview=${previewText(String(parsed))}`;
 }
 
@@ -1049,7 +1163,6 @@ function parseJsonMaybe(value) {
   if (typeof value !== 'string') {
     return value;
   }
-
   try {
     return JSON.parse(value);
   } catch {
@@ -1088,7 +1201,6 @@ function summarizeArray(items) {
     if (!item || typeof item !== 'object') {
       return `${index + 1}. ${String(item)}`;
     }
-
     const title = firstString(item, ['topic', 'title', 'name', 'file_name', 'meeting_topic', 'summary']);
     const id = firstString(item, ['meeting_uuid', 'meeting_id', 'meeting_number', 'file_id', 'id', 'recording_id']);
     const time = firstString(item, ['start_time', 'schedule_start_time', 'create_time', 'modify_time', 'recording_start']);
@@ -1111,7 +1223,6 @@ function previewText(value, maxLength = CONFIG.MCP_OUTPUT_PREVIEW_CHARS) {
   if (text.length <= maxLength) {
     return text;
   }
-
   return `${text.slice(0, Math.max(0, maxLength - 3))}...`;
 }
 
@@ -1119,15 +1230,13 @@ function readyStateName(ws) {
   if (!ws) {
     return 'none';
   }
-
   const states = {
     [WebSocket.CONNECTING]: 'connecting',
     [WebSocket.OPEN]: 'open',
     [WebSocket.CLOSING]: 'closing',
     [WebSocket.CLOSED]: 'closed',
   };
-
   return states[ws.readyState] || String(ws.readyState);
 }
 
-export { CONFIG };
+export { CONFIG, sessions, resamplePcm16Mono };

@@ -1,8 +1,8 @@
 # AI Dungeons & Dragons Game
 
-Play a voice-controlled D&D game during Zoom meetings with an AI Dungeon Master.
+Play a voice-controlled tabletop Dungeons & Dragons adventure inside Zoom Meetings with an AI Dungeon Master powered by RTMS live transcripts.
 
-> **Built with [RTMSManager](../../library/readme.md)** - Zoom's JavaScript library for real-time media streaming.
+> **Built with [RTMSManager](../../library/readme.md)** — Zoom's JavaScript library for real-time media streaming.
 
 ## Quick Start
 
@@ -12,205 +12,54 @@ cp .env.example .env   # Fill in your credentials
 node index.js
 ```
 
-Expose with ngrok: `ngrok http 3000`
+Expose locally with ngrok: `ngrok http 3000`
 
 ## What This Sample Does
 
-This sample transforms your Zoom meeting into an interactive Dungeons & Dragons session. An AI Dungeon Master listens to what participants say via real-time transcripts and responds with narrative descriptions, NPC dialogue, and adventure choices. The game state persists throughout the meeting, creating a continuous roleplaying experience displayed in a web-based interface.
-
-## Prerequisites
-
-- Node.js v18+
-- Zoom account with RTMS enabled
-- Zoom App configured in Marketplace (with Zoom Apps SDK capabilities)
-- OpenRouter API key (for AI Dungeon Master)
-- ngrok for local development
+- Maintains **per-meeting campaign state** (`scene`, `party`, bounded `history` + rolling summary, `diceLog`, and `inCharacter` toggle) isolated by `meetingId` and cleaned up on `meeting.rtms_stopped`.
+- Handles RTMS transcript rewinds (`isUpdate` / `sentenceId`) via `TranscriptRevisionStore` and batches rapid turns so casual table banter doesn't spam the Dungeon Master.
+- Auto-populates the **Party Roster** (class, HP, AC, gold, inventory) as Zoom participants join or speak.
+- Provides an interactive **d4–d20 / skill dice roller** (via WebSocket and `POST /api/dice`), clickable DM-suggested actions & skill checks, an **In-Character / OOC Pause** toggle, **Reset Campaign**, and explicit **Start/Stop RTMS** controls.
+- Authorizes frontend WebSocket clients fail-closed with `FrontendWssManager` (`authorizeRegistration` + `broadcastToMeeting`).
 
 ## Environment Variables
 
 | Variable | Required | Description |
 |----------|----------|-------------|
-| `ZOOM_SECRET_TOKEN` | Yes | Secret token from your Zoom app |
-| `ZOOM_CLIENT_ID` | Yes | Client ID from your Zoom app |
-| `ZOOM_CLIENT_SECRET` | Yes | Client secret from your Zoom app |
-| `PORT` | No | Server port (default: 3000) |
-| `WEBHOOK_PATH` | No | Webhook endpoint path (default: /webhook) |
-| `FRONTEND_WSS_URL_TO_CONNECT_TO` | Yes | WebSocket URL for frontend (e.g., wss://yoururl.ngrok.com/ws) |
-| `OPENROUTER_API_KEY` | Yes | API key for OpenRouter |
-| `OPENROUTER_MODEL` | No | AI model to use (default: x-ai/grok-4.1-fast) |
-
-## Code Walkthrough
-
-### 1. Initialize RTMSManager
-
-```javascript
-const rtmsConfig = {
-  logging: 'info',
-  logDir: path.join(__dirname, 'logs'),
-  credentials: {
-    meeting: {
-      clientId: process.env.ZOOM_CLIENT_ID,
-      clientSecret: process.env.ZOOM_CLIENT_SECRET,
-      zoomSecretToken: process.env.ZOOM_SECRET_TOKEN,
-    },
-  },
-  mediaParams: {
-    audio: {
-      contentType: MEDIA_PARAMS.MEDIA_CONTENT_TYPE_RAW_AUDIO,
-      sampleRate: MEDIA_PARAMS.AUDIO_SAMPLE_RATE_SR_16K,
-      channel: MEDIA_PARAMS.AUDIO_CHANNEL_MONO,
-      codec: MEDIA_PARAMS.MEDIA_PAYLOAD_TYPE_L16,
-      dataOpt: MEDIA_PARAMS.MEDIA_DATA_OPTION_AUDIO_MIXED_STREAM,
-      sendRate: 100,
-    },
-    transcript: {
-      contentType: MEDIA_PARAMS.MEDIA_CONTENT_TYPE_TEXT,
-      language: MEDIA_PARAMS.LANGUAGE_ID_ENGLISH,
-    },
-  }
-};
-
-await RTMSManager.init(rtmsConfig);
-```
-
-### 2. Set Up Webhook Handler
-
-```javascript
-const webhookManager = new WebhookManager({
-  config: {
-    webhookPath: process.env.WEBHOOK_PATH || '/',
-    zoomSecretToken: rtmsConfig.credentials.meeting.zoomSecretToken,
-  },
-  app: app
-});
-
-webhookManager.on('event', (event, payload) => {
-  console.log('[Consumer] Webhook Event:', event);
-  RTMSManager.handleEvent(event, payload);
-});
-
-webhookManager.setup();
-```
-
-### 3. Set Up Frontend Manager and WebSocket
-
-```javascript
-const frontendManager = new FrontendManager({
-  config: {
-    port: appConfig.port,
-    serveStaticEnabled: true,
-    viewsPath: path.join(__dirname, 'views'),
-    staticPath: path.join(__dirname, 'public'),
-    frontendWssUrl: process.env.FRONTEND_WSS_URL_TO_CONNECT_TO || '',
-    frontendWssPath: '/ws'
-  },
-  app: app
-});
-frontendManager.setup();
-
-const frontendWssManager = new FrontendWssManager({
-  config: {
-    frontendWssEnabled: true,
-    frontendWssPath: '/ws'
-  },
-  server: server
-});
-frontendWssManager.setup();
-```
-
-### 4. Handle Transcript Events with D&D Game Logic
-
-```javascript
-RTMSManager.on('transcript', async ({ text, userId, userName, timestamp, meetingId, streamId, productType }) => {
-  console.log('Transcript received:', text);
-
-  const dmResult = await handleTranscript(userName, text);
-
-  if (dmResult) {
-    console.log(`DM response for ${userName}:`, dmResult.narration);
-
-    frontendWssManager.broadcastToFrontendClients({
-      type: 'dm_response',
-      content: text,
-      user: userName,
-      timestamp: Date.now(),
-      gameresponse: dmResult,
-    });
-  }
-});
-```
-
-### 5. Start the Server
-
-```javascript
-await RTMSManager.start();
-
-server.listen(appConfig.port, () => {
-  console.log(`Server running at http://localhost:${appConfig.port}`);
-  console.log(`Frontend WebSocket available at ws://localhost:${appConfig.port}/ws`);
-});
-```
+| `ZOOM_SECRET_TOKEN` | Yes | Webhook secret token from Zoom Marketplace |
+| `ZOOM_CLIENT_ID` | Yes | Zoom App Client ID |
+| `ZOOM_CLIENT_SECRET` | Yes | Zoom App Client Secret |
+| `OPENROUTER_API_KEY` | Yes | OpenRouter API key for Dungeon Master completions |
+| `OPENROUTER_MODEL` | No | OpenRouter model ID (default: `openai/gpt-4o-mini`) |
+| `PORT` | No | Server port (default: `3000`) |
+| `WEBHOOK_PATH` | No | Webhook path (default: `/webhook`) |
+| `FRONTEND_WSS_URL_TO_CONNECT_TO` | No | Explicit `wss://` URL (auto-detected if empty) |
+| `DND_TURN_BATCH_MS` | No | Turn-batching delay in ms (default: `1500`) |
+| `FRONTEND_WSS_AUTH_TOKEN` | No | Optional shared token for WS registration |
+| `ALLOW_PRE_RTMS_REGISTRATION` | No | Set `true` in local dev to allow pre-RTMS WS registration |
+| `WEBHOOK_TIMESTAMP_TOLERANCE_SECONDS` | No | Replay window for webhook verification (default: `300`) |
 
 ## Key Files
 
 | File | Purpose |
 |------|---------|
-| `index.js` | Main entry point - initializes RTMSManager, managers, and server |
-| `dndGame.js` | D&D game logic with conversation history management |
-| `chatWithOpenrouter.js` | OpenRouter AI integration for Dungeon Master responses |
-| `views/index.ejs` | Frontend UI template for game display |
+| `index.js` | Express server, `RTMSManager`, `FrontendManager`, `FrontendWssManager`, `WebhookManager`, and `/api/*` endpoints |
+| `dndGame.js` | Per-meeting `DndCampaignManager`, `TranscriptRevisionStore`, turn batching, dice engine, party roster, and structured DM parser |
+| `chatWithOpenrouter.js` | OpenRouter chat completions client sending true multi-turn `messages` arrays with `res.ok` checks |
+| `wsAuth.js` | `x-zoom-app-context` decryption, HMAC token minting/verification, and `authorizeRegistration` |
+| `views/index.ejs` | Tabletop Zoom App UI with scene banner, DM chronicle, dice roller, party roster, and safe DOM rendering |
 
-## How It Works
+## Running Tests
 
-1. User joins a Zoom meeting with RTMS enabled
-2. Zoom sends RTMS events to the webhook endpoint
-3. RTMSManager processes events and receives transcripts
-4. Each player's speech is formatted as `"{PlayerName} says: "{text}""`
-5. The AI Dungeon Master maintains conversation history for context
-6. DM responds with narrative descriptions and game content:
-   ```javascript
-   const history = [
-     {
-       role: 'system',
-       content: 'You are a Dungeon Master narrating a fantasy roleplaying game. Be descriptive and interactive. Offer clear choices.',
-     },
-   ];
-   ```
-7. Responses are broadcast to the frontend for display
-8. Game state persists throughout the meeting session
-
-## Troubleshooting
-
-| Issue | Solution |
-|-------|----------|
-| DM not responding | Check OPENROUTER_API_KEY and model availability |
-| Game history lost | Restart maintains history; check for server restarts |
-| WebSocket disconnects | Verify FRONTEND_WSS_URL_TO_CONNECT_TO matches ngrok URL |
-| Webhook not receiving events | Ensure ngrok URL is registered in Zoom Marketplace |
-
-## See Also
-
-- [RTMSManager Library Docs](../../library/readme.md) - Full API reference
-- [Zoom App Setup Guide](../../ZOOM_APP_SETUP.md) - Configure your Zoom app
-- [Troubleshooting Guide](../../TROUBLESHOOTING.md) - Common issues
+```bash
+npm test
+```
 
 ## Docker
 
-The project runs the AI-assisted Dungeons and Dragons Zoom App. Its multi-stage Dockerfile keeps build tooling out of the final runtime image and does not hard-code a CPU architecture.
-
-Build and run it from the `rtms-samples` repository root:
+Build and run from the `rtms-samples` repository root:
 
 ```bash
 docker build -f zoom_apps/ai_dnd_game_js/Dockerfile -t rtms-zoom_apps-ai_dnd_game_js .
 docker run --rm --env-file zoom_apps/ai_dnd_game_js/.env -p 3000:3000 rtms-zoom_apps-ai_dnd_game_js
 ```
-
-Run the build from the repository root because the Dockerfile uses repository-relative paths. Runtime secrets are supplied with `--env-file` and are excluded from the image build context.
-
-## Webhook Delivery Authentication
-
-Normal Zoom webhook deliveries are verified against the exact raw request body using
-`x-zm-signature` and `x-zm-request-timestamp`. Configure `ZOOM_SECRET_TOKEN` with the
-Marketplace app's webhook Secret Token. Requests with missing, invalid, or stale
-signatures are rejected; the default replay window is 300 seconds and can be changed
-with `WEBHOOK_TIMESTAMP_TOLERANCE_SECONDS`.

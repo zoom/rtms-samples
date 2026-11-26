@@ -2,195 +2,64 @@
 
 A Zoom App that receives live Zoom Meeting transcripts through RTMS and uses TypeSafe AI's Jev model through OpenRouter to make bounded, confidence-scored sales decisions.
 
-The app shows a turn-by-turn meeting transcript, buyer intent, objection, deal stage, purchase signal, deal risk, and up to three next-move choices ranked by Jev. The user identifies themselves as the seller or buyer, and the timeline labels each participant's side accordingly. The user can accept Jev's recommendation or select another reviewed coaching option. It does not automatically send a message or take an external action.
-
 > Built with [RTMSManager](../../library/readme.md), the Zoom Apps SDK, and the OpenRouter Decisions API.
 
-## Why Jev
+## Key Capabilities
 
-Jev is a decision model, not a chat-completion model. It accepts state plus typed questions and returns choices, scores, and yes/no probabilities. It does not generate arbitrary response text.
+- **Bounded Jev Decision Layer**: Evaluates each buyer turn across six parallel typed questions (`choice`: buyer intent, objection, deal stage, next action; `noul`: purchase signal; `score`: deal risk) and selects from reviewed, application-owned coaching phrases.
+- **Transcript Rewind Support (`TranscriptRevisionStore`)**: Revisions (`isUpdate: true`, same `sentenceId`) update the existing turn in place instead of creating duplicate turns or firing redundant Jev calls.
+- **Complete Short-Turn Context**: Short utterances (`"Yes."`, `"No."`, `"$50k"`, `"Q3"`) are always recorded in `session.history` even when below `JEV_MIN_TRANSCRIPT_CHARACTERS`, so subsequent Jev calls see the full dialogue.
+- **Explicit Buyer vs. Seller Role Tagging**: Every turn in `recent_turns` is tagged `[Buyer]` or `[Seller]`. The Zoom App user registers their role (`Seller` by default) and can toggle any speaker's role live. Seller turns are kept in context and displayed in the timeline while skipping redundant Jev inference.
+- **Bounded / Coalesced Request Queue**: Limits queued Jev inference to at most one pending request per stream so fast speech never builds unbounded lag.
+- **Pre-RTMS Registration, Auto-Reconnect & Late-Join Replay**: Supports active RTMS registration, verified `x-zoom-app-context` HMAC tokens, optional `FRONTEND_WSS_AUTH_TOKEN`, exponential-backoff WebSocket auto-reconnect, `rtms_started`/`rtms_stopped` lifecycle updates, and full `session_snapshot` replay for late joiners.
+- **Sales Cockpit UI**: Keeps the hero Buyer quote strictly paired with Buyer coaching metrics, displays Purchase Signal & Deal Risk trend deltas and sparklines, includes optional host `Start RTMS` / `Stop RTMS` buttons, and provides one-click **Markdown / JSON Sales Recap Export**.
 
-This sample uses Jev for:
+## Environment Variables
 
-- `choice`: buyer intent, objection, deal stage, and next action.
-- `noul`: probability that the buyer expressed a purchase signal.
-- `score`: current deal risk on a defined five-level rubric.
+| Variable | Required | Default | Purpose |
+|---|---|---|---|
+| `ZOOM_CLIENT_ID` | Yes | — | Zoom Marketplace app client ID |
+| `ZOOM_CLIENT_SECRET` | Yes | — | Signs RTMS handshakes and verifies `x-zoom-app-context` |
+| `ZOOM_SECRET_TOKEN` | Yes | — | Verifies Zoom webhook signatures |
+| `OPENROUTER_API_KEY` | Yes | — | Server-side key for OpenRouter Decisions API |
+| `PORT` | No | `3000` | HTTP server port |
+| `WEBHOOK_PATH` | No | `/webhook` | Zoom webhook endpoint |
+| `FRONTEND_WSS_URL_TO_CONNECT_TO` | No | Auto-generated | Public `wss://.../ws` URL |
+| `FRONTEND_WSS_AUTH_TOKEN` | No | — | Optional shared token for pre-RTMS WS registration |
+| `ALLOW_PRE_RTMS_REGISTRATION` | No | `false` | Local dev opt-in for pre-RTMS WS registration |
+| `JEV_DECISIONS_URL` | No | `https://openrouter.ai/api/alpha/decisions` | OpenRouter Decisions endpoint |
+| `JEV_MODEL` | No | `typesafe/jev-1.13` | TypeSafe AI Jev model ID |
+| `JEV_TIMEOUT_MS` | No | `10000` | Per-request timeout |
+| `JEV_HISTORY_TURNS` | No | `12` | Rolling turns sent in `recent_turns` |
+| `JEV_MIN_TRANSCRIPT_CHARACTERS` | No | `8` | Minimum characters to trigger Jev inference (shorter turns are still stored in history) |
+| `SALES_CONTEXT` | No | `B2B software sales conversation` | Product & sales motion context |
 
-The suggested phrase shown in the Zoom App is selected from reviewed application-owned text. This keeps the sample predictable and demonstrates Jev's intended role as a fast decision layer. Add a separate generative model only if your application genuinely needs custom prose.
-
-## Architecture
-
-```text
-Zoom Meeting transcript
-        |
-        v
-Zoom RTMS transcript socket
-        |
-        v
-RTMSManager -> bounded per-stream conversation history
-        |
-        v
-OpenRouter Decisions API -> TypeSafe AI Jev
-        |
-        v
-typed sales decisions + probabilities
-        |
-        v
-meeting-scoped WebSocket -> Zoom App sales cockpit
-```
-
-Conversation history and request ordering are isolated by `rtms_stream_id`. A stopped stream is removed from memory. The frontend only receives events for its registered meeting.
-
-Each transcript turn is sent to the Zoom App immediately and shown while its Jev request is still running. The completed decision carries the same turn ID, so its choices are attached to the correct transcript entry even when several turns arrive close together. Very short turns remain visible but are not submitted to Jev.
-
-## Buyer And Seller Roles
-
-Use **My role** in the Zoom App to select `Seller` or `Buyer`. The choice is stored in that Zoom App browser session, so different app users can choose their own perspective without changing another user's view.
-
-The app compares the current Zoom user context with each RTMS transcript speaker using participant IDs and then display name as a fallback:
-
-- Your turns receive the selected role.
-- Other participants receive the opposite role.
-- Jev coaching choices are displayed on turns classified as buyer speech.
-- Seller turns remain in the timeline and in Jev's bounded conversation context.
-
-The backend still evaluates eligible turns before broadcasting the shared result because multiple Zoom App users in one meeting may choose different roles. For a production deployment that must reduce inference volume, maintain an explicit Zoom participant UUID to RTMS user ID mapping on the backend and evaluate only mapped buyer turns.
-
-## Important RTMS Behavior
-
-This sample does **not** call `zoomSdk.startRTMS()`. RTMS must already be started by the host, another Zoom App workflow, or an account-side process. Once Zoom delivers `meeting.rtms_started`, the backend connects and subscribes only to transcript media.
-
-## Prerequisites
-
-- Node.js 20 or newer.
-- A Zoom Marketplace app with Zoom Apps and RTMS enabled.
-- A public HTTPS URL for the Zoom App and webhook.
-- An OpenRouter API key with access to `typesafe/jev-1.13`.
-- Live meeting transcription available so RTMS transcript packets are produced.
-
-## Configure the Zoom Marketplace App
-
-1. Create or open a General App in the Zoom App Marketplace.
-2. Enable the Zoom App surface and set the Home URL to your public HTTPS URL.
-3. Add your application domain and `https://appssdk.zoom.us` to the Domain Allow List.
-4. Enable these Zoom Apps SDK capabilities:
-   - `getRunningContext`
-   - `getMeetingUUID`
-   - `getUserContext`
-5. Enable RTMS for Zoom Meetings.
-6. Subscribe the webhook endpoint to:
-   - `meeting.rtms_started`
-   - `meeting.rtms_stopped`
-7. Set the webhook notification URL to `https://YOUR_DOMAIN_HERE/webhook`.
-8. Copy the Client ID, Client Secret, and webhook Secret Token into `.env`.
-
-The backend authenticates normal Zoom webhook deliveries with `x-zm-signature` and rejects stale timestamps. The endpoint-validation challenge is handled by `WebhookManager`.
-
-## Environment
-
-```bash
-cp .env.example .env
-```
-
-Required values:
-
-| Variable | Purpose |
-|---|---|
-| `ZOOM_CLIENT_ID` | Zoom Marketplace app client ID |
-| `ZOOM_CLIENT_SECRET` | Signs the RTMS signaling and media handshakes |
-| `ZOOM_SECRET_TOKEN` | Verifies Zoom webhook delivery signatures |
-| `OPENROUTER_API_KEY` | Server-side key for OpenRouter |
-| `PUBLIC_BASE_URL` | Public HTTPS origin used by the app |
-| `FRONTEND_WSS_URL_TO_CONNECT_TO` | Public `wss://` URL ending in `/ws` |
-
-Jev options:
-
-| Variable | Default | Purpose |
-|---|---:|---|
-| `JEV_DECISIONS_URL` | `https://openrouter.ai/api/alpha/decisions` | OpenRouter's Decisions API endpoint |
-| `JEV_MODEL` | `typesafe/jev-1.13` | TypeSafe AI Jev model ID |
-| `JEV_TIMEOUT_MS` | `10000` | Maximum request duration |
-| `JEV_HISTORY_TURNS` | `12` | Recent turns included in each decision request |
-| `JEV_MIN_TRANSCRIPT_CHARACTERS` | `8` | Show, but do not analyze, very short transcript fragments |
-| `SALES_CONTEXT` | `B2B software sales conversation` | Product and sales-motion context supplied to Jev |
-
-Keep `.env` private. Only `.env.example` belongs in source control.
-
-## Run
+## Run & Verify
 
 ```bash
 npm install
-npm test
+cp .env.example .env
 npm run check
+npm test
 npm start
 ```
-
-Expose the configured port through an HTTPS reverse proxy or development tunnel, configure that URL in Marketplace, start RTMS externally, and open the app inside the active Zoom meeting.
-
-## Decision Contract
-
-The backend sends one request containing the recent transcript state and six parallel questions:
-
-```json
-{
-  "model": "typesafe/jev-1.13",
-  "state": {
-    "sales_context": "B2B software sales conversation",
-    "latest_turn": {
-      "speaker": "Buyer",
-      "text": "The price is higher than we budgeted."
-    },
-    "recent_turns": []
-  },
-  "questions": {
-    "buyer_intent": { "type": "choice", "instructions": "...", "criteria": {} },
-    "purchase_signal": { "type": "noul", "instructions": "..." },
-    "deal_risk": { "type": "score", "instructions": "...", "criteria": [] }
-  }
-}
-```
-
-Question definitions and application-owned coaching phrases are in [`jevSalesAnalyzer.js`](jevSalesAnalyzer.js).
-
-## Current Assumptions
-
-- Role assignment is viewer-specific and uses ID/name matching. For production, maintain an explicit Zoom participant UUID to RTMS user ID mapping when duplicate display names or renamed participants are possible.
-- Jev decisions are guidance, not ground truth. Display confidence, test on representative calls, and keep consequential actions under human control.
-- Transcript text is sent to OpenRouter and its underlying provider. Review provider data-handling terms before using confidential meetings.
-- Backend context is bounded and in memory. The Zoom App displays up to 100 turns for the current browser session; it does not persist or recover transcript history after a reload.
 
 ## Project Files
 
 | File | Purpose |
 |---|---|
-| `index.js` | RTMS, authenticated webhook, meeting-scoped frontend WebSocket, and lifecycle handling |
-| `jevSalesAnalyzer.js` | Jev question contract, Decisions API client, per-stream history, and coaching policy |
-| `public/index.ejs` | Zoom App sales-copilot UI |
-| `tests/jevSalesAnalyzer.test.js` | Offline decision-contract and response-normalization tests |
-| `.env.example` | Safe configuration template |
-| `Dockerfile` | Platform-agnostic multi-stage container build |
+| `index.js` | RTMSManager, WebhookManager, FrontendWssManager, role sync, and lifecycle broadcasts |
+| `jevSalesAnalyzer.js` | Jev question contract, Decisions API client, `[Buyer]`/`[Seller]` tagged history, coalesced queue |
+| `salesSessionStore.js` | `TranscriptRevisionStore` rewind handling, speaker roles, late-join snapshot |
+| `wsAuth.js` | Zoom `x-zoom-app-context` decryption, HMAC WS token mint/verify, `authorizeRegistration` |
+| `public/index.ejs` | Sales Copilot Zoom App UI with trends, role toggles, RTMS controls, and recap export |
+| `tests/jevSalesAnalyzer.test.js` | Unit tests for Jev contract, short-turn history, role tagging, coalescing, rewind, and WS auth |
 
 ## Docker
 
-Build from the repository root because the image includes the shared JavaScript library:
+Build from the repository root:
 
 ```bash
-docker build \
-  -f zoom_apps/jev_transcript_analysis_js/Dockerfile \
-  -t rtms-jev-sales-copilot .
-
-docker run --rm \
-  --env-file zoom_apps/jev_transcript_analysis_js/.env \
-  -p 3000:3000 \
-  rtms-jev-sales-copilot
+docker build -f zoom_apps/jev_transcript_analysis_js/Dockerfile -t rtms-jev-sales-copilot .
+docker run --rm --env-file zoom_apps/jev_transcript_analysis_js/.env -p 3000:3000 rtms-jev-sales-copilot
 ```
-
-## Troubleshooting
-
-| Symptom | Check |
-|---|---|
-| Zoom App says registration failed | RTMS must already be active for the same meeting before frontend registration |
-| No transcript appears | Confirm live transcription and RTMS transcript media are enabled |
-| Decisions API returns 400 | Use the Decisions endpoint, not `/chat/completions`, and verify `JEV_MODEL` |
-| Decisions API returns 401 | Verify `OPENROUTER_API_KEY` in the server-side `.env` |
-| Zoom App SDK is blocked | Add your domain and `https://appssdk.zoom.us` to the Marketplace allow list |

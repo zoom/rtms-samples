@@ -1,0 +1,6 @@
+.env
+node_modules/
+logs/*.log
+recordings/*
+!logs/.gitkeep
+!recordings/.gitkeep

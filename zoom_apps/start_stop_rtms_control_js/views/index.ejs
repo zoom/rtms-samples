@@ -1,189 +1,886 @@
 <!DOCTYPE html>
-<html>
+<html lang="en">
 
 <head>
-  <title>Zoom App Context Information</title>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>RTMS Control &amp; Diagnostics Console</title>
   <script src="https://appssdk.zoom.us/sdk.js"></script>
-
   <style>
+    :root {
+      --bg: #f4f6f9;
+      --surface: #ffffff;
+      --surface-alt: #f8fafc;
+      --ink: #0f172a;
+      --muted: #526071;
+      --border: #d8e1ec;
+      --accent: #0b5cff;
+      --accent-dark: #0946c7;
+      --ok: #137a4b;
+      --ok-bg: #e7f6ee;
+      --warn: #a6570c;
+      --warn-bg: #fef3e4;
+      --err: #b42318;
+      --err-bg: #feeceb;
+      --radius: 10px;
+    }
+
+    * { box-sizing: border-box; }
+
     body {
-      font-family: Arial, sans-serif;
-      padding: 20px;
+      margin: 0;
+      padding: 16px;
+      background: var(--bg);
+      color: var(--ink);
+      font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif;
+      font-size: 14px;
+      line-height: 1.45;
     }
 
-    #transcriptBox {
-      width: 100%;
-      max-height: 500px;
-      border: 1px solid #ccc;
-      background-color: #fafafa;
-      padding: 10px;
-      overflow-y: auto;
+    .container {
+      max-width: 1080px;
+      margin: 0 auto;
+      display: grid;
+      gap: 14px;
+    }
+
+    .header {
+      background: var(--surface);
+      border: 1px solid var(--border);
+      border-radius: var(--radius);
+      padding: 14px 18px;
+      display: flex;
+      flex-wrap: wrap;
+      align-items: center;
+      justify-content: space-between;
+      gap: 12px;
+    }
+
+    .header h1 {
+      margin: 0;
+      font-size: 1.25rem;
+    }
+
+    .header p {
+      margin: 2px 0 0;
+      color: var(--muted);
+      font-size: 0.85rem;
+    }
+
+    .pill-group {
+      display: flex;
+      flex-wrap: wrap;
+      gap: 8px;
+    }
+
+    .pill {
+      display: inline-flex;
+      align-items: center;
+      gap: 6px;
+      padding: 4px 10px;
+      border-radius: 999px;
+      font-size: 0.78rem;
+      font-weight: 600;
+      background: var(--surface-alt);
+      border: 1px solid var(--border);
+      color: var(--muted);
+    }
+
+    .pill.ok { background: var(--ok-bg); border-color: #b7e4cc; color: var(--ok); }
+    .pill.warn { background: var(--warn-bg); border-color: #f6d5a8; color: var(--warn); }
+    .pill.err { background: var(--err-bg); border-color: #f4b8b4; color: var(--err); }
+
+    .alert {
+      display: none;
+      padding: 10px 14px;
+      border-radius: var(--radius);
+      border: 1px solid #f4b8b4;
+      background: var(--err-bg);
+      color: var(--err);
+      font-weight: 500;
+    }
+
+    .alert.visible { display: flex; justify-content: space-between; align-items: center; gap: 12px; }
+    .alert.info { background: var(--warn-bg); border-color: #f6d5a8; color: var(--warn); }
+
+    .alert button {
+      background: transparent;
+      border: 1px solid currentColor;
+      color: inherit;
+      padding: 2px 8px;
+      border-radius: 6px;
+      cursor: pointer;
+      font-size: 0.78rem;
+    }
+
+    .card {
+      background: var(--surface);
+      border: 1px solid var(--border);
+      border-radius: var(--radius);
+      padding: 14px 16px;
+    }
+
+    .card h2 {
+      margin: 0 0 10px;
+      font-size: 0.95rem;
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      gap: 8px;
+    }
+
+    .controls {
+      display: flex;
+      flex-wrap: wrap;
+      gap: 8px;
+    }
+
+    .btn {
+      padding: 8px 14px;
+      border-radius: 8px;
+      border: 1px solid var(--border);
+      background: var(--surface);
+      color: var(--ink);
+      font-weight: 600;
+      font-size: 0.86rem;
+      cursor: pointer;
+    }
+
+    .btn.primary { background: var(--accent); border-color: var(--accent); color: #fff; }
+    .btn.primary:hover:not(:disabled) { background: var(--accent-dark); }
+    .btn.danger { background: var(--err); border-color: var(--err); color: #fff; }
+    .btn:disabled { opacity: 0.45; cursor: not-allowed; }
+
+    .status-grid {
+      display: grid;
+      grid-template-columns: repeat(auto-fit, minmax(220px, 1fr));
+      gap: 10px;
+      margin-top: 12px;
+    }
+
+    .status-box {
+      background: var(--surface-alt);
+      border: 1px solid var(--border);
+      border-radius: 8px;
+      padding: 10px 12px;
+    }
+
+    .status-box .label {
+      font-size: 0.72rem;
+      text-transform: uppercase;
+      letter-spacing: 0.05em;
+      color: var(--muted);
+      font-weight: 700;
+    }
+
+    .status-box .value {
+      margin-top: 4px;
+      font-family: ui-monospace, SFMono-Regular, Menlo, monospace;
+      font-size: 0.82rem;
       white-space: pre-wrap;
-      font-family: monospace;
-      margin-bottom: 20px;
+      word-break: break-word;
     }
 
-    h1 {
-      margin-bottom: 10px;
+    .telemetry-grid {
+      display: grid;
+      grid-template-columns: repeat(auto-fit, minmax(175px, 1fr));
+      gap: 10px;
+    }
+
+    .metric-card {
+      background: var(--surface-alt);
+      border: 1px solid var(--border);
+      border-radius: 8px;
+      padding: 10px 12px;
+    }
+
+    .metric-card.active {
+      border-color: #96d8b6;
+      background: #f3fbf6;
+    }
+
+    .metric-top {
+      display: flex;
+      justify-content: space-between;
+      align-items: center;
+      font-weight: 700;
+      font-size: 0.82rem;
+      text-transform: uppercase;
+      letter-spacing: 0.04em;
+    }
+
+    .metric-dot {
+      width: 8px;
+      height: 8px;
+      border-radius: 50%;
+      background: #94a3b8;
+    }
+
+    .metric-card.active .metric-dot { background: var(--ok); }
+
+    .metric-main {
+      margin-top: 6px;
+      font-size: 1.1rem;
+      font-weight: 700;
+      font-variant-numeric: tabular-nums;
+    }
+
+    .metric-sub {
+      margin-top: 3px;
+      color: var(--muted);
+      font-size: 0.76rem;
+      font-variant-numeric: tabular-nums;
+    }
+
+    .split {
+      display: grid;
+      grid-template-columns: 1.5fr 1fr;
+      gap: 14px;
+    }
+
+    @media (max-width: 760px) {
+      .split { grid-template-columns: 1fr; }
+    }
+
+    .feed {
+      height: 260px;
+      overflow-y: auto;
+      background: var(--surface-alt);
+      border: 1px solid var(--border);
+      border-radius: 8px;
+      padding: 10px;
+      display: flex;
+      flex-direction: column;
+      gap: 8px;
+    }
+
+    .feed-empty {
+      color: var(--muted);
+      font-size: 0.84rem;
+    }
+
+    .feed-item {
+      background: var(--surface);
+      border: 1px solid var(--border);
+      border-radius: 6px;
+      padding: 7px 10px;
+    }
+
+    .feed-item.updated {
+      border-left: 3px solid var(--accent);
+    }
+
+    .feed-meta {
+      display: flex;
+      justify-content: space-between;
+      gap: 8px;
+      font-size: 0.74rem;
+      color: var(--muted);
+      margin-bottom: 2px;
+    }
+
+    .feed-user { font-weight: 700; color: var(--ink); }
+    .feed-text { margin: 0; white-space: pre-wrap; word-break: break-word; }
+
+    .participant-chips {
+      display: flex;
+      flex-wrap: wrap;
+      gap: 6px;
+      margin-top: 8px;
+    }
+
+    .chip {
+      padding: 3px 9px;
+      border-radius: 999px;
+      background: var(--surface-alt);
+      border: 1px solid var(--border);
+      font-size: 0.78rem;
+    }
+
+    .chip.speaker {
+      background: var(--ok-bg);
+      border-color: #96d8b6;
+      color: var(--ok);
+      font-weight: 600;
+    }
+
+    details summary {
+      cursor: pointer;
+      font-weight: 700;
+      font-size: 0.9rem;
+    }
+
+    .context-grid {
+      margin-top: 10px;
+      display: grid;
+      gap: 10px;
     }
 
     pre {
-      background-color: #f4f4f4;
+      margin: 4px 0 0;
       padding: 10px;
-      border-radius: 5px;
+      background: #0f172a;
+      color: #e2e8f0;
+      border-radius: 8px;
       overflow-x: auto;
-    }
-
-    .error {
-      color: red;
+      font-size: 0.76rem;
     }
   </style>
 </head>
 
 <body>
+  <main class="container">
+    <header class="header">
+      <div>
+        <h1>RTMS Control &amp; Diagnostics Console</h1>
+        <p>Start, pause, resume, and stop Zoom RTMS with live per-media telemetry, transcript rewinds, and chat.</p>
+      </div>
+      <div class="pill-group">
+        <span id="sdkPill" class="pill">SDK: initializing</span>
+        <span id="wsPill" class="pill">WS: connecting</span>
+        <span id="rtmsPill" class="pill">RTMS: idle</span>
+      </div>
+    </header>
 
+    <div id="errorBanner" class="alert" role="alert">
+      <span id="errorBannerText"></span>
+      <button type="button" id="dismissErrorBtn">Dismiss</button>
+    </div>
 
-  <div>
-    <button id="startRtmsBtn">Start RTMS</button>
-    <button id="stopRtmsBtn">Stop RTMS</button>
-    <button id="pauseRtmsBtn">Pause RTMS</button>
-    <button id="resumeRtmsBtn">Resume RTMS</button>
-    <button id="getRtmsStatusBtn">Get RTMS Status</button>
-  </div>
+    <section class="card">
+      <h2>
+        <span>RTMS Stream Controls</span>
+        <span id="streamMeta" style="font-size: 0.78rem; color: var(--muted); font-weight: 500;">Not started</span>
+      </h2>
+      <div class="controls">
+        <button id="startRtmsBtn" class="btn primary" disabled>Start RTMS</button>
+        <button id="pauseRtmsBtn" class="btn" disabled>Pause RTMS</button>
+        <button id="resumeRtmsBtn" class="btn" disabled>Resume RTMS</button>
+        <button id="stopRtmsBtn" class="btn danger" disabled>Stop RTMS</button>
+        <button id="getRtmsStatusBtn" class="btn" disabled>Refresh RTMS Status</button>
+      </div>
 
-  <hr>
+      <div class="status-grid">
+        <div class="status-box">
+          <div class="label">SDK getRTMSStatus()</div>
+          <div id="getRTMSstatusBox" class="value">Waiting for Zoom SDK...</div>
+        </div>
+        <div class="status-box">
+          <div class="label">onRTMSStatusChange / Backend Lifecycle</div>
+          <div id="rtmsStatusBox" class="value">No lifecycle events yet.</div>
+        </div>
+        <div class="status-box">
+          <div class="label">Active Speaker &amp; Participants</div>
+          <div id="activeSpeakerBox" class="value">Active speaker: none</div>
+          <div id="participantChips" class="participant-chips"></div>
+        </div>
+      </div>
+    </section>
 
-  <!-- Label + RTMS status from API -->
-  <p style="font-weight: bold; margin-bottom: 5px;">[Manual] Get RTMS Status</p>
-  <div id="getRTMSstatusBox" style="margin-bottom: 20px;">
-    Get RTMS status will appear here...
-  </div>
+    <section class="card">
+      <h2>
+        <span>Live Media Telemetry (1s rolling)</span>
+        <span id="telemetryUpdated" style="font-size: 0.76rem; color: var(--muted); font-weight: 500;">Waiting for stream...</span>
+      </h2>
+      <div class="telemetry-grid" id="telemetryGrid">
+        <div class="metric-card" data-media="audio">
+          <div class="metric-top"><span>Audio</span><span class="metric-dot"></span></div>
+          <div class="metric-main" id="metric-audio-rate">0 pkt/s</div>
+          <div class="metric-sub" id="metric-audio-sub">0.0 KB/s · 0 total</div>
+        </div>
+        <div class="metric-card" data-media="video">
+          <div class="metric-top"><span>Video</span><span class="metric-dot"></span></div>
+          <div class="metric-main" id="metric-video-rate">0.0 fps</div>
+          <div class="metric-sub" id="metric-video-sub">0.0 KB/s · 0 total</div>
+        </div>
+        <div class="metric-card" data-media="screenshare">
+          <div class="metric-top"><span>Screenshare</span><span class="metric-dot"></span></div>
+          <div class="metric-main" id="metric-screenshare-rate">0.0 fps</div>
+          <div class="metric-sub" id="metric-screenshare-sub">0.0 KB/s · 0 total</div>
+        </div>
+        <div class="metric-card" data-media="transcript">
+          <div class="metric-top"><span>Transcript</span><span class="metric-dot"></span></div>
+          <div class="metric-main" id="metric-transcript-rate">0 pkt/s</div>
+          <div class="metric-sub" id="metric-transcript-sub">0 lines</div>
+        </div>
+        <div class="metric-card" data-media="chat">
+          <div class="metric-top"><span>Chat</span><span class="metric-dot"></span></div>
+          <div class="metric-main" id="metric-chat-rate">0 pkt/s</div>
+          <div class="metric-sub" id="metric-chat-sub">0 messages</div>
+        </div>
+      </div>
+    </section>
 
-  <hr>
+    <section class="split">
+      <div class="card">
+        <h2>
+          <span>Live Transcript</span>
+          <span id="transcriptCount" style="font-size: 0.76rem; color: var(--muted); font-weight: 500;">0 lines</span>
+        </h2>
+        <div id="transcriptFeed" class="feed">
+          <div class="feed-empty" id="transcriptEmpty">Waiting for RTMS transcript lines...</div>
+        </div>
+      </div>
 
-  <!-- Label + RTMS status from callback -->
-  <p style="font-weight: bold; margin-bottom: 5px;">[Callback] RTMS Status Change</p>
-  <div id="rtmsStatusBox" style="margin-bottom: 20px;">
-    Callback RTMS status will appear here...
-  </div>
+      <div class="card">
+        <h2>
+          <span>Live Meeting Chat</span>
+          <span id="chatCount" style="font-size: 0.76rem; color: var(--muted); font-weight: 500;">0 messages</span>
+        </h2>
+        <div id="chatFeed" class="feed">
+          <div class="feed-empty" id="chatEmpty">Waiting for RTMS chat messages...</div>
+        </div>
+      </div>
+    </section>
 
-  <hr>
-
-
-  <!-- Transcription display -->
-  <div id="transcriptLabel">Messages from websocket will appear below</div>
-  <div id="transcriptBox"></div>
-
-  <hr>
-
-
-  <h1>Zoom App Context Information</h1>
-  <div id="output">Initializing...</div>
+    <section class="card">
+      <details>
+        <summary>Zoom App Context Diagnostics</summary>
+        <div id="contextOutput" class="context-grid">
+          <div class="feed-empty">Initializing Zoom Apps SDK...</div>
+        </div>
+      </details>
+    </section>
+  </main>
 
   <script>
-
+    const WS_URL = <%- JSON.stringify(websocketUrl) %>;
+    const WS_AUTH_TOKEN = <%- JSON.stringify(typeof wsAuthToken === 'string' ? wsAuthToken : '') %>;
 
     const startRtmsBtn = document.getElementById('startRtmsBtn');
-    const stopRtmsBtn = document.getElementById('stopRtmsBtn');
     const pauseRtmsBtn = document.getElementById('pauseRtmsBtn');
     const resumeRtmsBtn = document.getElementById('resumeRtmsBtn');
+    const stopRtmsBtn = document.getElementById('stopRtmsBtn');
     const getRtmsStatusBtn = document.getElementById('getRtmsStatusBtn');
 
+    const sdkPill = document.getElementById('sdkPill');
+    const wsPill = document.getElementById('wsPill');
+    const rtmsPill = document.getElementById('rtmsPill');
+    const streamMeta = document.getElementById('streamMeta');
+    const errorBanner = document.getElementById('errorBanner');
+    const errorBannerText = document.getElementById('errorBannerText');
+    const dismissErrorBtn = document.getElementById('dismissErrorBtn');
+    const getRTMSstatusBox = document.getElementById('getRTMSstatusBox');
+    const rtmsStatusBox = document.getElementById('rtmsStatusBox');
+    const activeSpeakerBox = document.getElementById('activeSpeakerBox');
+    const participantChips = document.getElementById('participantChips');
+    const telemetryUpdated = document.getElementById('telemetryUpdated');
+    const transcriptFeed = document.getElementById('transcriptFeed');
+    const chatFeed = document.getElementById('chatFeed');
+    const transcriptCount = document.getElementById('transcriptCount');
+    const chatCount = document.getElementById('chatCount');
+    const contextOutput = document.getElementById('contextOutput');
 
-    const transcriptBox = document.getElementById('transcriptBox');
-    const transcriptLines = [];
-    const maxLines = 20;
+    const MAX_FEED_ITEMS = 100;
+    const transcriptNodes = new Map();
+    const participantsMap = new Map();
+    let activeSpeakerId = null;
+    let chatMessagesCount = 0;
 
-    const socket = new WebSocket("<%= websocketUrl %>");
-    let registeredMeetingUUID = null;
-    let registeredUserID = null;
+    let socket = null;
+    let reconnectAttempt = 0;
+    let reconnectTimer = null;
+    let registrationState = { meetingUUID: null, userID: null };
 
-    socket.onopen = () => {
-      console.log('✅ WebSocket connected, waiting for Zoom SDK context to register...');
-    };
+    let runningContext = null;
+    let sdkReady = false;
+    let controlInFlight = false;
+    let rtmsState = 'idle'; // idle | running | paused | stopped
 
-    socket.onmessage = (event) => {
-      try {
-        const msg = JSON.parse(event.data);
+    function setPill(el, text, tone = '') {
+      el.textContent = text;
+      el.className = `pill ${tone}`.trim();
+    }
 
-        if (msg.type === 'ping') {
-          socket.send(JSON.stringify({ type: 'pong' }));
-          return;
-        }
+    function showBanner(message, isInfo = false) {
+      errorBannerText.textContent = message;
+      errorBanner.className = `alert visible${isInfo ? ' info' : ''}`;
+    }
 
-        if (msg.type === 'connected') {
-          console.log('📡 Server ready, will register after getting Zoom context');
-          return;
-        }
+    function clearBanner() {
+      errorBanner.className = 'alert';
+      errorBannerText.textContent = '';
+    }
 
-        if (msg.type === 'registration_success') {
-          console.log('✅ Registered with backend:', msg.meetingUUID, msg.userID);
-          return;
-        }
+    dismissErrorBtn.addEventListener('click', clearBanner);
 
-        if (msg.type === 'error') {
-          console.error('❌ Backend error:', msg.message);
-          return;
-        }
-
-        if (msg.type === 'transcript') {
-          const line = `[${new Date(msg.timestamp).toLocaleTimeString()}] ${msg.user}: ${msg.content}`;
-          transcriptLines.push(line);
-          if (transcriptLines.length > maxLines) transcriptLines.shift();
-          transcriptBox.textContent = transcriptLines.join('\n');
-          transcriptBox.scrollTop = transcriptBox.scrollHeight;
-        }
-
-        if (msg.type === 'participant_join') {
-          console.log(`👋 Participant joined: ${msg.user}`);
-        }
-
-        if (msg.type === 'participant_leave') {
-          console.log(`👋 Participant left: ${msg.user}`);
-        }
-
-        if (msg.type === 'active_speaker') {
-          console.log(`🎤 Active speaker: ${msg.user}`);
-        }
-
-      } catch (err) {
-        console.warn('Non-JSON or invalid message:', event.data);
+    function formatError(action, err) {
+      const msg = err?.message || String(err || 'Unknown error');
+      const lower = msg.toLowerCase();
+      if (lower.includes('host') || lower.includes('permission') || lower.includes('privilege')) {
+        return `${action} blocked (host/permission required): ${msg}`;
       }
-    };
+      if (lower.includes('consent') || lower.includes('declined') || lower.includes('denied')) {
+        return `${action} declined (participant consent required): ${msg}`;
+      }
+      return `${action} failed: ${msg}`;
+    }
 
-    socket.onerror = (err) => {
-      console.error('WebSocket error:', err);
-    };
+    function normalizeRtmsState(rawStatus) {
+      if (!rawStatus) return null;
+      const text = typeof rawStatus === 'string'
+        ? rawStatus.toLowerCase()
+        : JSON.stringify(rawStatus).toLowerCase();
 
-    socket.onclose = () => {
-      console.warn('WebSocket connection closed');
-    };
+      if (text.includes('pause')) return 'paused';
+      if (text.includes('start') || text.includes('run') || text.includes('active') || text.includes('resume')) {
+        return 'running';
+      }
+      if (text.includes('stop') || text.includes('end') || text.includes('idle') || text.includes('inactive')) {
+        return 'stopped';
+      }
+      return null;
+    }
 
-    function registerWithBackend(meetingUUID, userID) {
-      if (socket.readyState === WebSocket.OPEN) {
-        socket.send(JSON.stringify({
-          type: 'register',
-          meetingUUID: meetingUUID,
-          userID: String(userID)
-        }));
-        registeredMeetingUUID = meetingUUID;
-        registeredUserID = userID;
-        console.log('📤 Sent registration:', meetingUUID, userID);
-      } else {
-        console.warn('⏳ Socket not ready, will retry registration...');
-        setTimeout(() => registerWithBackend(meetingUUID, userID), 500);
+    function syncButtonStates() {
+      const inMeeting = sdkReady && runningContext?.context === 'inMeeting';
+      const isRunning = rtmsState === 'running';
+      const isPaused = rtmsState === 'paused';
+
+      startRtmsBtn.disabled = controlInFlight || !inMeeting || isRunning || isPaused;
+      pauseRtmsBtn.disabled = controlInFlight || !inMeeting || !isRunning;
+      resumeRtmsBtn.disabled = controlInFlight || !inMeeting || !isPaused;
+      stopRtmsBtn.disabled = controlInFlight || !inMeeting || (!isRunning && !isPaused);
+      getRtmsStatusBtn.disabled = controlInFlight || !inMeeting;
+
+      const pillTone = isRunning ? 'ok' : isPaused ? 'warn' : '';
+      setPill(rtmsPill, `RTMS: ${rtmsState}`, pillTone);
+    }
+
+    function setRtmsState(nextState, detailText) {
+      if (nextState) rtmsState = nextState;
+      if (detailText) rtmsStatusBox.textContent = detailText;
+      syncButtonStates();
+    }
+
+    function formatTime(ts) {
+      const num = Number(ts) || Date.now();
+      const ms = num > 1e14 ? Math.floor(num / 1000) : num;
+      const date = new Date(ms);
+      return Number.isNaN(date.getTime()) ? '' : date.toLocaleTimeString();
+    }
+
+    function renderParticipants() {
+      participantChips.replaceChildren();
+      if (participantsMap.size === 0) {
+        const empty = document.createElement('span');
+        empty.className = 'feed-empty';
+        empty.textContent = 'No participants reported yet.';
+        participantChips.appendChild(empty);
+        return;
+      }
+      for (const p of participantsMap.values()) {
+        const chip = document.createElement('span');
+        const isSpeaker = activeSpeakerId != null && String(p.userId) === String(activeSpeakerId);
+        chip.className = `chip${isSpeaker ? ' speaker' : ''}`;
+        chip.textContent = isSpeaker ? `🎤 ${p.user}` : p.user;
+        participantChips.appendChild(chip);
       }
     }
-    let runningContext;
+
+    function upsertTranscriptItem(item) {
+      document.getElementById('transcriptEmpty')?.remove();
+      const key = String(item.key || `${item.userId || 'u'}:${item.sentenceId ?? Date.now()}`);
+      let entry = transcriptNodes.get(key);
+
+      if (!entry) {
+        const node = document.createElement('div');
+        node.className = 'feed-item';
+
+        const meta = document.createElement('div');
+        meta.className = 'feed-meta';
+        const userSpan = document.createElement('span');
+        userSpan.className = 'feed-user';
+        const timeSpan = document.createElement('span');
+        meta.append(userSpan, timeSpan);
+
+        const body = document.createElement('p');
+        body.className = 'feed-text';
+
+        node.append(meta, body);
+        transcriptFeed.appendChild(node);
+
+        entry = { node, userSpan, timeSpan, body };
+        transcriptNodes.set(key, entry);
+
+        while (transcriptNodes.size > MAX_FEED_ITEMS) {
+          const oldestKey = transcriptNodes.keys().next().value;
+          transcriptNodes.get(oldestKey)?.node.remove();
+          transcriptNodes.delete(oldestKey);
+        }
+      } else {
+        entry.node.classList.add('updated');
+      }
+
+      entry.userSpan.textContent = item.user || 'Unknown';
+      const revSuffix = item.revision > 0 ? ` · rev ${item.revision}` : '';
+      entry.timeSpan.textContent = `${formatTime(item.timestamp)}${revSuffix}`;
+      entry.body.textContent = item.content || '';
+      transcriptCount.textContent = `${transcriptNodes.size} line${transcriptNodes.size === 1 ? '' : 's'}`;
+      transcriptFeed.scrollTop = transcriptFeed.scrollHeight;
+    }
+
+    function appendChatItem(item) {
+      document.getElementById('chatEmpty')?.remove();
+      const node = document.createElement('div');
+      node.className = 'feed-item';
+
+      const meta = document.createElement('div');
+      meta.className = 'feed-meta';
+      const userSpan = document.createElement('span');
+      userSpan.className = 'feed-user';
+      userSpan.textContent = item.user || 'Unknown';
+      const timeSpan = document.createElement('span');
+      timeSpan.textContent = formatTime(item.timestamp);
+      meta.append(userSpan, timeSpan);
+
+      const body = document.createElement('p');
+      body.className = 'feed-text';
+      body.textContent = item.content || '';
+
+      node.append(meta, body);
+      chatFeed.appendChild(node);
+      while (chatFeed.children.length > MAX_FEED_ITEMS) {
+        chatFeed.firstElementChild?.remove();
+      }
+      chatMessagesCount += 1;
+      chatCount.textContent = `${chatMessagesCount} message${chatMessagesCount === 1 ? '' : 's'}`;
+      chatFeed.scrollTop = chatFeed.scrollHeight;
+    }
+
+    function updateTelemetry(snapshot) {
+      if (!snapshot || !snapshot.media) return;
+      telemetryUpdated.textContent = `Updated ${formatTime(snapshot.timestamp)}`;
+      if (snapshot.streamId) {
+        streamMeta.textContent = `Stream: ${snapshot.streamId}`;
+      }
+      if (snapshot.rtmsStatus === 'active' && rtmsState !== 'paused') {
+        setRtmsState('running');
+      } else if (snapshot.rtmsStatus === 'stopped' && rtmsState === 'running') {
+        setRtmsState('stopped');
+      }
+
+      if (snapshot.activeSpeaker) {
+        activeSpeakerId = snapshot.activeSpeaker.userId;
+        activeSpeakerBox.textContent = `Active speaker: ${snapshot.activeSpeaker.user}`;
+      }
+      if (Array.isArray(snapshot.participants)) {
+        participantsMap.clear();
+        for (const p of snapshot.participants) {
+          participantsMap.set(String(p.userId), p);
+        }
+        renderParticipants();
+      }
+
+      const m = snapshot.media;
+      const updateCard = (type, mainText, subText) => {
+        const card = document.querySelector(`.metric-card[data-media="${type}"]`);
+        const rateEl = document.getElementById(`metric-${type}-rate`);
+        const subEl = document.getElementById(`metric-${type}-sub`);
+        if (card) card.classList.toggle('active', Boolean(m[type]?.active));
+        if (rateEl) rateEl.textContent = mainText;
+        if (subEl) subEl.textContent = subText;
+      };
+
+      const kb = (bytes) => ((Number(bytes) || 0) / 1024).toFixed(1);
+      updateCard('audio', `${m.audio?.packetsPerSec ?? 0} pkt/s`, `${kb(m.audio?.bytesPerSec)} KB/s · ${m.audio?.totalPackets ?? 0} total`);
+      updateCard('video', `${m.video?.fps ?? 0} fps`, `${kb(m.video?.bytesPerSec)} KB/s · ${m.video?.totalPackets ?? 0} total`);
+      updateCard('screenshare', `${m.screenshare?.fps ?? 0} fps`, `${kb(m.screenshare?.bytesPerSec)} KB/s · ${m.screenshare?.totalPackets ?? 0} total`);
+      updateCard('transcript', `${m.transcript?.packetsPerSec ?? 0} pkt/s`, `${m.transcript?.totalPackets ?? 0} lines`);
+      updateCard('chat', `${m.chat?.packetsPerSec ?? 0} pkt/s`, `${m.chat?.totalPackets ?? 0} messages`);
+    }
+
+    function sendRegistration() {
+      if (!registrationState.meetingUUID || !registrationState.userID) return;
+      if (!socket || socket.readyState !== WebSocket.OPEN) return;
+
+      socket.send(JSON.stringify({
+        type: 'register',
+        meetingUUID: registrationState.meetingUUID,
+        userID: String(registrationState.userID),
+        token: WS_AUTH_TOKEN || undefined
+      }));
+    }
+
+    function scheduleReconnect() {
+      if (reconnectTimer) return;
+      const delayMs = Math.min(30000, 1000 * Math.pow(2, reconnectAttempt));
+      reconnectAttempt += 1;
+      setPill(wsPill, `WS: reconnecting (${Math.round(delayMs / 1000)}s)`, 'warn');
+      reconnectTimer = setTimeout(() => {
+        reconnectTimer = null;
+        connectWebSocket();
+      }, delayMs);
+    }
+
+    function connectWebSocket() {
+      if (socket && (socket.readyState === WebSocket.OPEN || socket.readyState === WebSocket.CONNECTING)) {
+        return;
+      }
+
+      setPill(wsPill, 'WS: connecting', 'warn');
+      socket = new WebSocket(WS_URL);
+
+      socket.addEventListener('open', () => {
+        reconnectAttempt = 0;
+        setPill(wsPill, 'WS: connected (registering)', 'warn');
+        sendRegistration();
+      });
+
+      socket.addEventListener('message', (event) => {
+        try {
+          const msg = JSON.parse(event.data);
+          if (msg.type === 'ping') {
+            socket.send(JSON.stringify({ type: 'pong' }));
+            return;
+          }
+          if (msg.type === 'connected') {
+            sendRegistration();
+            return;
+          }
+          if (msg.type === 'registration_success') {
+            setPill(wsPill, 'WS: registered', 'ok');
+            return;
+          }
+          if (msg.type === 'error') {
+            setPill(wsPill, 'WS: auth pending/error', 'err');
+            showBanner(`Backend WebSocket: ${msg.message || 'Registration failed'}`, true);
+            return;
+          }
+          if (msg.type === 'telemetry') {
+            updateTelemetry(msg);
+            return;
+          }
+          if (msg.type === 'transcript_history' && Array.isArray(msg.items)) {
+            for (const item of msg.items) upsertTranscriptItem(item);
+            return;
+          }
+          if (msg.type === 'transcript') {
+            upsertTranscriptItem(msg);
+            return;
+          }
+          if (msg.type === 'chat') {
+            appendChatItem(msg);
+            return;
+          }
+          if (msg.type === 'rtms_started') {
+            streamMeta.textContent = msg.streamId ? `Stream: ${msg.streamId}` : 'Stream active';
+            setRtmsState('running', `Backend: meeting.rtms_started (${formatTime(msg.timestamp)})`);
+            return;
+          }
+          if (msg.type === 'rtms_stopped') {
+            streamMeta.textContent = 'Stream stopped';
+            setRtmsState('stopped', `Backend: meeting.rtms_stopped (${formatTime(msg.timestamp)})`);
+            return;
+          }
+          if (msg.type === 'active_speaker') {
+            activeSpeakerId = msg.userId;
+            activeSpeakerBox.textContent = `Active speaker: ${msg.user}`;
+            renderParticipants();
+            return;
+          }
+          if (msg.type === 'participant_join') {
+            if (msg.userId != null) {
+              participantsMap.set(String(msg.userId), { userId: String(msg.userId), user: msg.user });
+              renderParticipants();
+            }
+            return;
+          }
+          if (msg.type === 'participant_leave') {
+            if (msg.userId != null) {
+              participantsMap.delete(String(msg.userId));
+              renderParticipants();
+            }
+          }
+        } catch (err) {
+          console.warn('Invalid WS message:', err);
+        }
+      });
+
+      socket.addEventListener('error', () => {
+        setPill(wsPill, 'WS: error', 'err');
+      });
+
+      socket.addEventListener('close', () => {
+        socket = null;
+        scheduleReconnect();
+      });
+    }
+
+    function renderContextDiagnostics(sections) {
+      contextOutput.replaceChildren();
+      for (const [title, payload] of sections) {
+        const wrapper = document.createElement('div');
+        const heading = document.createElement('strong');
+        heading.textContent = title;
+        const pre = document.createElement('pre');
+        pre.textContent = typeof payload === 'string' ? payload : JSON.stringify(payload, null, 2);
+        wrapper.append(heading, pre);
+        contextOutput.appendChild(wrapper);
+      }
+    }
+
+    async function refreshRtmsStatusFromSdk() {
+      if (!sdkReady || runningContext?.context !== 'inMeeting') {
+        showBanner('Cannot get RTMS Status: Not in a meeting context.', true);
+        return;
+      }
+      try {
+        const rtmsStatus = await zoomSdk.getRTMSStatus();
+        const list = rtmsStatus?.rtmsStatus;
+        if (Array.isArray(list) && list.length === 0) {
+          getRTMSstatusBox.textContent = 'No RTMS sessions currently active.';
+          setRtmsState('idle');
+        } else {
+          getRTMSstatusBox.textContent = JSON.stringify(rtmsStatus, null, 2);
+          const inferred = normalizeRtmsState(rtmsStatus);
+          if (inferred) setRtmsState(inferred);
+        }
+      } catch (err) {
+        const msg = formatError('Get RTMS status', err);
+        getRTMSstatusBox.textContent = msg;
+        showBanner(msg);
+      }
+    }
+
+    async function runRtmsControl(actionLabel, methodName, optimisticState) {
+      if (controlInFlight) return;
+      if (runningContext?.context !== 'inMeeting') {
+        const verb = actionLabel.toLowerCase();
+        console.warn(`Cannot ${verb}: Not in a meeting context.`);
+        showBanner(`Cannot ${verb}: Open this Zoom App inside an active meeting.`, true);
+        return;
+      }
+      clearBanner();
+      controlInFlight = true;
+      syncButtonStates();
+      try {
+        const response = await zoomSdk[methodName]();
+        console.debug(`${actionLabel} Response:`, response);
+        if (optimisticState) {
+          setRtmsState(optimisticState, `${actionLabel} succeeded (${formatTime(Date.now())})`);
+        }
+        await refreshRtmsStatusFromSdk();
+      } catch (err) {
+        console.error(`Failed to ${actionLabel.toLowerCase()}:`, err);
+        showBanner(formatError(actionLabel, err));
+      } finally {
+        controlInFlight = false;
+        syncButtonStates();
+      }
+    }
+
+    startRtmsBtn.addEventListener('click', () => runRtmsControl('Start RTMS', 'startRTMS', 'running'));
+    pauseRtmsBtn.addEventListener('click', () => runRtmsControl('Pause RTMS', 'pauseRTMS', 'paused'));
+    resumeRtmsBtn.addEventListener('click', () => runRtmsControl('Resume RTMS', 'resumeRTMS', 'running'));
+    stopRtmsBtn.addEventListener('click', () => runRtmsControl('Stop RTMS', 'stopRTMS', 'stopped'));
+    getRtmsStatusBtn.addEventListener('click', () => refreshRtmsStatusFromSdk());
+
+    connectWebSocket();
+
     (async () => {
       try {
-
-        // Zoom SDK Configuration
-        // IMPORTANT:
-        // 1. Make sure your app includes this domain in the Zoom App Marketplace "Domain Allow List".
-        // 2. Under "Features" -> "Surface" -> "Zoom App SDK", select the APIs you're using.
-        // 3. Ensure APIs like getRunningContext, getMeetingContext, etc. are ENABLED for your app.
-        const configResponse = await zoomSdk.config({
+        await zoomSdk.config({
           version: '0.16.31',
           capabilities: [
             'getSupportedJsApis',
@@ -201,131 +898,51 @@
           ]
         });
 
-        const supportedApis = await zoomSdk.getSupportedJsApis();
-        runningContext = await zoomSdk.getRunningContext();
-        const meetingContext = await zoomSdk.getMeetingContext();
-        const userContext = await zoomSdk.getUserContext();
-        const meetingUUID = await zoomSdk.getMeetingUUID();
-        const appContext = await zoomSdk.getAppContext();
+        sdkReady = true;
+        setPill(sdkPill, 'SDK: ready', 'ok');
 
-        if (meetingUUID?.meetingUUID && userContext?.participantUUID) {
-          registerWithBackend(meetingUUID.meetingUUID, userContext.participantUUID);
+        const supportedApis = await zoomSdk.getSupportedJsApis().catch(() => null);
+        runningContext = await zoomSdk.getRunningContext().catch(() => ({ context: 'unknown' }));
+        const meetingContext = await zoomSdk.getMeetingContext().catch(() => null);
+        const userContext = await zoomSdk.getUserContext().catch(() => null);
+        const meetingUUID = await zoomSdk.getMeetingUUID().catch(() => null);
+        const appContext = await zoomSdk.getAppContext().catch(() => null);
+
+        renderContextDiagnostics([
+          ['Running Context', runningContext],
+          ['Meeting UUID', meetingUUID],
+          ['Meeting Context', meetingContext],
+          ['User Context', userContext],
+          ['App Context', appContext],
+          ['Supported JS APIs', supportedApis]
+        ]);
+
+        if (meetingUUID?.meetingUUID && (userContext?.participantUUID || userContext?.participantId || userContext?.screenName)) {
+          registrationState = {
+            meetingUUID: meetingUUID.meetingUUID,
+            userID: userContext.participantUUID || userContext.participantId || userContext.screenName
+          };
+          sendRegistration();
         }
 
-        // Attach button event listeners
-        startRtmsBtn.addEventListener('click', async () => {
-          if (runningContext.context === 'inMeeting') {
-            try {
-              //const rtmsResponse = await zoomSdk.callZoomApi('startRTMS');
-              const rtmsResponse = await zoomSdk.startRTMS();
-              console.debug('RTMS Start Response:', rtmsResponse);
-            } catch (err) {
-              console.error('Failed to start RTMS:', err);
-            }
-          } else {
-            console.warn('Cannot start RTMS: Not in a meeting context.');
-          }
-        });
-
-        stopRtmsBtn.addEventListener('click', async () => {
-          if (runningContext.context === 'inMeeting') {
-            try {
-              // const rtmsResponse = await zoomSdk.callZoomApi('stopRTMS');
-              const rtmsResponse = await zoomSdk.stopRTMS();
-              console.debug('RTMS Stop Response:', rtmsResponse);
-            } catch (err) {
-              console.error('Failed to stop RTMS:', err);
-            }
-          } else {
-            console.warn('Cannot stop RTMS: Not in a meeting context.');
-          }
-        });
-
-                pauseRtmsBtn.addEventListener('click', async () => {
-          if (runningContext.context === 'inMeeting') {
-            try {
-         
-              const rtmsResponse = await zoomSdk.pauseRTMS();
-              console.debug('RTMS Pause Response:', rtmsResponse);
-            } catch (err) {
-              console.error('Failed to pause RTMS:', err);
-            }
-          } else {
-            console.warn('Cannot stop RTMS: Not in a meeting context.');
-          }
-        });
-
-                resumeRtmsBtn.addEventListener('click', async () => {
-          if (runningContext.context === 'inMeeting') {
-            try {
-          
-              const rtmsResponse = await zoomSdk.resumeRTMS();
-              console.debug('RTMS Resume Response:', rtmsResponse);
-            } catch (err) {
-              console.error('Failed to resume RTMS:', err);
-            }
-          } else {
-            console.warn('Cannot stop RTMS: Not in a meeting context.');
-          }
-        });
-
-        getRtmsStatusBtn.addEventListener('click', async () => {
-          if (runningContext.context === 'inMeeting') {
-            try {
-              //const rtmsStatus = await zoomSdk.callZoomApi('getRTMSStatus');
-              const rtmsStatus = await zoomSdk.getRTMSStatus();
-              console.log("RTMS Status:", rtmsStatus);
-              const statusBox = document.getElementById('getRTMSstatusBox');
-
-              if (Array.isArray(rtmsStatus.rtmsStatus) && rtmsStatus.rtmsStatus.length === 0) {
-                statusBox.textContent = 'ℹ️ No RTMS sessions currently active.';
-              } else {
-                statusBox.textContent = JSON.stringify(rtmsStatus, null, 2);
-              }
-            } catch (err) {
-              console.error("Error getting RTMS status:", err);
-
-              document.getElementById('getRTMSstatusBox').textContent = '❌ Error fetching RTMS status: ' + err.message;
-            }
-          } else {
-            console.warn('Cannot get RTMS Status: Not in a meeting context.');
-          }
-        });
-
-
-
         zoomSdk.on('onRTMSStatusChange', (event) => {
-          console.log('📡 RTMS Status Changed:', event);
-          const statusBox = document.getElementById('rtmsStatusBox');
-          statusBox.textContent = `RTMS Status: ${JSON.stringify(event)}`;
+          console.log('RTMS Status Changed:', event);
+          const inferred = normalizeRtmsState(event);
+          setRtmsState(inferred, `SDK onRTMSStatusChange: ${JSON.stringify(event)}`);
         });
 
-
-        document.getElementById('output').innerHTML = `
-            <h2>Supported JS APIs:</h2>
-            <pre>${JSON.stringify(supportedApis, null, 2)}</pre>
-
-            <h2>Running Context:</h2>
-            <pre>${JSON.stringify(runningContext, null, 2)}</pre>
-
-            <h2>Meeting Context:</h2>
-            <pre>${JSON.stringify(meetingContext, null, 2)}</pre>
-
-            <h2>User Context:</h2>
-            <pre>${JSON.stringify(userContext, null, 2)}</pre>
-
-            <h2>Meeting UUID:</h2>
-            <pre>${JSON.stringify(meetingUUID, null, 2)}</pre>
-
-            <h2>App Context:</h2>
-            <pre>${JSON.stringify(appContext, null, 2)}</pre>
-          `;
+        syncButtonStates();
+        if (runningContext?.context === 'inMeeting') {
+          await refreshRtmsStatusFromSdk();
+        } else {
+          showBanner('Open this app inside an active Zoom meeting to control RTMS.', true);
+        }
       } catch (error) {
-        console.error('Error retrieving Zoom context:', error);
-        document.getElementById('output').innerHTML = `
-            <p class="error">An error occurred while retrieving Zoom context information.</p>
-            <pre class="error">${error}</pre>
-          `;
+        console.error('Error initializing Zoom SDK:', error);
+        setPill(sdkPill, 'SDK: unavailable', 'err');
+        showBanner(`Zoom Apps SDK initialization failed: ${error?.message || error}`);
+        renderContextDiagnostics([['Initialization Error', String(error?.message || error)]]);
+        syncButtonStates();
       }
     })();
   </script>

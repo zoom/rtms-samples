@@ -1,8 +1,13 @@
 const express = require('express');
 const router = express.Router();
-const { validateConsentSubmission, validateMeetingId } = require('../utils/validators');
+const {
+  validateConsentSubmission,
+  validateMeetingId,
+  validatePolicyUpdate
+} = require('../utils/validators');
 const ConsentManager = require('../services/ConsentManager');
-const { getConsentState } = require('../utils/redis');
+const { requireHostRole, requireInternalToken } = require('../middleware/security');
+const { buildRtmsPolicySnapshot, syncConsentPolicyToRtms } = require('../utils/rtmsNotifier');
 
 // Get server instance for WebSocket broadcasting
 let wsServer = null;
@@ -16,76 +21,36 @@ function setWebSocketServer(server) {
  */
 router.post('/submit', async (req, res) => {
   try {
-    // Validate request body
     const { error, value } = validateConsentSubmission(req.body);
     if (error) {
       return res.status(400).json({ error: error.details[0].message });
     }
 
-    console.log(`\n${'='.repeat(60)}`);
-    console.log(`✋ CONSENT SUBMISSION`);
-    console.log(`${'='.repeat(60)}`);
-    console.log(`Meeting: ${value.meetingId}`);
-    console.log(`Participant: ${value.participantName}`);
-    console.log(`Consent: ${value.consentStatus.toUpperCase()}`);
-    console.log(`${'='.repeat(60)}\n`);
-
-    // Submit consent
-    const state = await ConsentManager.submitConsent(value.meetingId, value);
-
-    console.log(`📊 Consent State After Submission:`);
-    console.log(`   Total Participants: ${state.participants.length}`);
-    console.log(`   Agreed: ${state.participants.filter(p => p.consentStatus === 'agreed').length}`);
-    console.log(`   Disagreed: ${state.participants.filter(p => p.consentStatus === 'disagreed').length}`);
-    console.log(`   Pending: ${state.participants.filter(p => p.consentStatus === 'pending').length}`);
-    console.log(`   Unanimous Consent: ${state.unanimousConsent}`);
-
-    // Check if we should start or resume RTMS (unanimous consent achieved)
-    if (state.unanimousConsent && (state.rtmsStatus === 'stopped' || state.rtmsStatus === 'paused')) {
-      const action = state.rtmsStatus === 'stopped' ? 'STARTING' : 'RESUMING';
-
-      console.log(`\n${'🎉'.repeat(20)}`);
-      console.log(`🚀 UNANIMOUS CONSENT ACHIEVED - ${action} RTMS!`);
-      console.log(`${'🎉'.repeat(20)}\n`);
-
-      state.rtmsStatus = 'running';
-      state.rtmsPausedReason = null;
-
-      // RTMS Flow (Phase 4 Implementation):
-      // 1. Backend sets status to 'running' and broadcasts via WebSocket
-      // 2. Frontend ConsentContext receives status change
-      // 3. Frontend calls zoomSdk.callZoomApi('startRTMS')
-      // 4. Zoom sends meeting.rtms_started webhook to backend
-      // 5. Backend forwards webhook to RTMS server on port 3002
-      // 6. RTMS server connects to stream and captures transcripts
-      console.log(`✅ RTMS status set to 'running' - Frontend will call ${action === 'STARTING' ? 'startRTMS()' : 'startRTMS() (resume)'}`);
-
-      // Save updated state
-      const { saveConsentState } = require('../utils/redis');
-      await saveConsentState(value.meetingId, state);
-
-      // Broadcast RTMS status change
-      if (wsServer) {
-        wsServer.broadcastRTMSStatus(value.meetingId, 'running', null);
-      }
-    } else if (value.consentStatus === 'disagreed') {
-      console.log(`\n❌ CONSENT DECLINED - RTMS CANNOT START\n`);
-    } else if (!state.unanimousConsent) {
-      const pending = state.participants.filter(p => p.consentStatus === 'pending');
-      console.log(`\n⏳ Waiting for ${pending.length} more participant(s) to consent:`);
-      pending.forEach(p => console.log(`   - ${p.screenName}`));
-      console.log();
+    // If a verified Zoom App context is attached, enforce meeting match
+    if (req.zoomContext?.mid && String(req.zoomContext.mid) !== String(value.meetingId)) {
+      return res.status(403).json({ error: 'Meeting context mismatch' });
     }
 
-    // Broadcast state update via WebSocket
+    const { state, statusChanged } = await ConsentManager.submitConsent(
+      value.meetingId,
+      value,
+      { source: 'zoom_app_ui' }
+    );
+
     if (wsServer) {
-      console.log(`📡 Broadcasting consent update to all clients\n`);
+      if (statusChanged) {
+        wsServer.broadcastRTMSStatus(value.meetingId, state.rtmsStatus, state.rtmsPausedReason);
+      }
       wsServer.broadcastConsentUpdate(value.meetingId, state);
     }
+
+    // Push live policy update (and stop signal if declined) to RTMS server
+    await syncConsentPolicyToRtms(value.meetingId, state);
 
     res.json({
       success: true,
       consentStatus: value.consentStatus,
+      policyMode: state.policyMode,
       unanimousConsent: state.unanimousConsent,
       rtmsStatus: state.rtmsStatus,
       rtmsPausedReason: state.rtmsPausedReason
@@ -93,6 +58,45 @@ router.post('/submit', async (req, res) => {
   } catch (error) {
     console.error('❌ Error in consent submission:', error);
     res.status(500).json({ error: 'Failed to submit consent' });
+  }
+});
+
+/**
+ * POST /api/consent/policy
+ * Switch between 'unanimous' consent gate and per-participant 'redact' mode (host/co-host only)
+ */
+router.post('/policy', requireHostRole, async (req, res) => {
+  try {
+    const { error, value } = validatePolicyUpdate(req.body);
+    if (error) {
+      return res.status(400).json({ error: error.details[0].message });
+    }
+
+    const { state, statusChanged } = await ConsentManager.setPolicyMode(
+      value.meetingId,
+      value.policyMode,
+      { source: 'host_dashboard' }
+    );
+
+    if (wsServer) {
+      if (statusChanged) {
+        wsServer.broadcastRTMSStatus(value.meetingId, state.rtmsStatus, state.rtmsPausedReason);
+      }
+      wsServer.broadcastConsentUpdate(value.meetingId, state);
+    }
+
+    await syncConsentPolicyToRtms(value.meetingId, state);
+
+    res.json({
+      success: true,
+      policyMode: state.policyMode,
+      rtmsStatus: state.rtmsStatus,
+      rtmsPausedReason: state.rtmsPausedReason,
+      unanimousConsent: state.unanimousConsent
+    });
+  } catch (error) {
+    console.error('❌ Error updating consent policy:', error);
+    res.status(500).json({ error: 'Failed to update consent policy' });
   }
 });
 
@@ -107,12 +111,71 @@ router.get('/status', async (req, res) => {
       return res.status(400).json({ error: error.details[0].message });
     }
 
-    const state = await getConsentState(value.meetingId);
-
+    const state = await ConsentManager.getConsentState(value.meetingId);
     res.json(state);
   } catch (error) {
     console.error('Error getting consent status:', error);
     res.status(500).json({ error: 'Failed to get consent status' });
+  }
+});
+
+/**
+ * GET /api/consent/policy/internal?meetingId={meetingId}
+ * Internal endpoint for the RTMS service to fetch live server-side consent policy.
+ */
+router.get('/policy/internal', requireInternalToken, async (req, res) => {
+  try {
+    const { error, value } = validateMeetingId({ meetingId: req.query.meetingId });
+    if (error) {
+      return res.status(400).json({ error: error.details[0].message });
+    }
+
+    const state = await ConsentManager.getConsentState(value.meetingId);
+    res.json(buildRtmsPolicySnapshot(state));
+  } catch (error) {
+    console.error('Error getting internal consent policy:', error);
+    res.status(500).json({ error: 'Failed to get consent policy' });
+  }
+});
+
+async function handleAuditExport(meetingId, format, res) {
+  const state = await ConsentManager.getConsentState(meetingId);
+  const safeId = String(meetingId).replace(/[^a-zA-Z0-9_-]/g, '_');
+
+  if (String(format || 'json').toLowerCase() === 'csv') {
+    const csv = ConsentManager.formatAuditTrailCsv(state.auditTrail || []);
+    res.setHeader('Content-Type', 'text/csv; charset=utf-8');
+    res.setHeader('Content-Disposition', `attachment; filename="consent-audit-${safeId}.csv"`);
+    return res.send(csv);
+  }
+
+  res.setHeader('Content-Type', 'application/json; charset=utf-8');
+  res.setHeader('Content-Disposition', `attachment; filename="consent-audit-${safeId}.json"`);
+  return res.json({
+    meetingId: state.meetingId,
+    policyMode: state.policyMode,
+    rtmsStatus: state.rtmsStatus,
+    unanimousConsent: state.unanimousConsent,
+    exportedAt: new Date().toISOString(),
+    participants: state.participants,
+    auditTrail: state.auditTrail || []
+  });
+}
+
+/**
+ * GET /api/consent/:meetingId/audit?format=json|csv
+ * Download timestamped Consent Audit Trail (host/co-host only)
+ */
+router.get('/:meetingId/audit', requireHostRole, async (req, res) => {
+  try {
+    const { error, value } = validateMeetingId({ meetingId: req.params.meetingId });
+    if (error) {
+      return res.status(400).json({ error: error.details[0].message });
+    }
+    return await handleAuditExport(value.meetingId, req.query.format, res);
+  } catch (error) {
+    console.error('Error exporting consent audit trail:', error);
+    res.status(500).json({ error: 'Failed to export consent audit trail' });
   }
 });
 

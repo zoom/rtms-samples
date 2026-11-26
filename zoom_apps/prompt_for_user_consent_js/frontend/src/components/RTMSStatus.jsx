@@ -1,10 +1,13 @@
 import React from 'react';
 import { Card, Alert } from 'react-bootstrap';
 
-function RTMSStatus({ rtmsStatus, rtmsPausedReason, unanimousConsent }) {
+function RTMSStatus({ rtmsStatus, rtmsPausedReason, unanimousConsent, policyMode = 'unanimous' }) {
+  const isRunning = rtmsStatus === 'running' || rtmsStatus === 'active';
+
   const getStatusText = (status) => {
     switch (status) {
       case 'running':
+      case 'active':
         return 'Active';
       case 'paused':
         return 'Paused';
@@ -21,15 +24,17 @@ function RTMSStatus({ rtmsStatus, rtmsPausedReason, unanimousConsent }) {
       </Card.Header>
       <Card.Body>
         <div className="d-flex align-items-center mb-3">
-          <span className={`status-indicator ${rtmsStatus}`}></span>
+          <span className={`status-indicator ${isRunning ? 'running' : rtmsStatus}`}></span>
           <strong className="ms-2">Status: {getStatusText(rtmsStatus)}</strong>
         </div>
 
-        {rtmsStatus === 'running' && (
+        {isRunning && (
           <Alert variant="success" className="mb-0">
             <strong>Transcript Access Active</strong>
             <p className="mb-0 mt-2 small">
-              All participants have consented. Meeting transcripts are being accessed.
+              {policyMode === 'redact'
+                ? 'Per-participant redaction active. Unconsented speakers are redacted server-side.'
+                : 'All participants have consented. Meeting transcripts are being accessed.'}
             </p>
           </Alert>
         )}
@@ -47,7 +52,7 @@ function RTMSStatus({ rtmsStatus, rtmsPausedReason, unanimousConsent }) {
           <Alert variant="secondary" className="mb-0">
             <strong>Waiting for Consent</strong>
             <p className="mb-0 mt-2 small">
-              Transcript access will start automatically when all participants consent.
+              {rtmsPausedReason || 'Transcript access will start automatically when consent requirements are met.'}
             </p>
           </Alert>
         )}

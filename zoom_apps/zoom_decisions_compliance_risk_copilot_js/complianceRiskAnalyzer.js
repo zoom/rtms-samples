@@ -1,9 +1,33 @@
+import { TranscriptRevisionStore } from '../../library/javascript/rtmsManager/utils/TranscriptRevisionStore.js';
+
 const DEFAULT_ENDPOINT = 'https://api.zoom.us/v2/aiservices/decisions/decide';
 const DEFAULT_MODEL = 'zoom-decisions';
 const DEFAULT_HISTORY_TURNS = 12;
 const DEFAULT_TIMEOUT_MS = 10000;
+const DEFAULT_MIN_TRANSCRIPT_CHARS = 8;
+
+const SHORT_CONSENT_PATTERN = /^(?:yes|yeah|yep|yup|no|nope|nah|ok|okay|sure|fine|agree|agreed|i agree|i consent|consent|correct|that is correct|right|confirmed|confirm|understood|i understand|got it|decline|i decline|disagree|i disagree|wait|stop|cancel|approved|proceed)[.!?,\s]*$/i;
+
+export const CHECKLIST_ITEMS = Object.freeze([
+  { key: 'identity', label: 'Identity' },
+  { key: 'consent', label: 'Consent' },
+  { key: 'fees', label: 'Fees' },
+  { key: 'risks', label: 'Risks' },
+  { key: 'alternatives', label: 'Alternatives' },
+  { key: 'understanding', label: 'Understanding' }
+]);
+
+const MISSING_TO_CHECKLIST_KEY = Object.freeze({
+  identity: 'identity',
+  consent: 'consent',
+  fees: 'fees',
+  risks: 'risks',
+  alternatives: 'alternatives',
+  customer_understanding: 'understanding'
+});
 
 const sessions = new Map();
+const streamIdByMeetingId = new Map();
 
 export const COMPLIANCE_QUESTIONS = Object.freeze({
   conversation_stage: {
@@ -101,18 +125,126 @@ function positiveInteger(value, fallback, name) {
 function getConfig() {
   const apiKey = String(process.env.ZOOM_AI_SERVICES_API_KEY || '').trim();
   if (!apiKey) throw new Error('ZOOM_AI_SERVICES_API_KEY is required');
+  const rawTimeout = process.env.ZOOM_DECISIONS_TIMEOUT_MS || process.env.COMPLIANCE_TIMEOUT_MS;
   return {
     apiKey,
     endpoint: process.env.ZOOM_DECISIONS_URL || DEFAULT_ENDPOINT,
     model: process.env.ZOOM_DECISIONS_MODEL || DEFAULT_MODEL,
     historyTurns: positiveInteger(process.env.COMPLIANCE_HISTORY_TURNS, DEFAULT_HISTORY_TURNS, 'COMPLIANCE_HISTORY_TURNS'),
-    timeoutMs: positiveInteger(process.env.COMPLIANCE_TIMEOUT_MS, DEFAULT_TIMEOUT_MS, 'COMPLIANCE_TIMEOUT_MS')
+    timeoutMs: positiveInteger(rawTimeout, DEFAULT_TIMEOUT_MS, 'ZOOM_DECISIONS_TIMEOUT_MS')
   };
 }
 
 function finiteNumber(value, fallback = 0) {
   const parsed = Number(value);
   return Number.isFinite(parsed) ? parsed : fallback;
+}
+
+function normalizeSpeakerKey(value) {
+  return String(value ?? '').trim().toLowerCase();
+}
+
+export function normalizeRole(role) {
+  const value = String(role || '').trim().toLowerCase();
+  if (value === 'agent' || value === 'customer') return value;
+  return null;
+}
+
+export function formatRoleLabel(role) {
+  const normalized = normalizeRole(role);
+  if (normalized === 'agent') return '[Agent]';
+  if (normalized === 'customer') return '[Customer]';
+  return '[Speaker]';
+}
+
+export function isShortConsentUtterance(text) {
+  const trimmed = String(text || '').trim();
+  if (!trimmed) return false;
+  return SHORT_CONSENT_PATTERN.test(trimmed);
+}
+
+export function shouldAnalyzeTranscript(text, minimumCharacters = DEFAULT_MIN_TRANSCRIPT_CHARS) {
+  const trimmed = String(text || '').trim();
+  if (!trimmed) return false;
+  if (trimmed.length >= Math.max(1, Number(minimumCharacters) || DEFAULT_MIN_TRANSCRIPT_CHARS)) {
+    return true;
+  }
+  return isShortConsentUtterance(trimmed);
+}
+
+function createInitialChecklist() {
+  return Object.fromEntries(
+    CHECKLIST_ITEMS.map(({ key, label }) => [
+      key,
+      { key, label, status: 'pending', updatedAt: null, evidenceTurnId: null }
+    ])
+  );
+}
+
+export function cloneChecklist(checklist) {
+  return Object.fromEntries(
+    Object.entries(checklist).map(([key, item]) => [key, { ...item }])
+  );
+}
+
+export function updateChecklistFromAnalysis(checklist, analysis, turnId = null, now = Date.now()) {
+  if (!checklist || !analysis) return checklist;
+
+  const missingKey = MISSING_TO_CHECKLIST_KEY[analysis.missingRequirement?.value] || null;
+  const complianceState = analysis.complianceState?.value || 'unclear';
+  const stage = analysis.conversationStage?.value || 'unclear';
+  const consentProb = finiteNumber(analysis.consentRecorded, 0);
+
+  const setItem = (key, status) => {
+    if (!checklist[key]) return;
+    checklist[key] = {
+      ...checklist[key],
+      status,
+      updatedAt: now,
+      evidenceTurnId: turnId || checklist[key].evidenceTurnId
+    };
+  };
+
+  if (missingKey) {
+    setItem(missingKey, 'missing');
+  }
+
+  if (complianceState === 'customer_confusion') {
+    setItem('understanding', 'missing');
+  }
+
+  if (consentProb >= 0.7 && missingKey !== 'consent') {
+    setItem('consent', 'completed');
+  }
+
+  if (complianceState === 'compliant') {
+    // Any item previously marked missing that is no longer flagged missing is now satisfied.
+    for (const { key } of CHECKLIST_ITEMS) {
+      if (checklist[key]?.status === 'missing' && key !== missingKey) {
+        setItem(key, 'completed');
+      }
+    }
+
+    if (
+      ['identity_verification', 'need_collection', 'disclosure', 'customer_questions', 'resolution', 'closing'].includes(stage)
+      && missingKey !== 'identity'
+      && checklist.identity.status !== 'completed'
+    ) {
+      if (stage !== 'greeting') setItem('identity', 'completed');
+    }
+
+    if (['disclosure', 'customer_questions', 'resolution', 'closing'].includes(stage) && analysis.missingRequirement?.value === 'none') {
+      for (const key of ['fees', 'risks', 'alternatives']) {
+        if (checklist[key].status !== 'missing') setItem(key, 'completed');
+      }
+    }
+
+    if (['resolution', 'closing'].includes(stage) && analysis.missingRequirement?.value === 'none') {
+      if (checklist.understanding.status !== 'missing') setItem('understanding', 'completed');
+    }
+  }
+
+  return checklist;
 }
 
 function probabilityMap(entries) {
@@ -188,11 +320,12 @@ export function normalizeComplianceResponse(payload) {
   };
 }
 
-async function postDecision(config, body) {
+async function postDecision(config, body, fetchImpl = fetch) {
   const controller = new AbortController();
   const timeout = setTimeout(() => controller.abort(), config.timeoutMs);
+  timeout.unref?.();
   try {
-    const response = await fetch(config.endpoint, {
+    const response = await fetchImpl(config.endpoint, {
       method: 'POST',
       headers: {
         'x-api-key': config.apiKey,
@@ -216,64 +349,359 @@ async function postDecision(config, body) {
   }
 }
 
-function buildDecisionInput(session, latestTurn) {
+function sessionFor(streamId, meetingId = null) {
+  const key = String(streamId || 'unknown-stream');
+  if (!sessions.has(key)) {
+    sessions.set(key, {
+      streamId: key,
+      meetingId: meetingId ? String(meetingId) : null,
+      revisionStore: new TranscriptRevisionStore(),
+      turnIdsByKey: new Map(),
+      speakerRoles: new Map(),
+      analysesByTurnId: new Map(),
+      latestAnalysis: null,
+      checklist: createInitialChecklist(),
+      inFlight: false,
+      pendingBatch: null
+    });
+  }
+  const session = sessions.get(key);
+  if (meetingId) {
+    session.meetingId = String(meetingId);
+    streamIdByMeetingId.set(String(meetingId), key);
+  }
+  return session;
+}
+
+function resolveSpeakerRole(session, { userId, userName, speakerRole } = {}) {
+  const explicit = normalizeRole(speakerRole);
+  if (explicit) return explicit;
+
+  const idKey = userId != null && String(userId).trim() !== '' ? `id:${normalizeSpeakerKey(userId)}` : null;
+  if (idKey && session.speakerRoles.has(idKey)) return session.speakerRoles.get(idKey);
+
+  const nameKey = userName ? `name:${normalizeSpeakerKey(userName)}` : null;
+  if (nameKey && session.speakerRoles.has(nameKey)) return session.speakerRoles.get(nameKey);
+
+  return null;
+}
+
+export function setSpeakerRole({ streamId, meetingId, userId, userName, role }) {
+  const normalizedRole = normalizeRole(role);
+  if (!normalizedRole) return null;
+
+  const resolvedStreamId = streamId || (meetingId ? streamIdByMeetingId.get(String(meetingId)) : null);
+  if (!resolvedStreamId) return null;
+
+  const session = sessionFor(resolvedStreamId, meetingId);
+  if (userId != null && String(userId).trim() !== '') {
+    session.speakerRoles.set(`id:${normalizeSpeakerKey(userId)}`, normalizedRole);
+  }
+  if (userName && String(userName).trim() !== '') {
+    session.speakerRoles.set(`name:${normalizeSpeakerKey(userName)}`, normalizedRole);
+  }
+  return Object.fromEntries(session.speakerRoles.entries());
+}
+
+export function buildDecisionInput(session, latestTurn, historyTurns = DEFAULT_HISTORY_TURNS) {
+  const allSentences = session.revisionStore.sentences(session.streamId);
+  const recent = allSentences.slice(-Math.max(1, historyTurns));
+
+  const formatTurnLine = (turn) => {
+    const speakerName = turn.userName || turn.speaker || `User ${turn.userId ?? 'unknown'}`;
+    const role = resolveSpeakerRole(session, {
+      userId: turn.userId,
+      userName: speakerName,
+      speakerRole: turn.speakerRole
+    });
+    return `${formatRoleLabel(role)} ${speakerName}: ${turn.text}`;
+  };
+
+  const latestSpeakerName = latestTurn.userName || latestTurn.speaker || `User ${latestTurn.userId ?? 'unknown'}`;
+  const latestRole = resolveSpeakerRole(session, {
+    userId: latestTurn.userId,
+    userName: latestSpeakerName,
+    speakerRole: latestTurn.speakerRole
+  });
+
   return [
     `Regulated conversation context: ${process.env.COMPLIANCE_CONTEXT || 'regulated customer service call'}`,
     '',
     'Recent transcript, oldest first:',
-    ...session.history.map((turn) => `${turn.speaker}: ${turn.text}`),
+    ...recent.map(formatTurnLine),
     '',
-    `Latest speaker: ${latestTurn.speaker}`,
+    `Latest speaker: ${formatRoleLabel(latestRole)} ${latestSpeakerName}`,
     `Latest utterance: ${latestTurn.text}`
   ].join('\n');
 }
 
-function sessionFor(streamId) {
-  const key = String(streamId || 'unknown-stream');
-  if (!sessions.has(key)) sessions.set(key, { history: [], queue: Promise.resolve() });
-  return sessions.get(key);
-}
+export function recordComplianceTurn({
+  turnId,
+  streamId,
+  meetingId,
+  userId,
+  userName,
+  speakerRole,
+  text,
+  sentenceId,
+  isUpdate,
+  attribute,
+  startTime,
+  endTime,
+  timestamp,
+  minimumTranscriptCharacters = DEFAULT_MIN_TRANSCRIPT_CHARS
+}) {
+  const cleanText = String(text || '').trim().slice(0, 4000);
+  if (!cleanText) return null;
 
-export async function analyzeComplianceTurn({ turnId, streamId, meetingId, userId, userName, text, timestamp }) {
-  const session = sessionFor(streamId);
-  const work = async () => {
-    const config = getConfig();
-    const turn = {
-      id: turnId,
-      speaker: userName || `User ${userId || 'unknown'}`,
-      text: String(text || '').trim().slice(0, 4000),
-      timestamp: finiteNumber(timestamp, Date.now())
-    };
-    if (!turn.text) throw new Error('Transcript text is empty');
+  const session = sessionFor(streamId, meetingId);
+  const displayName = userName || `User ${userId ?? 'unknown'}`;
 
-    session.history.push(turn);
-    if (session.history.length > config.historyTurns) session.history.splice(0, session.history.length - config.historyTurns);
+  const explicitRole = normalizeRole(speakerRole);
+  if (explicitRole) {
+    if (userId != null && String(userId).trim() !== '') {
+      session.speakerRoles.set(`id:${normalizeSpeakerKey(userId)}`, explicitRole);
+    }
+    if (displayName) {
+      session.speakerRoles.set(`name:${normalizeSpeakerKey(displayName)}`, explicitRole);
+    }
+  }
 
-    const startedAt = Date.now();
-    const raw = await postDecision(config, {
-      input: buildDecisionInput(session, turn),
-      model: config.model,
-      reference_id: turnId,
-      questions: Object.entries(COMPLIANCE_QUESTIONS).map(([name, question]) => ({ name, ...question }))
-    });
-    return {
-      ...normalizeComplianceResponse(raw),
-      meetingId: meetingId || null,
-      latencyMs: Date.now() - startedAt,
-      analyzedAt: Date.now(),
-      turn
-    };
+  const { action, key, sentence } = session.revisionStore.apply({
+    streamId: session.streamId,
+    rtmsId: meetingId || session.meetingId,
+    meetingId: meetingId || session.meetingId,
+    userId,
+    userName: displayName,
+    sentenceId,
+    isUpdate,
+    attribute,
+    startTime,
+    endTime,
+    text: cleanText,
+    timestamp: finiteNumber(timestamp, Date.now())
+  });
+
+  let stableTurnId = session.turnIdsByKey.get(key);
+  if (!stableTurnId) {
+    stableTurnId = turnId || key;
+    session.turnIdsByKey.set(key, stableTurnId);
+  }
+
+  const resolvedRole = resolveSpeakerRole(session, { userId, userName: displayName, speakerRole });
+  const turn = {
+    id: stableTurnId,
+    key,
+    sentenceId: sentence.sentenceId,
+    revision: sentence.revision,
+    isUpdate: action === 'updated' || action === 'replaced',
+    userId: sentence.userId,
+    userName: sentence.userName || displayName,
+    speaker: sentence.userName || displayName,
+    speakerRole: resolvedRole,
+    text: sentence.text,
+    timestamp: finiteNumber(sentence.timestamp, Date.now())
   };
 
-  const result = session.queue.then(work, work);
-  session.queue = result.catch(() => undefined);
-  return result;
+  return {
+    action,
+    key,
+    turn,
+    shouldAnalyze: shouldAnalyzeTranscript(cleanText, minimumTranscriptCharacters),
+    checklist: cloneChecklist(session.checklist)
+  };
+}
+
+async function executeDecisionCall(session, latestTurn, meetingId, fetchImpl) {
+  const config = getConfig();
+  const startedAt = Date.now();
+  const input = buildDecisionInput(session, latestTurn, config.historyTurns);
+  const raw = await postDecision(
+    config,
+    {
+      input,
+      model: config.model,
+      reference_id: latestTurn.id,
+      questions: Object.entries(COMPLIANCE_QUESTIONS).map(([name, question]) => ({ name, ...question }))
+    },
+    fetchImpl
+  );
+
+  const normalized = normalizeComplianceResponse(raw);
+  updateChecklistFromAnalysis(session.checklist, normalized, latestTurn.id);
+
+  const analysis = {
+    ...normalized,
+    meetingId: meetingId || session.meetingId || null,
+    latencyMs: Date.now() - startedAt,
+    analyzedAt: Date.now(),
+    turn: latestTurn,
+    checklist: cloneChecklist(session.checklist)
+  };
+
+  session.analysesByTurnId.set(latestTurn.id, analysis);
+  session.latestAnalysis = analysis;
+  return analysis;
+}
+
+/**
+ * Evaluates compliance for a turn, coalescing rapid bursts so at most one
+ * follow-up Decisions API call runs against the latest conversation state.
+ */
+export async function analyzeComplianceTurn({
+  turnId,
+  streamId,
+  meetingId,
+  userId,
+  userName,
+  speakerRole,
+  text,
+  sentenceId,
+  isUpdate,
+  attribute,
+  timestamp,
+  alreadyRecorded = false,
+  fetchImpl = fetch
+}) {
+  const session = sessionFor(streamId, meetingId);
+  let turn;
+
+  if (alreadyRecorded) {
+    const cleanText = String(text || '').trim().slice(0, 4000);
+    if (!cleanText) throw new Error('Transcript text is empty');
+    const displayName = userName || `User ${userId ?? 'unknown'}`;
+    turn = {
+      id: turnId,
+      userId,
+      userName: displayName,
+      speaker: displayName,
+      speakerRole: resolveSpeakerRole(session, { userId, userName: displayName, speakerRole }),
+      text: cleanText,
+      timestamp: finiteNumber(timestamp, Date.now())
+    };
+  } else {
+    const recorded = recordComplianceTurn({
+      turnId,
+      streamId,
+      meetingId,
+      userId,
+      userName,
+      speakerRole,
+      text,
+      sentenceId,
+      isUpdate,
+      attribute,
+      timestamp
+    });
+    if (!recorded) throw new Error('Transcript text is empty');
+    turn = recorded.turn;
+  }
+
+  return new Promise((resolve, reject) => {
+    const runNext = async (batch) => {
+      session.inFlight = true;
+      try {
+        const analysis = await executeDecisionCall(session, batch.latestTurn, batch.meetingId, batch.fetchImpl);
+        for (const waiter of batch.waiters) {
+          waiter.resolve({ ...analysis, coalesced: batch.waiters.length > 1 });
+        }
+      } catch (error) {
+        for (const waiter of batch.waiters) {
+          waiter.reject(error);
+        }
+      } finally {
+        session.inFlight = false;
+        if (session.pendingBatch) {
+          const nextBatch = session.pendingBatch;
+          session.pendingBatch = null;
+          void runNext(nextBatch);
+        }
+      }
+    };
+
+    if (!session.inFlight) {
+      void runNext({
+        latestTurn: turn,
+        meetingId,
+        fetchImpl,
+        waiters: [{ resolve, reject }]
+      });
+    } else {
+      if (!session.pendingBatch) {
+        session.pendingBatch = {
+          latestTurn: turn,
+          meetingId,
+          fetchImpl,
+          waiters: [{ resolve, reject }]
+        };
+      } else {
+        session.pendingBatch.latestTurn = turn;
+        session.pendingBatch.meetingId = meetingId || session.pendingBatch.meetingId;
+        session.pendingBatch.fetchImpl = fetchImpl;
+        session.pendingBatch.waiters.push({ resolve, reject });
+      }
+    }
+  });
+}
+
+export function getComplianceSessionSnapshot({ streamId = null, meetingId = null } = {}) {
+  const resolvedStreamId = streamId || (meetingId ? streamIdByMeetingId.get(String(meetingId)) : null);
+  const session = resolvedStreamId ? sessions.get(String(resolvedStreamId)) : null;
+  if (!session) {
+    return {
+      streamId: null,
+      meetingId: meetingId ? String(meetingId) : null,
+      turns: [],
+      checklist: createInitialChecklist(),
+      latestAnalysis: null,
+      speakerRoles: {}
+    };
+  }
+
+  const turns = session.revisionStore.sentences(session.streamId).map((sentence) => {
+    const key = `${sentence.streamId}:${sentence.channelId ?? sentence.userId ?? null}:${sentence.sentenceId ?? `#${sentence.order}`}`;
+    const id = session.turnIdsByKey.get(key) || key;
+    const displayName = sentence.userName || `User ${sentence.userId ?? 'unknown'}`;
+    return {
+      id,
+      key,
+      sentenceId: sentence.sentenceId,
+      revision: sentence.revision,
+      isUpdate: sentence.revision > 0,
+      userId: sentence.userId,
+      userName: displayName,
+      speakerRole: resolveSpeakerRole(session, { userId: sentence.userId, userName: displayName }),
+      text: sentence.text,
+      timestamp: finiteNumber(sentence.timestamp, Date.now()),
+      analysis: session.analysesByTurnId.get(id) || null
+    };
+  });
+
+  return {
+    streamId: session.streamId,
+    meetingId: session.meetingId,
+    turns,
+    checklist: cloneChecklist(session.checklist),
+    latestAnalysis: session.latestAnalysis,
+    speakerRoles: Object.fromEntries(session.speakerRoles.entries())
+  };
 }
 
 export function resetComplianceSession(streamId) {
-  if (streamId) sessions.delete(String(streamId));
+  if (!streamId) return;
+  const key = String(streamId);
+  const existing = sessions.get(key);
+  if (existing?.meetingId && streamIdByMeetingId.get(existing.meetingId) === key) {
+    streamIdByMeetingId.delete(existing.meetingId);
+  }
+  existing?.revisionStore?.clear();
+  sessions.delete(key);
 }
 
 export function resetAllComplianceSessions() {
+  for (const session of sessions.values()) {
+    session.revisionStore?.clear();
+  }
   sessions.clear();
+  streamIdByMeetingId.clear();
 }

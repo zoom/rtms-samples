@@ -4,718 +4,592 @@
 <head>
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
-  <title>Zoom App Frontend</title>
-  <link rel="icon" href="favicon.ico" type="image/x-icon">
-  <link rel="shortcut icon" href="favicon.ico" type="image/x-icon">
-  <meta http-equiv="Cross-Origin-Opener-Policy" content="same-origin">
-  <meta http-equiv="Cross-Origin-Embedder-Policy" content="require-corp">
-  <script src="https://appssdk.zoom.us/sdk.js">    </script>
-
+  <title>AI Voice Chat (RTMS)</title>
+  <script src="https://appssdk.zoom.us/sdk.js"></script>
   <style>
-    /* Reset and base styles */
-    * {
-      margin: 0;
-      padding: 0;
-      box-sizing: border-box;
+    * { box-sizing: border-box; margin: 0; padding: 0; }
+    :root {
+      --bg: #f8fafc;
+      --surface: #ffffff;
+      --surface-alt: #f1f5f9;
+      --border: #cbd5e1;
+      --text: #0f172a;
+      --muted: #475569;
+      --primary: #2563eb;
+      --primary-hover: #1d4ed8;
+      --danger: #dc2626;
+      --success: #16a34a;
+      --warn: #d97706;
     }
-
     body {
-      font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, Oxygen, Ubuntu, Cantarell, sans-serif;
-      background-color: #f8fafc;
-      color: #1e293b;
-      line-height: 1.6;
+      font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
+      background: var(--bg);
+      color: var(--text);
       height: 100vh;
       display: flex;
       flex-direction: column;
-    }
-
-    /* Custom color scheme */
-    :root {
-      --primary-bg: #ffffff;
-      --secondary-bg: #f1f5f9;
-      --accent-bg: #e2e8f0;
-      --text-primary: #0f172a;
-      --text-secondary: #475569;
-      --text-muted: #64748b;
-      --border-color: #cbd5e1;
-      --focus-color: #3b82f6;
-      --user-message-bg: #3b82f6;
-      --assistant-message-bg: #e2e8f0;
-      --shadow-light: rgba(0, 0, 0, 0.1);
-      --shadow-medium: rgba(0, 0, 0, 0.15);
-    }
-
-    /* Layout utilities */
-    .flex {
-      display: flex;
-    }
-
-    .flex-col {
-      flex-direction: column;
-    }
-
-    .flex-grow {
-      flex-grow: 1;
-    }
-
-    .items-center {
-      align-items: center;
-    }
-
-    .justify-between {
-      justify-content: space-between;
-    }
-
-    .justify-end {
-      justify-content: flex-end;
-    }
-
-    .justify-start {
-      justify-content: flex-start;
-    }
-
-    .justify-center {
-      justify-content: center;
-    }
-
-    /* Navigation */
-    nav {
-      background: var(--primary-bg);
-      border-bottom: 1px solid var(--border-color);
-      box-shadow: 0 1px 3px var(--shadow-light);
-      flex-shrink: 0;
-    }
-
-    .nav-container {
-      max-width: 1200px;
-      margin: 0 auto;
-      padding: 1rem 1.5rem;
-      display: flex;
-      align-items: center;
-      justify-content: space-between;
-    }
-
-    .nav-title {
-      font-size: 1.875rem;
-      font-weight: 700;
-      color: var(--text-primary);
-    }
-
-    /* Main content area */
-    .main-content {
-      display: flex;
-      flex-grow: 1;
       overflow: hidden;
-      padding: 1.5rem;
     }
-
-    .content-wrapper {
+    header {
+      background: var(--surface);
+      border-bottom: 1px solid var(--border);
+      padding: 0.75rem 1rem;
       display: flex;
-      flex-direction: column;
-      flex-grow: 1;
-      min-width: 0;
-      width: 100%;
-    }
-
-    .conversation-container {
-      background: var(--primary-bg);
-      border-radius: 16px;
-      padding: 1.5rem;
-      box-shadow: 0 4px 6px var(--shadow-medium);
-      display: flex;
-      flex-direction: column;
-      flex-grow: 1;
-      overflow: hidden;
-      position: relative;
-    }
-
-    .conversation-header {
-      display: flex;
-      align-items: center;
-      gap: 0.75rem;
-      margin-bottom: 1rem;
-      flex-shrink: 0;
-    }
-
-    .conversation-title {
-      font-size: 1.25rem;
-      font-weight: 600;
-      color: var(--text-primary);
-    }
-
-    /* Transcript area */
-    .transcript-container {
-      background: var(--secondary-bg);
-      border-radius: 12px;
-      padding: 1rem;
-      overflow-y: auto;
-      flex-grow: 1;
-      height: 0;
-      padding-bottom: 5rem;
-    }
-
-    .transcript {
-      display: flex;
-      flex-direction: column;
-      gap: 0.75rem;
-    }
-
-    /* Message styles */
-    .message-wrapper {
-      display: flex;
-      margin-bottom: 0.75rem;
-    }
-
-    .message-bubble {
-      max-width: 75%;
-      padding: 0.75rem;
-      border-radius: 12px;
-      box-shadow: 0 1px 2px var(--shadow-light);
-      word-wrap: break-word;
-      user-select: text;
-    }
-
-    .user-message {
-      background: var(--user-message-bg);
-      color: white;
-      border-bottom-right-radius: 4px;
-    }
-
-    .assistant-message {
-      background: var(--assistant-message-bg);
-      color: var(--text-primary);
-      border-bottom-left-radius: 4px;
-    }
-
-    .message-placeholder {
-      color: var(--text-muted);
-      text-align: center;
-      padding: 2.5rem;
-    }
-
-    /* Note messages */
-    .note-wrapper {
-      display: flex;
-      justify-content: center;
-      margin-bottom: 0.75rem;
-    }
-
-    .note-message {
-      max-width: 100%;
-      width: 100%;
-      padding: 1rem;
-      border-radius: 12px;
-      box-shadow: 0 1px 2px var(--shadow-light);
-      background: #dbeafe;
-      border: 1px solid #93c5fd;
-      color: var(--text-secondary);
-    }
-
-    /* Input area */
-    .input-area {
-      position: absolute;
-      bottom: 0;
-      left: 0;
-      right: 0;
-      padding: 1rem;
-      background: var(--primary-bg);
-      border-top: 1px solid var(--accent-bg);
-    }
-
-    .input-wrapper {
-      display: flex;
-      align-items: end;
+      flex-wrap: wrap;
       gap: 0.5rem;
+      align-items: center;
+      justify-content: space-between;
     }
-
-    .text-input {
-      flex-grow: 1;
-      padding: 0.75rem;
-      border-radius: 12px;
-      border: 1px solid var(--border-color);
-      resize: none;
-      min-height: 50px;
-      max-height: 150px;
-      font-family: inherit;
-      font-size: 0.875rem;
-      line-height: 1.5;
-      transition: border-color 0.2s, box-shadow 0.2s;
+    .brand {
+      display: flex;
+      align-items: center;
+      gap: 0.5rem;
+      font-weight: 700;
+      font-size: 1rem;
     }
-
-    .text-input:focus {
-      outline: none;
-      border-color: var(--focus-color);
-      box-shadow: 0 0 0 3px rgba(59, 130, 246, 0.1);
-    }
-
-    .text-input::placeholder {
-      color: var(--text-muted);
-    }
-
-    /* Responsive design */
-    @media (max-width: 768px) {
-      .main-content {
-        padding: 1rem;
-      }
-      
-      .nav-container {
-        padding: 0.75rem 1rem;
-      }
-      
-      .nav-title {
-        font-size: 1.5rem;
-      }
-      
-      .conversation-container {
-        padding: 1rem;
-      }
-    }
-
-    @media (max-width: 640px) {
-      .main-content {
-        padding: 0.5rem;
-      }
-      
-      .message-bubble {
-        max-width: 85%;
-      }
-    }
-
-
-    /* Custom scrollbar for transcript */
-    #transcript-container::-webkit-scrollbar,
-    #text-input-container-scroll::-webkit-input-placeholder {
-      width: 8px;
-    }
-
-    #transcript-container::-webkit-scrollbar-track,
-    #text-input-container-scroll::-webkit-scrollbar-track {
-      background: var(--app-bg-light);
-      border-radius: 10px;
-    }
-
-    #transcript-container::-webkit-scrollbar-thumb,
-    #text-input-container-scroll::-webkit-scrollbar-thumb {
-      background: #AAAAAA;
-      /* Medium Gray */
-      border-radius: 10px;
-    }
-
-    #transcript-container::-webkit-scrollbar-thumb:hover,
-    #text-input-container-scroll::-webkit-scrollbar-thumb:hover {
-      background: #888888;
-      /* Darker Gray */
-    }
-
-
-    /* Styling for content within notes, especially tables */
-    /* These styles will now apply to notes rendered within the transcript */
-    .note-message table {
-      width: 100%;
-      border-collapse: collapse;
-      margin-top: 1rem;
-      margin-bottom: 1rem;
-    }
-
-    .note-message th,
-    .note-message td {
-      border: 1px solid var(--app-border-color);
-      padding: 0.75rem;
-      text-align: left;
-    }
-
-    .note-message th {
-      background-color: var(--app-bg-light);
+    .badge {
+      font-size: 0.72rem;
       font-weight: 600;
-      color: var(--app-text-primary);
+      padding: 0.15rem 0.5rem;
+      border-radius: 999px;
+      background: var(--surface-alt);
+      color: var(--muted);
+      border: 1px solid var(--border);
     }
-
-    .note-message tr:nth-child(even) {
-      background-color: #F8F8F8;
-      /* Slightly different background for even rows */
+    .badge.ok { background: #dcfce7; color: #166534; border-color: #86efac; }
+    .badge.warn { background: #fef3c7; color: #92400e; border-color: #fcd34d; }
+    .badge.err { background: #fee2e2; color: #991b1b; border-color: #fca5a5; }
+    .controls-bar {
+      background: var(--surface);
+      border-bottom: 1px solid var(--border);
+      padding: 0.6rem 1rem;
+      display: flex;
+      flex-wrap: wrap;
+      gap: 0.5rem;
+      align-items: center;
     }
-
-    .note-message a {
-      color: #2563EB;
-      /* Blue color for links */
-      text-decoration: underline;
+    button, select, input[type="text"] {
+      font-family: inherit;
+      font-size: 0.8rem;
+      border-radius: 8px;
+      border: 1px solid var(--border);
+      padding: 0.4rem 0.7rem;
+      background: var(--surface);
+      color: var(--text);
     }
-
-    /* Tooltip styles */
-    .tooltip-container {
-      position: relative;
+    button {
+      cursor: pointer;
+      font-weight: 600;
+      transition: background 0.15s;
+    }
+    button:hover { background: var(--surface-alt); }
+    button.primary { background: var(--primary); color: #fff; border-color: var(--primary); }
+    button.primary:hover { background: var(--primary-hover); }
+    button.danger { background: var(--danger); color: #fff; border-color: var(--danger); }
+    button.success { background: var(--success); color: #fff; border-color: var(--success); }
+    button.warn { background: var(--warn); color: #fff; border-color: var(--warn); }
+    button:disabled { opacity: 0.5; cursor: not-allowed; }
+    .control-group {
       display: inline-flex;
       align-items: center;
+      gap: 0.35rem;
     }
-
-    .tooltip {
-      position: absolute;
-      bottom: -30px;
-      left: 50%;
-      transform: translateX(-50%);
-      background-color: rgba(0, 0, 0, 0.7);
-      color: white;
-      padding: 4px 8px;
-      border-radius: 4px;
+    .control-label {
       font-size: 0.75rem;
-      white-space: nowrap;
-      opacity: 0;
-      visibility: hidden;
-      transition: opacity 0.2s ease-in-out, visibility 0.2s ease-in-out;
-      z-index: 10;
+      color: var(--muted);
+      font-weight: 600;
     }
-
-    .tooltip-container:hover .tooltip {
-      opacity: 1;
-      visibility: visible;
+    main {
+      flex: 1;
+      display: flex;
+      flex-direction: column;
+      overflow: hidden;
+      padding: 0.75rem 1rem;
+      gap: 0.6rem;
     }
-
-    /* Specific style for message bubbles to ensure text is selectable */
-    .transcript-message {
-      user-select: text;
-      -webkit-user-select: text;
-      -moz-user-select: text;
-      -ms-user-select: text;
-      word-wrap: break-word;
+    .status-strip {
+      font-size: 0.78rem;
+      color: var(--muted);
+      display: flex;
+      justify-content: space-between;
+      align-items: center;
     }
+    .transcript-container {
+      flex: 1;
+      overflow-y: auto;
+      background: var(--surface);
+      border: 1px solid var(--border);
+      border-radius: 12px;
+      padding: 0.9rem;
+      display: flex;
+      flex-direction: column;
+      gap: 0.65rem;
+    }
+    .placeholder {
+      color: var(--muted);
+      text-align: center;
+      margin: auto;
+      font-size: 0.9rem;
+    }
+    .message-row {
+      display: flex;
+      flex-direction: column;
+      max-width: 82%;
+    }
+    .message-row.user { align-self: flex-end; align-items: flex-end; }
+    .message-row.assistant { align-self: flex-start; align-items: flex-start; }
+    .message-row.system { align-self: center; align-items: center; max-width: 95%; }
+    .message-meta {
+      font-size: 0.7rem;
+      color: var(--muted);
+      margin-bottom: 0.2rem;
+    }
+    .bubble {
+      padding: 0.6rem 0.85rem;
+      border-radius: 12px;
+      font-size: 0.88rem;
+      line-height: 1.45;
+      white-space: pre-wrap;
+      word-break: break-word;
+    }
+    .message-row.user .bubble {
+      background: var(--primary);
+      color: #fff;
+      border-bottom-right-radius: 4px;
+    }
+    .message-row.user.suppressed .bubble {
+      background: #e2e8f0;
+      color: var(--muted);
+    }
+    .message-row.assistant .bubble {
+      background: var(--surface-alt);
+      color: var(--text);
+      border: 1px solid var(--border);
+      border-bottom-left-radius: 4px;
+    }
+    .message-row.system .bubble {
+      background: #fef3c7;
+      color: #92400e;
+      font-size: 0.78rem;
+      border: 1px solid #fcd34d;
+    }
+    .composer {
+      display: flex;
+      gap: 0.5rem;
+      align-items: flex-end;
+    }
+    .composer textarea {
+      flex: 1;
+      resize: none;
+      min-height: 44px;
+      max-height: 110px;
+      padding: 0.6rem 0.75rem;
+      border-radius: 10px;
+      border: 1px solid var(--border);
+      font-family: inherit;
+      font-size: 0.88rem;
+    }
+    .composer textarea:focus {
+      outline: none;
+      border-color: var(--primary);
+    }
+    .hidden { display: none !important; }
   </style>
 </head>
 
 <body>
-  <nav>
-    <div class="nav-container">
-      <div class="nav-title">Zoom App Frontend</div>
+  <header>
+    <div class="brand">
+      <span>AI Voice Chat</span>
+      <span id="ws-badge" class="badge">Connecting...</span>
+      <span id="rtms-badge" class="badge">RTMS: Idle</span>
     </div>
-  </nav>
+    <div class="control-group">
+      <button id="btn-start-rtms" class="primary">Start RTMS</button>
+      <button id="btn-stop-rtms">Stop RTMS</button>
+    </div>
+  </header>
 
-  <div class="main-content">
-    <div class="content-wrapper">
-      <div class="conversation-container">
-        <div class="conversation-header">
-          <h2 class="conversation-title">Conversation with LLM, with Neural TTS response</h2>
-        </div>
-        <div id="transcript-container" class="transcript-container">
-          <div id="transcript" class="transcript">
-            <div class="message-placeholder">You may speak to begin</div>
-          </div>
-        </div>
-        <div class="input-area">
-          <div class="input-wrapper">
-            <textarea id="text-input" class="text-input" placeholder="Alternatively, type your message here..."></textarea>
-          </div>
-        </div>
-      </div>
+  <div class="controls-bar">
+    <div class="control-group">
+      <button id="btn-audio-toggle" class="success">Enable Audio</button>
+      <button id="btn-interrupt" class="danger" disabled>Interrupt / Stop</button>
+    </div>
+
+    <div class="control-group">
+      <span class="control-label">Trigger:</span>
+      <select id="select-mode">
+        <option value="wake_word">Wake-Word (Safe)</option>
+        <option value="push_to_talk">Push-to-Talk</option>
+        <option value="auto">Auto-Reply</option>
+      </select>
+    </div>
+
+    <div id="wake-word-group" class="control-group">
+      <span class="control-label">Wake Words:</span>
+      <input id="input-wake-words" type="text" value="hey ai, okay ai, assistant" style="width: 170px;" />
+      <button id="btn-save-wake">Apply</button>
+    </div>
+
+    <div id="ptt-group" class="control-group hidden">
+      <button id="btn-arm-ptt" class="warn">Arm Next Spoken Turn</button>
     </div>
   </div>
 
+  <main>
+    <div class="status-strip">
+      <span id="assistant-status">Say "Hey AI ..." or type a message below. Click "Enable Audio" to hear spoken replies.</span>
+      <span id="speaking-indicator"></span>
+    </div>
+
+    <div id="transcript" class="transcript-container">
+      <div class="placeholder">Waiting for speech or typed prompt...</div>
+    </div>
+
+    <div class="composer">
+      <textarea id="text-input" placeholder="Type a prompt and press Enter..."></textarea>
+      <button id="btn-send" class="primary" style="height: 44px;">Send</button>
+    </div>
+  </main>
+
   <script>
-    (async () => {
-      try {
+    const SERVER_WEBSOCKET_URL = <%- JSON.stringify(websocketUrl).replace(/</g, '\\u003c') %>;
+    const WS_AUTH_TOKEN = <%- JSON.stringify(typeof wsAuthToken === 'string' ? wsAuthToken : '').replace(/</g, '\\u003c') %>;
+  </script>
+  <script src="audio-client.js"></script>
+  <script>
+    (function () {
+      const client = new AudioClient(SERVER_WEBSOCKET_URL);
+      const wsBadge = document.getElementById('ws-badge');
+      const rtmsBadge = document.getElementById('rtms-badge');
+      const assistantStatusEl = document.getElementById('assistant-status');
+      const speakingIndicatorEl = document.getElementById('speaking-indicator');
+      const transcriptEl = document.getElementById('transcript');
+      const textInput = document.getElementById('text-input');
+      const btnSend = document.getElementById('btn-send');
+      const btnStartRtms = document.getElementById('btn-start-rtms');
+      const btnStopRtms = document.getElementById('btn-stop-rtms');
+      const btnAudioToggle = document.getElementById('btn-audio-toggle');
+      const btnInterrupt = document.getElementById('btn-interrupt');
+      const selectMode = document.getElementById('select-mode');
+      const wakeWordGroup = document.getElementById('wake-word-group');
+      const inputWakeWords = document.getElementById('input-wake-words');
+      const btnSaveWake = document.getElementById('btn-save-wake');
+      const pttGroup = document.getElementById('ptt-group');
+      const btnArmPtt = document.getElementById('btn-arm-ptt');
 
-        // Zoom SDK Configuration
-        // IMPORTANT:
-        // 1. Make sure your app includes this domain in the Zoom App Marketplace "Domain Allow List".
-        // 2. Under "Features" -> "Surface" -> "Zoom App SDK", select the APIs you're using.
-        // 3. Ensure APIs like getRunningContext, getMeetingContext, etc. are ENABLED for your app.
+      const sentenceNodes = new Map();
+      let currentUserName = 'Participant';
+      let currentMode = 'wake_word';
+      let pttArmed = false;
+      let zoomReady = false;
 
-        const configResponse = await zoomSdk.config({
-          version: '0.16.31',
-          capabilities: [
-            'getSupportedJsApis',
-            'getRunningContext',
-            'getMeetingContext',
-            'getUserContext',
-            'getMeetingUUID',
-            'getAppContext',
-            'startRTMS',
-            'stopRTMS',
-            'pauseRTMS',
-            'resumeRTMS',
-            'onRTMSStatusChange',
+      function setBadge(el, text, kind) {
+        el.textContent = text;
+        el.className = 'badge' + (kind ? ' ' + kind : '');
+      }
 
-          ]
+      function removePlaceholder() {
+        const placeholder = transcriptEl.querySelector('.placeholder');
+        if (placeholder) placeholder.remove();
+      }
+
+      function formatTime(ts) {
+        try {
+          return new Date(ts || Date.now()).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit', second: '2-digit' });
+        } catch {
+          return '';
+        }
+      }
+
+      function appendMessage({ role, speaker, text, timestamp, sentenceKey, suppressedReason }) {
+        if (!text) return;
+        removePlaceholder();
+
+        if (sentenceKey && sentenceNodes.has(sentenceKey)) {
+          const existing = sentenceNodes.get(sentenceKey);
+          existing.bubble.textContent = text;
+          existing.meta.textContent = `${speaker || 'Speaker'} · ${formatTime(timestamp)}${suppressedReason ? ' (' + suppressedReason.replace(/_/g, ' ') + ')' : ''}`;
+          existing.row.classList.toggle('suppressed', Boolean(suppressedReason));
+          transcriptEl.scrollTop = transcriptEl.scrollHeight;
+          return;
+        }
+
+        const row = document.createElement('div');
+        row.className = `message-row ${role}${suppressedReason ? ' suppressed' : ''}`;
+
+        if (role !== 'system') {
+          const meta = document.createElement('div');
+          meta.className = 'message-meta';
+          const suffix = suppressedReason ? ` (${suppressedReason.replace(/_/g, ' ')})` : '';
+          meta.textContent = `${speaker || (role === 'assistant' ? 'AI Assistant' : 'Participant')} · ${formatTime(timestamp)}${suffix}`;
+          row.appendChild(meta);
+
+          const bubble = document.createElement('div');
+          bubble.className = 'bubble';
+          bubble.textContent = text;
+          row.appendChild(bubble);
+
+          if (sentenceKey) {
+            sentenceNodes.set(sentenceKey, { row, meta, bubble });
+          }
+        } else {
+          const bubble = document.createElement('div');
+          bubble.className = 'bubble';
+          bubble.textContent = text;
+          row.appendChild(bubble);
+        }
+
+        transcriptEl.appendChild(row);
+        transcriptEl.scrollTop = transcriptEl.scrollHeight;
+      }
+
+      function syncModeUi(state) {
+        if (!state) return;
+        currentMode = state.mode || 'wake_word';
+        pttArmed = Boolean(state.pttArmed);
+        selectMode.value = currentMode;
+
+        if (Array.isArray(state.wakeWords) && state.wakeWords.length > 0) {
+          inputWakeWords.value = state.wakeWords.join(', ');
+        }
+
+        wakeWordGroup.classList.toggle('hidden', currentMode !== 'wake_word');
+        pttGroup.classList.toggle('hidden', currentMode !== 'push_to_talk');
+        btnArmPtt.textContent = pttArmed ? 'Armed — Speak Now!' : 'Arm Next Spoken Turn';
+        btnArmPtt.className = pttArmed ? 'success' : 'warn';
+
+        if (currentMode === 'wake_word') {
+          assistantStatusEl.textContent = `Wake-word mode active (${inputWakeWords.value}). Echo suppression enabled.`;
+        } else if (currentMode === 'push_to_talk') {
+          assistantStatusEl.textContent = pttArmed
+            ? 'Push-to-Talk armed: your next spoken sentence will trigger the AI.'
+            : 'Push-to-Talk mode: click "Arm Next Spoken Turn" or type below.';
+        } else {
+          assistantStatusEl.textContent = 'Auto-Reply mode active (echo & cooldown suppression enabled).';
+        }
+      }
+
+      function updateAudioButton() {
+        if (!client.audioUnlocked) {
+          btnAudioToggle.textContent = 'Enable Audio';
+          btnAudioToggle.className = 'success';
+        } else if (client.isMuted) {
+          btnAudioToggle.textContent = 'Unmute Audio';
+          btnAudioToggle.className = 'warn';
+        } else {
+          btnAudioToggle.textContent = 'Mute Audio';
+          btnAudioToggle.className = '';
+        }
+      }
+
+      btnAudioToggle.addEventListener('click', async () => {
+        if (!client.audioUnlocked) {
+          await client.unlockAudio();
+          client.setMuted(false);
+        } else {
+          client.setMuted(!client.isMuted);
+        }
+        updateAudioButton();
+      });
+
+      btnInterrupt.addEventListener('click', () => {
+        client.interrupt();
+        assistantStatusEl.textContent = 'Playback interrupted.';
+      });
+
+      selectMode.addEventListener('change', () => {
+        client.sendSettings({ mode: selectMode.value });
+      });
+
+      btnSaveWake.addEventListener('click', () => {
+        client.sendSettings({ mode: 'wake_word', wakeWords: inputWakeWords.value });
+      });
+
+      btnArmPtt.addEventListener('click', () => {
+        client.sendSettings({ mode: 'push_to_talk', pttArmed: !pttArmed });
+      });
+
+      function sendTyped() {
+        const text = textInput.value.trim();
+        if (!text) return;
+        if (!client.isRegistered) {
+          appendMessage({ role: 'system', text: 'Not connected to meeting session yet.' });
+          return;
+        }
+        client.sendText(text, currentUserName);
+        textInput.value = '';
+      }
+
+      btnSend.addEventListener('click', sendTyped);
+      textInput.addEventListener('keydown', (event) => {
+        if (event.key === 'Enter' && !event.shiftKey) {
+          event.preventDefault();
+          sendTyped();
+        }
+      });
+
+      btnStartRtms.addEventListener('click', async () => {
+        if (!zoomReady || typeof zoomSdk === 'undefined') {
+          appendMessage({ role: 'system', text: 'Open this app inside a Zoom meeting to start RTMS.' });
+          return;
+        }
+        try {
+          await zoomSdk.startRTMS();
+          setBadge(rtmsBadge, 'RTMS: Starting...', 'warn');
+        } catch (err) {
+          appendMessage({ role: 'system', text: `Start RTMS failed: ${err?.message || err}` });
+        }
+      });
+
+      btnStopRtms.addEventListener('click', async () => {
+        if (!zoomReady || typeof zoomSdk === 'undefined') return;
+        try {
+          await zoomSdk.stopRTMS();
+          setBadge(rtmsBadge, 'RTMS: Stopping...', 'warn');
+        } catch (err) {
+          appendMessage({ role: 'system', text: `Stop RTMS failed: ${err?.message || err}` });
+        }
+      });
+
+      client.onConnected = () => setBadge(wsBadge, 'Authenticating...', 'warn');
+      client.onDisconnected = () => setBadge(wsBadge, 'Reconnecting...', 'err');
+      client.onRegistered = () => setBadge(wsBadge, 'Connected', 'ok');
+
+      client.onStateReceived = (state) => {
+        syncModeUi(state);
+        if (Array.isArray(state?.messages) && transcriptEl.querySelector('.placeholder') && state.messages.length > 0) {
+          state.messages.forEach((m) => appendMessage(m));
+        }
+      };
+
+      client.onTranscriptReceived = (payload) => {
+        if (!payload?.message) return;
+        appendMessage({
+          role: 'user',
+          speaker: payload.message.speaker,
+          text: payload.message.text,
+          timestamp: payload.message.timestamp,
+          sentenceKey: payload.sentenceKey,
+          suppressedReason: payload.willReply ? null : payload.suppressedReason
+        });
+      };
+
+      client.onUserMessageReceived = (msg) => {
+        appendMessage({
+          role: 'user',
+          speaker: msg.speaker,
+          text: msg.text,
+          timestamp: msg.timestamp
+        });
+      };
+
+      client.onTextReceived = (text, metadata) => {
+        appendMessage({
+          role: 'assistant',
+          speaker: 'AI Assistant',
+          text,
+          timestamp: metadata.timestamp || Date.now()
+        });
+      };
+
+      client.onStatusChange = (msg) => {
+        if (msg.type === 'rtms_status') {
+          if (msg.status === 'started') setBadge(rtmsBadge, 'RTMS: Live', 'ok');
+          if (msg.status === 'stopped') setBadge(rtmsBadge, 'RTMS: Stopped', '');
+          return;
+        }
+        if (msg.status === 'thinking') {
+          assistantStatusEl.textContent = 'AI is thinking...';
+          btnInterrupt.disabled = false;
+        } else if (msg.status === 'tts_unavailable') {
+          assistantStatusEl.textContent = msg.message || 'Audio synthesis unavailable.';
+        } else if (msg.status === 'idle' && !client.isModelSpeaking) {
+          btnInterrupt.disabled = true;
+          syncModeUi({ mode: currentMode, pttArmed });
+        }
+      };
+
+      client.onSpeakingChange = (speaking) => {
+        speakingIndicatorEl.textContent = speaking ? '🔊 Speaking...' : '';
+        btnInterrupt.disabled = !speaking;
+      };
+
+      client.onInterrupted = () => {
+        speakingIndicatorEl.textContent = '';
+        btnInterrupt.disabled = true;
+      };
+
+      client.onError = (message) => {
+        appendMessage({ role: 'system', text: String(message || 'Connection error') });
+      };
+
+      async function initZoomAndConnect() {
+        let meetingUUID = '';
+        let userID = '';
+
+        if (typeof zoomSdk !== 'undefined') {
+          try {
+            await zoomSdk.config({
+              version: '0.16.31',
+              capabilities: [
+                'getMeetingContext',
+                'getUserContext',
+                'getMeetingUUID',
+                'startRTMS',
+                'stopRTMS',
+                'onRTMSStatusChange'
+              ]
+            });
+            zoomReady = true;
+
+            const [meetingUuidRes, userCtxRes] = await Promise.all([
+              zoomSdk.getMeetingUUID().catch(() => null),
+              zoomSdk.getUserContext().catch(() => null)
+            ]);
+
+            meetingUUID = meetingUuidRes?.meetingUUID || '';
+            userID = userCtxRes?.participantUUID || userCtxRes?.participantId || '';
+            currentUserName = userCtxRes?.screenName || 'Participant';
+
+            if (typeof zoomSdk.onRTMSStatusChange === 'function') {
+              zoomSdk.onRTMSStatusChange((event) => {
+                const status = event?.status || event?.state || 'Updated';
+                setBadge(rtmsBadge, `RTMS: ${status}`, status === 'started' ? 'ok' : 'warn');
+              });
+            }
+          } catch (err) {
+            console.warn('[ZoomSDK] Running outside Zoom client or SDK config failed:', err);
+          }
+        }
+
+        // Dev fallback via URL query params (?meetingUUID=...&userID=...)
+        const params = new URLSearchParams(window.location.search);
+        if (!meetingUUID) meetingUUID = params.get('meetingUUID') || 'local-dev-meeting';
+        if (!userID) userID = params.get('userID') || 'local-dev-user';
+
+        client.setRegistration({
+          meetingUUID,
+          userID,
+          token: WS_AUTH_TOKEN
         });
 
-        window.supportedApis = await zoomSdk.getSupportedJsApis();
-        window.runningContext = await zoomSdk.getRunningContext();
-        window.meetingContext = await zoomSdk.getMeetingContext();
-        window.userContext = await zoomSdk.getUserContext();
-        window.meetingUUID = await zoomSdk.getMeetingUUID();
-        window.appContext = await zoomSdk.getAppContext();
-
-      } catch (error) {
-        console.error('Error retrieving Zoom context:', error);
-
+        try {
+          await client.connect();
+        } catch (err) {
+          console.error('[AudioClient] Initial connect failed; will auto-reconnect:', err);
+        }
       }
+
+      window.addEventListener('load', () => {
+        updateAudioButton();
+        initZoomAndConnect();
+      });
+
+      window.addEventListener('beforeunload', () => {
+        client.close();
+      });
     })();
-
-  </script>
-  <script>
-
-    // Use the WebSocket URL provided by the server
-    const SERVER_WEBSOCKET_URL = "<%= websocket_url %>";
-    console.log("SERVER_WEBSOCKET_URL:", SERVER_WEBSOCKET_URL);
-  </script>
-
-  <!-- The following scripts are external and will be loaded by the browser -->
-  <!-- They are also provided as separate immersive blocks below for completeness -->
-  <script src="audio-client.js"></script>
-
-  <script>
-    // Initialize variables
-    const client = new AudioClient(SERVER_WEBSOCKET_URL);
-  
-
-    let runningContext;
-
-
-    // DOM elements
-    const transcriptContainer = document.getElementById('transcript');
-    const transcriptOuterContainer = document.getElementById('transcript-container');
-    const textInput = document.getElementById('text-input');
-    // Removed notesContent and notesOuterContainer as they are no longer separate
-    // Removed sidebar and toggleNotesSidebarButton as they are no longer needed
-
-    // Function to add message to transcript (for user and assistant messages)
-    function addMessage(text, sender) {
-      const initialPlaceholder = transcriptContainer.querySelector('.message-placeholder');
-      if (initialPlaceholder && (transcriptContainer.children.length === 1 || text !== "...")) {
-        initialPlaceholder.remove();
-      }
-
-      // Create a wrapper div for alignment
-      const messageWrapper = document.createElement('div');
-      messageWrapper.className = 'message-wrapper';
-
-      const messageElement = document.createElement('div');
-      messageElement.className = 'message-bubble transcript-message';
-
-      if (sender === 'user') {
-        // User messages on the right
-        messageWrapper.classList.add('justify-end');
-        messageElement.classList.add('user-message');
-      } else {
-        // Agent messages on the left
-        messageWrapper.classList.add('justify-start');
-        messageElement.classList.add('assistant-message');
-      }
-
-      let processedText = text;
-      processedText = processedText
-        .replace(/&/g, "&amp;")
-        .replace(/</g, "&lt;")
-        .replace(/>/g, "&gt;")
-        .replace(/"/g, "&quot;")
-        .replace(/'/g, "&#039;");
-      messageElement.innerHTML = processedText;
-
-      if (text === "..." && sender === "user") {
-        messageElement.style.opacity = '0.6';
-        messageElement.style.fontStyle = 'italic';
-      }
-
-      // Append the message element to its wrapper, then the wrapper to the container
-      messageWrapper.appendChild(messageElement);
-      transcriptContainer.appendChild(messageWrapper);
-      transcriptOuterContainer.scrollTop = transcriptOuterContainer.scrollHeight;
-    }
-
-    // Function to add content (notes) directly to the transcript
-    function addNoteToTranscript(htmlContent) {
-      const initialPlaceholder = transcriptContainer.querySelector('.message-placeholder');
-      if (initialPlaceholder) {
-        initialPlaceholder.remove();
-      }
-
-      const noteWrapper = document.createElement('div');
-      noteWrapper.className = 'note-wrapper';
-
-      const noteElement = document.createElement('div');
-      noteElement.className = 'note-message';
-
-      const tempDiv = document.createElement('div');
-      tempDiv.innerHTML = htmlContent;
-      // Remove any scripts from the incoming HTML for security
-      Array.from(tempDiv.querySelectorAll('script')).forEach(el => el.remove());
-      noteElement.innerHTML = tempDiv.innerHTML;
-
-      noteWrapper.appendChild(noteElement);
-      transcriptContainer.appendChild(noteWrapper);
-      transcriptOuterContainer.scrollTop = transcriptOuterContainer.scrollHeight;
-    }
-
-
-
-    // Event listener for Enter key on text input
-    textInput.addEventListener('keydown', (event) => {
-      // Check if Enter key is pressed AND Shift key is NOT pressed
-      if (event.key === 'Enter' && !event.shiftKey) {
-        event.preventDefault(); // Prevent default new line behavior
-        const text = textInput.value.trim();
-        if (text) {
-          // This is where the message is added
-          addMessage(text, "user");
-
-          // After user sends a message, reset agent's streaming state
-          currentResponseText = '';
-          isFirstChunk = true;
-          lastAssistantMessageElement = null;
-
-          if (!client.isConnected) {
-            console.error('Client not connected. Cannot send text.');
-            return;
-          }
-
-          client.ws.send(JSON.stringify({
-            type: 'text',
-            data: text
-          }));
-          textInput.value = '';
-        }
-      }
-      // If Shift + Enter, allow default behavior (add new line)
-    });
-
-
-
-
-
-
-    // Initialize audio client and set up callbacks
-    async function initializeClient() {
-      try {
-
-        let currentResponseText = '';
-        let isFirstChunk = true;
-        let lastAssistantMessageElement = null; // Keep track of the last assistant message element
-
-        client.onConnected = () => {
-          zoomSdk.stopRTMS();
-          console.log('[Client] Client ready: WebSocket connection established.');
-
-          client.ws.send(JSON.stringify({
-            type: 'client_ready',
-            data: {
-              meeting_uuid: window.meetingUUID.meetingUUID,
-              meeting_id: window.meetingContext.meetingID,
-              topic: window.meetingContext.meetingTopic
-            }
-          }));
-        };
-
-        client.onReady = async () => {
-          console.log('[Client] Backend ready for RTMS.');
-          
-          zoomSdk.onReady = async () => {
-            const started = await zoomSdk.startRTMS();
-            console.log("RTMS started")
-          }
-        };
-
-
-        client.onAudioReceived = (audioData) => {
-          // Audio playback handled in audio-client.js
-        };
-
-        client.onTextReceived = (text) => {
-          if (text && text.trim()) {
-            // Remove "..." placeholder if it exists and is the last user message
-            const userMessages = transcriptContainer.querySelectorAll('.justify-end .message-bubble[style*="opacity: 0.6"]');
-            if (userMessages.length > 0 && userMessages[userMessages.length - 1].textContent === '...') {
-              userMessages[userMessages.length - 1].parentElement.parentElement.remove(); // Remove the wrapper div
-            }
-
-            if (isFirstChunk) {
-              // For the first chunk, add a new message element
-              addMessage(text, "assistant");
-              // Get the newly added message element (it will be the last child of transcriptContainer's last child)
-              const lastMessageWrapper = transcriptContainer.lastChild;
-              if (lastMessageWrapper) {
-                lastAssistantMessageElement = lastMessageWrapper.querySelector('div');
-              }
-              currentResponseText = text;
-              isFirstChunk = false;
-            } else {
-              // For subsequent chunks, append to the last assistant message
-              if (lastAssistantMessageElement) {
-                currentResponseText += text; // Append directly
-                let updatedText = currentResponseText;
-                updatedText = updatedText
-                  .replace(/&/g, "&amp;")
-                  .replace(/</g, "&lt;")
-                  .replace(/>/g, "&gt;")
-                  .replace(/"/g, "&quot;")
-                  .replace(/'/g, "&#039;");
-                lastAssistantMessageElement.innerHTML = updatedText;
-              } else {
-                // Fallback if lastAssistantMessageElement somehow got lost
-                addMessage(text, "assistant");
-                const lastMessageWrapper = transcriptContainer.lastChild;
-                if (lastMessageWrapper) {
-                  lastAssistantMessageElement = lastMessageWrapper.querySelector('div');
-                }
-                currentResponseText = text;
-              }
-            }
-            transcriptOuterContainer.scrollTop = transcriptOuterContainer.scrollHeight;
-          }
-        };
-
-        // Changed from onHtmlReceived to call addNoteToTranscript
-        client.onHtmlReceived = (html) => {
-          if (html && html.trim()) {
-            addNoteToTranscript(html); // Call the new function
-          }
-        };
-
-
-
-
-        client.onError = (error) => {
-          console.error('Client error:', error);
-          addMessage("Sorry, I encountered an error. Please try again.", "assistant");
-          currentResponseText = ''; isFirstChunk = true;
-          lastAssistantMessageElement = null; // Reset on error
-          if (client.ws && client.ws.readyState !== WebSocket.OPEN) {
-            console.log('Connection lost due to error, attempting to reconnect...');
-            setTimeout(() => { if (!client.isConnected) initializeClient(); }, 2000);
-          }
-        };
-
-
-        await client.connect();
-        console.log('[Client] client.connect() resolved.');
-
-      } catch (error) {
-        console.error('[Client] Failed to initialize client:', error);
-        addMessage("Sorry, I'm having trouble connecting. Please try again later.", "assistant");
-      }
-    };
-
-    // Initialize on page load
-    let hasInitialized = false;
-    window.addEventListener('load', async () => {
-      if (!hasInitialized) {
-        hasInitialized = true;
-        console.log('[Load] Initializing client for the first time');
-        await initializeClient(); // Await client initialization
-
-        if (transcriptContainer.children.length === 0) {
-          const placeholder = document.createElement('div');
-          placeholder.className = 'message-placeholder';
-          placeholder.textContent = 'You may speak to begin.';
-          transcriptContainer.appendChild(placeholder);
-        }
-
-        console.log('[Load] Auto-start recording no longer handled by frontend for initial standby. Backend will send status.');
-      }
-    });
-
-    // Add unload handler to gracefully close WebSocket connection
-    window.addEventListener('beforeunload', () => {
-      console.log('Page unloading, closing connection');
-      client.close();
-    });
   </script>
 </body>
 

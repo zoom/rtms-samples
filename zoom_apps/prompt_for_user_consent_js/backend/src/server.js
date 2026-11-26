@@ -9,7 +9,7 @@ require('dotenv').config({ path: path.join(__dirname, '../../.env') });
 
 const config = require('./config');
 const { getRedisClient } = require('./utils/redis');
-const { securityHeaders } = require('./middleware/security');
+const { securityHeaders, extractZoomContext } = require('./middleware/security');
 
 // Import routes
 const consentRoutes = require('./routes/consent');
@@ -39,9 +39,10 @@ const wsServer = new WebSocketServer(io);
 // Pass WebSocket server to routes that need it
 consentRoutes.setWebSocketServer(wsServer);
 participantRoutes.setWebSocketServer(wsServer);
+rtmsRoutes.setWebSocketServer(wsServer);
 webhookRoutes.setWebSocketServer(wsServer);
 
-// Middleware
+// Base Middleware
 app.use(cors({
   origin: process.env.PUBLIC_URL || 'http://localhost:3001',
   credentials: true
@@ -52,12 +53,13 @@ app.use(express.json({
 app.use(express.urlencoded({ extended: true }));
 app.use(securityHeaders);
 
-// Session configuration
+// Session configuration (must be mounted BEFORE routes!)
 async function setupSession() {
+  let sessionMiddleware;
   try {
     const redisClient = await getRedisClient();
 
-    app.use(session({
+    sessionMiddleware = session({
       store: new RedisStore({ client: redisClient }),
       secret: config.sessionSecret,
       resave: false,
@@ -65,97 +67,98 @@ async function setupSession() {
       cookie: {
         secure: process.env.NODE_ENV === 'production',
         httpOnly: true,
+        sameSite: process.env.NODE_ENV === 'production' ? 'none' : 'lax',
         maxAge: 1000 * 60 * 60 // 1 hour
       }
-    }));
+    });
 
     console.log('Session middleware configured with Redis store');
   } catch (error) {
     console.error('Failed to setup Redis session store:', error);
     console.log('Falling back to MemoryStore (not suitable for production)');
 
-    app.use(session({
+    sessionMiddleware = session({
       secret: config.sessionSecret,
       resave: false,
       saveUninitialized: false,
       cookie: {
         secure: process.env.NODE_ENV === 'production',
         httpOnly: true,
+        sameSite: process.env.NODE_ENV === 'production' ? 'none' : 'lax',
         maxAge: 1000 * 60 * 60
       }
-    }));
+    });
   }
+
+  app.use(sessionMiddleware);
+  // Share Express session with Socket.IO handshake for context verification
+  io.engine.use(sessionMiddleware);
+  app.use(extractZoomContext);
 }
 
-// API Routes
-app.use('/api/consent', consentRoutes);
-app.use('/api/participants', participantRoutes);
-app.use('/api/rtms', rtmsRoutes);
-app.use('/api/zoomapp', zoomappRoutes);
-app.use('/api/webhooks', webhookRoutes);
+function mountRoutes() {
+  // API Routes
+  app.use('/api/consent', consentRoutes);
+  app.use('/api/participants', participantRoutes);
+  app.use('/api/rtms', rtmsRoutes);
+  app.use('/api/zoomapp', zoomappRoutes);
+  app.use('/api/webhooks', webhookRoutes);
 
-// Health check
-app.get('/health', (req, res) => {
-  res.json({
-    status: 'ok',
-    timestamp: new Date().toISOString(),
-    uptime: process.uptime()
+  // Health check
+  app.get('/health', (req, res) => {
+    res.json({
+      status: 'ok',
+      timestamp: new Date().toISOString(),
+      uptime: process.uptime()
+    });
   });
-});
 
-// Serve frontend static files
-// In development: Frontend runs on separate port (handled by proxy in docker-compose)
-// In production: Serve built files
-if (process.env.NODE_ENV === 'production') {
-  const frontendBuildPath = path.join(__dirname, '../../frontend/build');
-  app.use(express.static(frontendBuildPath));
+  // Serve frontend static files or proxy once (never instantiate proxy per request)
+  if (process.env.NODE_ENV === 'production') {
+    const frontendBuildPath = path.join(__dirname, '../../frontend/build');
+    app.use(express.static(frontendBuildPath));
 
-  // Catch-all route for React Router (only in production)
-  app.get('*', (req, res, next) => {
-    // Skip API routes
-    if (req.path.startsWith('/api')) {
-      return next();
-    }
-    res.sendFile(path.join(frontendBuildPath, 'index.html'));
-  });
-} else {
-  // In development, proxy to frontend dev server for non-API routes
-  const { createProxyMiddleware } = require('http-proxy-middleware');
+    app.get('*', (req, res, next) => {
+      if (req.path.startsWith('/api')) {
+        return next();
+      }
+      res.sendFile(path.join(frontendBuildPath, 'index.html'));
+    });
+  } else {
+    const { createProxyMiddleware } = require('http-proxy-middleware');
+    const frontendProxy = createProxyMiddleware({
+      target: process.env.FRONTEND_URL || 'http://frontend:3000',
+      changeOrigin: true,
+      ws: true,
+      logLevel: 'warn'
+    });
 
-  app.use(
-    '/',
-    (req, res, next) => {
-      // Only proxy non-API routes
+    app.use('/', (req, res, next) => {
       if (req.path.startsWith('/api') || req.path.startsWith('/health')) {
         return next();
       }
+      return frontendProxy(req, res, next);
+    });
+  }
 
-      // Proxy to frontend dev server
-      createProxyMiddleware({
-        target: process.env.FRONTEND_URL || 'http://frontend:3000',
-        changeOrigin: true,
-        ws: true,
-        logLevel: 'debug'
-      })(req, res, next);
-    }
-  );
-}
-
-// Error handling middleware
-app.use((err, req, res, next) => {
-  console.error('Error:', err);
-  res.status(err.status || 500).json({
-    error: process.env.NODE_ENV === 'production'
-      ? 'Internal server error'
-      : err.message,
-    ...(process.env.NODE_ENV !== 'production' && { stack: err.stack })
+  // Error handling middleware
+  app.use((err, req, res, _next) => {
+    console.error('Error:', err);
+    res.status(err.status || 500).json({
+      error: process.env.NODE_ENV === 'production'
+        ? 'Internal server error'
+        : err.message,
+      ...(process.env.NODE_ENV !== 'production' && { stack: err.stack })
+    });
   });
-});
+}
 
 // Start server
 async function startServer() {
   try {
+    // Initialize session middleware BEFORE mounting API and frontend routes
     await setupSession();
+    mountRoutes();
 
     const PORT = config.port;
     server.listen(PORT, () => {
@@ -200,6 +203,8 @@ async function startServer() {
   }
 }
 
-startServer();
+if (require.main === module) {
+  startServer();
+}
 
-module.exports = { app, server, io };
+module.exports = { app, server, io, setupSession, mountRoutes, startServer };

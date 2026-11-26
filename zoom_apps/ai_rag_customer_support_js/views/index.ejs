@@ -1,199 +1,1182 @@
 <!DOCTYPE html>
-<html>
-  <head>
-    <title>Zoom App Context Information</title>
-    <script src="https://appssdk.zoom.us/sdk.js"></script>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>Support Agent Assist — AI RAG</title>
+  <script src="https://appssdk.zoom.us/sdk.js"></script>
+  <style>
+    :root {
+      --bg: #f4f6f9;
+      --surface: #ffffff;
+      --surface-alt: #f8fafc;
+      --border: #dde3ec;
+      --ink: #132033;
+      --muted: #5a6a80;
+      --primary: #0b5cff;
+      --primary-soft: #e9f1ff;
+      --customer: #0f766e;
+      --customer-soft: #e6f6f4;
+      --agent: #4338ca;
+      --agent-soft: #eef2ff;
+      --high: #15803d;
+      --high-bg: #dcfce7;
+      --med: #b45309;
+      --med-bg: #fef3c7;
+      --low: #b91c1c;
+      --low-bg: #fee2e2;
+      --radius: 10px;
+      --shadow: 0 2px 10px rgba(19, 32, 51, 0.06);
+    }
 
-    <style>
-      body {
-        font-family: Arial, sans-serif;
-        padding: 20px;
+    * { box-sizing: border-box; }
+
+    body {
+      margin: 0;
+      font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
+      background: var(--bg);
+      color: var(--ink);
+      font-size: 13px;
+      line-height: 1.45;
+    }
+
+    .app {
+      max-width: 960px;
+      margin: 0 auto;
+      padding: 12px;
+      display: flex;
+      flex-direction: column;
+      gap: 10px;
+    }
+
+    .topbar {
+      background: var(--surface);
+      border: 1px solid var(--border);
+      border-radius: var(--radius);
+      padding: 12px 14px;
+      box-shadow: var(--shadow);
+      display: flex;
+      flex-wrap: wrap;
+      align-items: center;
+      justify-content: space-between;
+      gap: 10px;
+    }
+
+    .brand h1 {
+      margin: 0;
+      font-size: 16px;
+      font-weight: 700;
+      letter-spacing: -0.01em;
+    }
+
+    .status-row {
+      display: flex;
+      flex-wrap: wrap;
+      align-items: center;
+      gap: 8px;
+      margin-top: 4px;
+    }
+
+    .pill {
+      display: inline-flex;
+      align-items: center;
+      gap: 5px;
+      font-size: 11px;
+      font-weight: 600;
+      padding: 2px 8px;
+      border-radius: 999px;
+      background: var(--surface-alt);
+      border: 1px solid var(--border);
+      color: var(--muted);
+    }
+
+    .pill::before {
+      content: '';
+      width: 7px;
+      height: 7px;
+      border-radius: 50%;
+      background: #94a3b8;
+    }
+
+    .pill.ok { background: var(--high-bg); border-color: #bbf7d0; color: var(--high); }
+    .pill.ok::before { background: var(--high); }
+    .pill.warn { background: var(--med-bg); border-color: #fde68a; color: var(--med); }
+    .pill.warn::before { background: var(--med); }
+    .pill.err { background: var(--low-bg); border-color: #fecaca; color: var(--low); }
+    .pill.err::before { background: var(--low); }
+
+    .rtms-controls {
+      display: flex;
+      gap: 6px;
+      flex-wrap: wrap;
+    }
+
+    button {
+      font: inherit;
+      font-weight: 600;
+      cursor: pointer;
+      border-radius: 7px;
+      border: 1px solid var(--border);
+      background: var(--surface);
+      color: var(--ink);
+      padding: 6px 10px;
+      font-size: 12px;
+      transition: background 120ms, border-color 120ms;
+    }
+
+    button:hover:not(:disabled) {
+      border-color: var(--primary);
+      background: var(--primary-soft);
+    }
+
+    button:disabled {
+      opacity: 0.5;
+      cursor: not-allowed;
+    }
+
+    .btn-primary {
+      background: var(--primary);
+      border-color: var(--primary);
+      color: #fff;
+    }
+
+    .btn-primary:hover:not(:disabled) {
+      background: #0047d4;
+      border-color: #0047d4;
+      color: #fff;
+    }
+
+    .btn-danger {
+      color: var(--low);
+      border-color: #fecaca;
+      background: #fff5f5;
+    }
+
+    .btn-danger:hover:not(:disabled) {
+      background: var(--low-bg);
+      border-color: var(--low);
+    }
+
+    .btn-xs {
+      padding: 3px 7px;
+      font-size: 11px;
+    }
+
+    .search-bar {
+      background: var(--surface);
+      border: 1px solid var(--border);
+      border-radius: var(--radius);
+      padding: 10px 12px;
+      box-shadow: var(--shadow);
+      display: flex;
+      flex-direction: column;
+      gap: 8px;
+    }
+
+    .search-form {
+      display: flex;
+      gap: 8px;
+    }
+
+    .search-form input {
+      flex: 1;
+      min-width: 0;
+      padding: 8px 10px;
+      border-radius: 7px;
+      border: 1px solid var(--border);
+      font: inherit;
+      color: var(--ink);
+      background: var(--surface-alt);
+    }
+
+    .search-form input:focus {
+      outline: 2px solid var(--primary);
+      border-color: var(--primary);
+      background: #fff;
+    }
+
+    .kb-bar {
+      display: flex;
+      flex-wrap: wrap;
+      align-items: center;
+      justify-content: space-between;
+      gap: 8px;
+      font-size: 11.5px;
+      color: var(--muted);
+    }
+
+    .kb-docs-drawer {
+      display: none;
+      margin-top: 4px;
+      padding-top: 8px;
+      border-top: 1px solid var(--border);
+    }
+
+    .kb-docs-drawer.open { display: block; }
+
+    .kb-doc-list {
+      display: flex;
+      flex-wrap: wrap;
+      gap: 6px;
+    }
+
+    .kb-doc-chip {
+      font-size: 11px;
+      background: var(--surface-alt);
+      border: 1px solid var(--border);
+      border-radius: 6px;
+      padding: 3px 8px;
+      color: var(--ink);
+    }
+
+    .tabs {
+      display: flex;
+      gap: 6px;
+      border-bottom: 1px solid var(--border);
+      padding-bottom: 6px;
+    }
+
+    .tab {
+      background: transparent;
+      border-color: transparent;
+      color: var(--muted);
+      padding: 6px 12px;
+    }
+
+    .tab.active {
+      background: var(--primary-soft);
+      border-color: #bfd6ff;
+      color: var(--primary);
+    }
+
+    .badge-count {
+      display: inline-block;
+      margin-left: 5px;
+      padding: 0 6px;
+      border-radius: 999px;
+      font-size: 10.5px;
+      background: rgba(19, 32, 51, 0.08);
+      color: inherit;
+    }
+
+    .layout {
+      display: grid;
+      grid-template-columns: 1.35fr 1fr;
+      gap: 10px;
+      align-items: start;
+    }
+
+    .panel {
+      background: var(--surface);
+      border: 1px solid var(--border);
+      border-radius: var(--radius);
+      padding: 12px;
+      box-shadow: var(--shadow);
+      min-width: 0;
+    }
+
+    .panel-header {
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      gap: 8px;
+      margin-bottom: 10px;
+    }
+
+    .panel-title {
+      margin: 0;
+      font-size: 13px;
+      font-weight: 700;
+      text-transform: uppercase;
+      letter-spacing: 0.04em;
+      color: var(--muted);
+    }
+
+    .card-list, .transcript-list {
+      display: flex;
+      flex-direction: column;
+      gap: 10px;
+      max-height: 540px;
+      overflow-y: auto;
+    }
+
+    .empty {
+      color: var(--muted);
+      text-align: center;
+      padding: 24px 12px;
+      background: var(--surface-alt);
+      border: 1px dashed var(--border);
+      border-radius: 8px;
+    }
+
+    .pending-banner {
+      display: none;
+      padding: 8px 10px;
+      border-radius: 8px;
+      background: var(--primary-soft);
+      color: var(--primary);
+      font-size: 12px;
+      font-weight: 600;
+      margin-bottom: 10px;
+    }
+
+    .pending-banner.show { display: block; }
+
+    .suggestion-card {
+      border: 1px solid var(--border);
+      border-left: 4px solid var(--primary);
+      border-radius: 8px;
+      padding: 11px 12px;
+      background: var(--surface);
+    }
+
+    .suggestion-card.pinned {
+      border-left-color: #d97706;
+      background: #fffdf7;
+    }
+
+    .suggestion-meta {
+      display: flex;
+      flex-wrap: wrap;
+      align-items: center;
+      justify-content: space-between;
+      gap: 6px;
+      margin-bottom: 6px;
+      font-size: 11px;
+      color: var(--muted);
+    }
+
+    .conf-badge {
+      padding: 2px 7px;
+      border-radius: 999px;
+      font-weight: 700;
+      font-size: 10.5px;
+      text-transform: uppercase;
+    }
+
+    .conf-high { background: var(--high-bg); color: var(--high); }
+    .conf-medium { background: var(--med-bg); color: var(--med); }
+    .conf-low { background: var(--low-bg); color: var(--low); }
+
+    .question-box {
+      font-weight: 600;
+      color: var(--ink);
+      margin-bottom: 8px;
+      padding: 6px 8px;
+      background: var(--surface-alt);
+      border-radius: 6px;
+      font-size: 12.5px;
+    }
+
+    .answer-bullets {
+      margin: 0 0 8px 0;
+      padding-left: 18px;
+    }
+
+    .answer-bullets li {
+      margin-bottom: 4px;
+    }
+
+    .card-actions {
+      display: flex;
+      flex-wrap: wrap;
+      align-items: center;
+      justify-content: space-between;
+      gap: 6px;
+      padding-top: 8px;
+      border-top: 1px solid #edf1f7;
+    }
+
+    .card-action-btns {
+      display: flex;
+      gap: 6px;
+    }
+
+    .citations-details {
+      margin-top: 8px;
+      border-top: 1px dashed var(--border);
+      padding-top: 6px;
+    }
+
+    .citations-details summary {
+      cursor: pointer;
+      font-size: 11.5px;
+      font-weight: 600;
+      color: var(--primary);
+      user-select: none;
+    }
+
+    .citation-item {
+      margin-top: 6px;
+      padding: 7px 8px;
+      border-radius: 6px;
+      background: var(--surface-alt);
+      border: 1px solid var(--border);
+      font-size: 11.5px;
+    }
+
+    .citation-head {
+      display: flex;
+      justify-content: space-between;
+      font-weight: 600;
+      color: var(--ink);
+      margin-bottom: 3px;
+    }
+
+    .citation-snippet {
+      color: var(--muted);
+      margin: 0;
+    }
+
+    .turn-row {
+      padding: 8px 10px;
+      border-radius: 8px;
+      border: 1px solid var(--border);
+      border-left: 3px solid var(--customer);
+      background: var(--surface-alt);
+    }
+
+    .turn-row.agent {
+      border-left-color: var(--agent);
+      background: #fafaff;
+    }
+
+    .turn-head {
+      display: flex;
+      flex-wrap: wrap;
+      align-items: center;
+      justify-content: space-between;
+      gap: 6px;
+      margin-bottom: 4px;
+      font-size: 11px;
+    }
+
+    .speaker-name {
+      font-weight: 700;
+      color: var(--ink);
+    }
+
+    .role-chip {
+      font-size: 10.5px;
+      font-weight: 700;
+      padding: 1px 7px;
+      border-radius: 999px;
+      border: 1px solid transparent;
+      text-transform: uppercase;
+    }
+
+    .role-chip.customer {
+      background: var(--customer-soft);
+      color: var(--customer);
+      border-color: #b7e4df;
+    }
+
+    .role-chip.agent {
+      background: var(--agent-soft);
+      color: var(--agent);
+      border-color: #c7d2fe;
+    }
+
+    .turn-text {
+      margin: 0 0 6px;
+      font-size: 12.5px;
+      word-break: break-word;
+    }
+
+    .turn-foot {
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      font-size: 10.5px;
+      color: var(--muted);
+    }
+
+    .mobile-only { display: none; }
+
+    @media (max-width: 720px) {
+      .layout { grid-template-columns: 1fr; }
+      .mobile-only { display: flex; }
+      .panel[data-pane].hidden-mobile { display: none; }
+    }
+  </style>
+</head>
+<body>
+  <div class="app">
+    <header class="topbar">
+      <div class="brand">
+        <h1>Support Agent Assist</h1>
+        <div class="status-row">
+          <span id="wsStatus" class="pill warn">Connecting...</span>
+          <span id="rtmsStatus" class="pill">RTMS Idle</span>
+          <span id="agentIdentity" class="pill">Role: Agent</span>
+        </div>
+      </div>
+      <div class="rtms-controls">
+        <button id="startRtmsBtn" class="btn-primary" type="button" disabled>Start RTMS</button>
+        <button id="stopRtmsBtn" class="btn-danger" type="button" disabled>Stop RTMS</button>
+      </div>
+    </header>
+
+    <section class="search-bar" aria-label="Manual Knowledge Base Search">
+      <form id="searchForm" class="search-form">
+        <input
+          id="searchInput"
+          type="text"
+          placeholder="Search knowledge base manually (e.g., refund policy, email setup)..."
+          autocomplete="off"
+        />
+        <button id="searchBtn" class="btn-primary" type="submit">Search KB</button>
+      </form>
+      <div class="kb-bar">
+        <span id="kbSummary">Loading knowledge base...</span>
+        <div style="display:flex;gap:6px;">
+          <button id="toggleKbDocsBtn" class="btn-xs" type="button">Docs</button>
+          <button id="reloadKbBtn" class="btn-xs" type="button">Reload KB</button>
+        </div>
+      </div>
+      <div id="kbDrawer" class="kb-docs-drawer">
+        <div id="kbDocList" class="kb-doc-list"></div>
+      </div>
+    </section>
+
+    <nav class="tabs mobile-only" aria-label="Views">
+      <button class="tab active" data-tab="suggestions" type="button">
+        Suggestions <span id="tabSuggestionsCount" class="badge-count">0</span>
+      </button>
+      <button class="tab" data-tab="transcript" type="button">
+        Transcript <span id="tabTranscriptCount" class="badge-count">0</span>
+      </button>
+    </nav>
+
+    <div class="layout">
+      <section class="panel" data-pane="suggestions" aria-label="AI Suggestions">
+        <div class="panel-header">
+          <h2 class="panel-title">Grounded Suggestions</h2>
+          <div style="display:flex;gap:6px;align-items:center;">
+            <button id="filterAllBtn" class="btn-xs btn-primary" type="button">All</button>
+            <button id="filterPinnedBtn" class="btn-xs" type="button">Pinned (<span id="pinnedCount">0</span>)</button>
+          </div>
+        </div>
+        <div id="pendingBanner" class="pending-banner">Searching knowledge base...</div>
+        <div id="suggestionsList" class="card-list">
+          <div class="empty">Customer questions will automatically trigger grounded KB answers here, or use the search bar above.</div>
+        </div>
+      </section>
+
+      <section class="panel hidden-mobile" data-pane="transcript" aria-label="Live Transcript">
+        <div class="panel-header">
+          <h2 class="panel-title">Live Transcript</h2>
+          <span style="font-size:11px;color:var(--muted);">Click role chip to toggle</span>
+        </div>
+        <div id="transcriptList" class="transcript-list">
+          <div class="empty">Waiting for live Zoom RTMS transcript...</div>
+        </div>
+      </section>
+    </div>
+  </div>
+
+  <script>
+    const WS_URL = <%- JSON.stringify(websocketUrl) %>;
+    const WS_AUTH_TOKEN = <%- JSON.stringify(typeof wsAuthToken === 'string' ? wsAuthToken : '') %>;
+
+    const state = {
+      ws: null,
+      reconnectAttempts: 0,
+      reconnectTimer: null,
+      zoomContext: null,
+      registered: false,
+      rtmsActive: false,
+      turns: new Map(), // sentenceKey -> turn
+      turnOrder: [],
+      suggestions: [],
+      pinnedIds: new Set(),
+      showPinnedOnly: false,
+      activeMobileTab: 'suggestions',
+      kb: { documents: [], stats: {} }
+    };
+
+    const el = {
+      wsStatus: document.getElementById('wsStatus'),
+      rtmsStatus: document.getElementById('rtmsStatus'),
+      agentIdentity: document.getElementById('agentIdentity'),
+      startRtmsBtn: document.getElementById('startRtmsBtn'),
+      stopRtmsBtn: document.getElementById('stopRtmsBtn'),
+      searchForm: document.getElementById('searchForm'),
+      searchInput: document.getElementById('searchInput'),
+      searchBtn: document.getElementById('searchBtn'),
+      kbSummary: document.getElementById('kbSummary'),
+      kbDrawer: document.getElementById('kbDrawer'),
+      kbDocList: document.getElementById('kbDocList'),
+      toggleKbDocsBtn: document.getElementById('toggleKbDocsBtn'),
+      reloadKbBtn: document.getElementById('reloadKbBtn'),
+      pendingBanner: document.getElementById('pendingBanner'),
+      suggestionsList: document.getElementById('suggestionsList'),
+      transcriptList: document.getElementById('transcriptList'),
+      filterAllBtn: document.getElementById('filterAllBtn'),
+      filterPinnedBtn: document.getElementById('filterPinnedBtn'),
+      pinnedCount: document.getElementById('pinnedCount'),
+      tabSuggestionsCount: document.getElementById('tabSuggestionsCount'),
+      tabTranscriptCount: document.getElementById('tabTranscriptCount')
+    };
+
+    function setPill(node, text, kind = '') {
+      node.textContent = text;
+      node.className = `pill ${kind}`.trim();
+    }
+
+    function formatTime(ts) {
+      const n = Number(ts) || Date.now();
+      const ms = n > 1e14 ? n / 1000 : n;
+      const d = new Date(ms);
+      return Number.isNaN(d.getTime()) ? '' : d.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit', second: '2-digit' });
+    }
+
+    function createNode(tag, className, text) {
+      const node = document.createElement(tag);
+      if (className) node.className = className;
+      if (text != null) node.textContent = text;
+      return node;
+    }
+
+    function sendWs(payload) {
+      if (state.ws && state.ws.readyState === WebSocket.OPEN) {
+        state.ws.send(JSON.stringify(payload));
+        return true;
+      }
+      return false;
+    }
+
+    function sendRegistration() {
+      if (!state.zoomContext) return;
+      sendWs({
+        type: 'register',
+        meetingUUID: state.zoomContext.meetingUUID,
+        userID: String(state.zoomContext.userID),
+        token: WS_AUTH_TOKEN || undefined
+      });
+    }
+
+    function connectWebSocket() {
+      if (state.reconnectTimer) {
+        clearTimeout(state.reconnectTimer);
+        state.reconnectTimer = null;
+      }
+      if (state.ws && (state.ws.readyState === WebSocket.OPEN || state.ws.readyState === WebSocket.CONNECTING)) {
+        return;
       }
 
-      canvas {
-        display: block;
-        width: 100%;
-        border: 1px solid #ccc;
-        background-color: #fafafa;
-        margin-bottom: 20px;
-      }
+      setPill(el.wsStatus, state.reconnectAttempts > 0 ? 'Reconnecting...' : 'Connecting...', 'warn');
+      const ws = new WebSocket(WS_URL);
+      state.ws = ws;
 
-      h1 {
-        margin-bottom: 10px;
-      }
+      ws.addEventListener('open', () => {
+        state.reconnectAttempts = 0;
+        setPill(el.wsStatus, 'Connected', 'warn');
+        sendRegistration();
+      });
 
-      pre {
-        background-color: #f4f4f4;
-        padding: 10px;
-        border-radius: 5px;
-        overflow-x: auto;
-      }
-
-      .error {
-        color: red;
-      }
-    </style>
-  </head>
-  <body>
-    <canvas id="dataCanvas"></canvas>
-
-    <h1>Zoom App Context Information</h1>
-    <div id="output">Initializing...</div>
-
-    <script>
-      const canvas = document.getElementById('dataCanvas');
-      const ctx = canvas.getContext('2d');
-      const transcriptLines = [];
-      const maxLines = 20;
-      const lineHeight = 42;
-
-      canvas.width = 1000;
-      canvas.height = maxLines * lineHeight;
-
-      ctx.font = '30px Arial';
-      ctx.textBaseline = 'top';
-      ctx.fillStyle = 'black';
-
-      function wrapText(ctx, text, x, y, maxWidth, lineHeight) {
-        const words = text.split(' ');
-        let line = '';
-        for (let n = 0; n < words.length; n++) {
-          const testLine = line + words[n] + ' ';
-          const metrics = ctx.measureText(testLine);
-          const testWidth = metrics.width;
-          if (testWidth > maxWidth && n > 0) {
-            ctx.fillText(line, x, y);
-            line = words[n] + ' ';
-            y += lineHeight;
-          } else {
-            line = testLine;
-          }
-        }
-        ctx.fillText(line, x, y);
-        return y + lineHeight;
-      }
-
-      const socket = new WebSocket('<%= websocketUrl %>');
-
-      function registerWithBackend(meetingUUID, userID) {
-        if (socket.readyState === WebSocket.OPEN) {
-          socket.send(JSON.stringify({
-            type: 'register',
-            meetingUUID: meetingUUID,
-            userID: String(userID)
-          }));
-          console.log('📤 Sent registration:', meetingUUID, userID);
-        } else {
-          setTimeout(() => registerWithBackend(meetingUUID, userID), 500);
-        }
-      }
-
-      socket.onopen = () => {
-        console.log('✅ WebSocket connected');
-      };
-
-      socket.onmessage = (event) => {
+      ws.addEventListener('message', (event) => {
+        let msg;
         try {
-          const msg = JSON.parse(event.data);
+          msg = JSON.parse(event.data);
+        } catch {
+          return;
+        }
 
-          if (msg.type === 'ping') {
-            socket.send(JSON.stringify({ type: 'pong' }));
-            return;
+        if (msg.type === 'ping') {
+          sendWs({ type: 'pong' });
+          return;
+        }
+
+        if (msg.type === 'connected') {
+          sendRegistration();
+          return;
+        }
+
+        if (msg.type === 'registration_success') {
+          state.registered = true;
+          setPill(el.wsStatus, 'Live Connected', 'ok');
+          if (state.zoomContext) {
+            sendWs({
+              type: 'register_agent_identity',
+              userId: state.zoomContext.userID,
+              userName: state.zoomContext.userName,
+              identityIds: state.zoomContext.identityIds
+            });
           }
+          return;
+        }
 
-          if (msg.type === 'connected') {
-            console.log('✅ Connected to backend, waiting for Zoom context to register...');
-            return;
-          }
+        if (msg.type === 'session_snapshot') {
+          const snap = msg.snapshot || {};
+          state.rtmsActive = Boolean(snap.rtmsActive);
+          setPill(el.rtmsStatus, state.rtmsActive ? 'RTMS Live' : 'RTMS Idle', state.rtmsActive ? 'ok' : '');
+          state.turns.clear();
+          state.turnOrder = [];
+          (snap.turns || []).forEach((t) => upsertTurn(t, false));
+          state.suggestions = Array.isArray(snap.suggestions) ? snap.suggestions : [];
+          if (msg.kb) updateKbView(msg.kb);
+          renderTranscripts();
+          renderSuggestions();
+          return;
+        }
 
-          if (msg.type === 'registration_success') {
-            console.log('✅ Registered with backend:', msg.meetingUUID, msg.userID);
-            return;
-          }
+        if (msg.type === 'kb_status') {
+          updateKbView(msg);
+          return;
+        }
 
-          if (msg.type === 'error') {
-            console.error('❌ Backend error:', msg.message);
-            return;
-          }
+        if (msg.type === 'rtms_started') {
+          state.rtmsActive = true;
+          setPill(el.rtmsStatus, 'RTMS Live', 'ok');
+          return;
+        }
 
-          if (msg.type === 'transcript') {
-            const line = `[${new Date(msg.timestamp).toLocaleTimeString()}] ${msg.user}: ${msg.content}`;
-            transcriptLines.push(line);
-            if (transcriptLines.length > maxLines) transcriptLines.shift();
+        if (msg.type === 'rtms_stopped') {
+          state.rtmsActive = false;
+          setPill(el.rtmsStatus, 'RTMS Stopped', 'warn');
+          return;
+        }
 
-            ctx.clearRect(0, 0, canvas.width, canvas.height);
+        if (msg.type === 'transcript' && msg.turn) {
+          state.rtmsActive = true;
+          setPill(el.rtmsStatus, 'RTMS Live', 'ok');
+          upsertTurn(msg.turn, true);
+          return;
+        }
 
-            let y = 0;
-            for (const line of transcriptLines) {
-              y = wrapText(ctx, line, 10, y, canvas.width - 20, lineHeight);
-              if (y > canvas.height - lineHeight) break;
+        if (msg.type === 'roles_updated' && Array.isArray(msg.speakers)) {
+          const roleByKey = new Map(msg.speakers.map((s) => [s.speakerKey, s.role]));
+          for (const turn of state.turns.values()) {
+            if (roleByKey.has(turn.speakerKey)) {
+              turn.role = roleByKey.get(turn.speakerKey);
             }
           }
-        } catch (err) {
-          console.warn('Non-JSON or invalid message:', event.data);
+          renderTranscripts();
+          return;
         }
-      };
 
-      socket.onerror = (err) => {
-        console.error('WebSocket error:', err);
-      };
+        if (msg.type === 'rag_pending') {
+          el.pendingBanner.textContent = `Searching KB for ${msg.speaker || 'customer'}: "${String(msg.question || '').slice(0, 72)}"`;
+          el.pendingBanner.classList.add('show');
+          return;
+        }
 
-      socket.onclose = () => {
-        console.warn('WebSocket connection closed');
-      };
+        if (msg.type === 'rag_suggestion' && msg.suggestion) {
+          el.pendingBanner.classList.remove('show');
+          upsertSuggestion(msg.suggestion);
+          renderSuggestions();
+          return;
+        }
 
-      (async () => {
-        try {
-          const configResponse = await zoomSdk.config({
-            version: '1.10.0',
-            capabilities: [
-              'getSupportedJsApis',
-              'getRunningContext',
-              'getMeetingContext',
-              'getUserContext',
-              'getMeetingUUID',
-              'getAppContext'
-            ]
+        if (msg.type === 'action_error') {
+          el.pendingBanner.classList.remove('show');
+          setPill(el.wsStatus, msg.message || 'Lookup error', 'err');
+          setTimeout(() => {
+            if (state.registered) setPill(el.wsStatus, 'Live Connected', 'ok');
+          }, 4000);
+          return;
+        }
+
+        if (msg.type === 'error') {
+          state.registered = false;
+          setPill(el.wsStatus, msg.message || 'Auth pending', 'warn');
+        }
+      });
+
+      ws.addEventListener('close', () => {
+        state.registered = false;
+        const delayMs = Math.min(15000, 1000 * Math.pow(2, state.reconnectAttempts));
+        state.reconnectAttempts += 1;
+        setPill(el.wsStatus, `Reconnecting in ${Math.round(delayMs / 1000)}s...`, 'warn');
+        state.reconnectTimer = setTimeout(connectWebSocket, delayMs);
+      });
+
+      ws.addEventListener('error', () => {
+        // close handler will schedule reconnect
+      });
+    }
+
+    function upsertTurn(turn, shouldRender) {
+      const key = turn.sentenceKey || turn.id;
+      if (!state.turns.has(key)) {
+        state.turnOrder.push(key);
+        if (state.turnOrder.length > 120) {
+          const evicted = state.turnOrder.shift();
+          state.turns.delete(evicted);
+        }
+      }
+      state.turns.set(key, turn);
+      if (shouldRender) renderTranscripts();
+    }
+
+    function upsertSuggestion(card) {
+      const existingIdx = state.suggestions.findIndex((s) =>
+        (card.id && s.id === card.id) || (card.sentenceKey && s.sentenceKey === card.sentenceKey)
+      );
+      if (existingIdx !== -1) {
+        state.suggestions[existingIdx] = card;
+      } else {
+        state.suggestions.unshift(card);
+        if (state.suggestions.length > 50) state.suggestions.length = 50;
+      }
+    }
+
+    function updateKbView(kb) {
+      state.kb = kb || { documents: [], stats: {} };
+      const docs = state.kb.documents || [];
+      const stats = state.kb.stats || {};
+      const modeLabel = stats.mode === 'hybrid-embedding'
+        ? `Hybrid (${stats.embeddingModel || 'embeddings'})`
+        : 'BM25 + TF-IDF';
+      el.kbSummary.textContent = `KB: ${docs.length} doc(s), ${stats.chunkCount || 0} chunk(s) · ${modeLabel}`;
+
+      el.kbDocList.replaceChildren();
+      if (docs.length === 0) {
+        el.kbDocList.append(createNode('span', 'kb-doc-chip', 'No docs in docs/ folder'));
+      } else {
+        docs.forEach((doc) => {
+          el.kbDocList.append(
+            createNode('span', 'kb-doc-chip', `${doc.fileName} (${doc.chunkCount} chunks)`)
+          );
+        });
+      }
+    }
+
+    function renderSuggestions() {
+      const list = state.showPinnedOnly
+        ? state.suggestions.filter((s) => state.pinnedIds.has(s.id))
+        : state.suggestions;
+
+      el.pinnedCount.textContent = String(state.pinnedIds.size);
+      el.tabSuggestionsCount.textContent = String(state.suggestions.length);
+      el.suggestionsList.replaceChildren();
+
+      if (list.length === 0) {
+        el.suggestionsList.append(
+          createNode(
+            'div',
+            'empty',
+            state.showPinnedOnly
+              ? 'No pinned suggestions yet. Click Pin on any card to keep it handy.'
+              : 'Customer questions will automatically trigger grounded KB answers here, or use the search bar above.'
+          )
+        );
+        return;
+      }
+
+      list.forEach((card) => {
+        const isPinned = state.pinnedIds.has(card.id);
+        const wrapper = createNode('article', `suggestion-card${isPinned ? ' pinned' : ''}`);
+
+        const meta = createNode('div', 'suggestion-meta');
+        const leftMeta = createNode(
+          'span',
+          '',
+          `${card.sourceType === 'manual' ? 'Manual Search' : (card.speaker || 'Customer')} · ${formatTime(card.createdAt)}`
+        );
+        const conf = String(card.confidence || 'low').toLowerCase();
+        const confBadge = createNode('span', `conf-badge conf-${conf}`, `${conf} confidence`);
+        meta.append(leftMeta, confBadge);
+
+        const qBox = createNode('div', 'question-box', card.question || '');
+
+        const ul = createNode('ul', 'answer-bullets');
+        const bullets = Array.isArray(card.bullets) && card.bullets.length > 0
+          ? card.bullets
+          : [card.answer || 'No answer available.'];
+        bullets.forEach((b) => {
+          ul.append(createNode('li', '', b));
+        });
+
+        const actions = createNode('div', 'card-actions');
+        const metaRight = createNode(
+          'span',
+          '',
+          card.fallbackExtractive
+            ? 'KB excerpts (LLM fallback)'
+            : `${card.latencyMs ? `${card.latencyMs}ms` : ''}${card.model ? ` · ${card.model}` : ''}`
+        );
+        metaRight.style.fontSize = '11px';
+        metaRight.style.color = 'var(--muted)';
+
+        const btnGroup = createNode('div', 'card-action-btns');
+        const copyBtn = createNode('button', 'btn-xs', 'Copy');
+        copyBtn.type = 'button';
+        copyBtn.addEventListener('click', async () => {
+          const textToCopy = bullets.map((b) => `- ${b}`).join('\n');
+          try {
+            await navigator.clipboard.writeText(textToCopy);
+            copyBtn.textContent = 'Copied!';
+            setTimeout(() => { copyBtn.textContent = 'Copy'; }, 1500);
+          } catch {
+            copyBtn.textContent = 'Copy failed';
+            setTimeout(() => { copyBtn.textContent = 'Copy'; }, 1500);
+          }
+        });
+
+        const pinBtn = createNode('button', 'btn-xs', isPinned ? 'Unpin' : 'Pin');
+        pinBtn.type = 'button';
+        pinBtn.addEventListener('click', () => {
+          if (state.pinnedIds.has(card.id)) state.pinnedIds.delete(card.id);
+          else state.pinnedIds.add(card.id);
+          renderSuggestions();
+        });
+
+        btnGroup.append(copyBtn, pinBtn);
+        actions.append(metaRight, btnGroup);
+
+        wrapper.append(meta, qBox, ul, actions);
+
+        const citations = Array.isArray(card.citations) ? card.citations : [];
+        if (citations.length > 0) {
+          const details = createNode('details', 'citations-details');
+          const summary = createNode('summary', '', `Source Citations (${citations.length})`);
+          details.append(summary);
+
+          citations.forEach((cite) => {
+            const item = createNode('div', 'citation-item');
+            const head = createNode('div', 'citation-head');
+            head.append(
+              createNode('span', '', `[${cite.index}] ${cite.fileName} (chunk ${(cite.chunkIndex ?? 0) + 1}/${cite.totalChunks ?? 1})`),
+              createNode('span', '', `${Math.round((cite.score || 0) * 100)}% match`)
+            );
+            const snippet = createNode('p', 'citation-snippet', cite.snippet || '');
+            item.append(head, snippet);
+            details.append(item);
           });
 
-          const supportedApis = await zoomSdk.getSupportedJsApis();
-          const runningContext = await zoomSdk.getRunningContext();
-          const meetingContext = await zoomSdk.getMeetingContext();
-          const userContext = await zoomSdk.getUserContext();
-          const meetingUUID = await zoomSdk.getMeetingUUID();
-          const appContext = await zoomSdk.getAppContext();
-
-          if (meetingUUID?.meetingUUID && userContext?.participantUUID) {
-            registerWithBackend(meetingUUID.meetingUUID, userContext.participantUUID);
-          }
-
-          document.getElementById('output').innerHTML = `
-            <h2>Supported JS APIs:</h2>
-            <pre>${JSON.stringify(supportedApis, null, 2)}</pre>
-
-            <h2>Running Context:</h2>
-            <pre>${JSON.stringify(runningContext, null, 2)}</pre>
-
-            <h2>Meeting Context:</h2>
-            <pre>${JSON.stringify(meetingContext, null, 2)}</pre>
-
-            <h2>User Context:</h2>
-            <pre>${JSON.stringify(userContext, null, 2)}</pre>
-
-            <h2>Meeting UUID:</h2>
-            <pre>${JSON.stringify(meetingUUID, null, 2)}</pre>
-
-            <h2>App Context:</h2>
-            <pre>${JSON.stringify(appContext, null, 2)}</pre>
-          `;
-        } catch (error) {
-          console.error('Error retrieving Zoom context:', error);
-          document.getElementById('output').innerHTML = `
-            <p class="error">An error occurred while retrieving Zoom context information.</p>
-            <pre class="error">${error}</pre>
-          `;
+          wrapper.append(details);
         }
-      })();
-    </script>
-  </body>
+
+        el.suggestionsList.append(wrapper);
+      });
+    }
+
+    function renderTranscripts() {
+      el.tabTranscriptCount.textContent = String(state.turnOrder.length);
+      el.transcriptList.replaceChildren();
+
+      if (state.turnOrder.length === 0) {
+        el.transcriptList.append(createNode('div', 'empty', 'Waiting for live Zoom RTMS transcript...'));
+        return;
+      }
+
+      state.turnOrder.forEach((key) => {
+        const turn = state.turns.get(key);
+        if (!turn) return;
+
+        const row = createNode('div', `turn-row ${turn.role === 'agent' ? 'agent' : 'customer'}`);
+        const head = createNode('div', 'turn-head');
+        const left = createNode('div', '');
+        left.style.display = 'flex';
+        left.style.alignItems = 'center';
+        left.style.gap = '6px';
+
+        const speaker = createNode('span', 'speaker-name', turn.userName || 'Speaker');
+        const roleBtn = createNode(
+          'button',
+          `role-chip ${turn.role === 'agent' ? 'agent' : 'customer'}`,
+          turn.role === 'agent' ? 'Agent' : 'Customer'
+        );
+        roleBtn.type = 'button';
+        roleBtn.title = 'Click to toggle Customer / Agent role';
+        roleBtn.addEventListener('click', () => {
+          const nextRole = turn.role === 'agent' ? 'customer' : 'agent';
+          turn.role = nextRole;
+          renderTranscripts();
+          sendWs({
+            type: 'set_speaker_role',
+            speakerKey: turn.speakerKey,
+            userId: turn.userId,
+            userName: turn.userName,
+            role: nextRole
+          });
+        });
+
+        left.append(speaker, roleBtn);
+        const time = createNode('span', '', formatTime(turn.timestamp) + (turn.revision > 0 ? ' (updated)' : ''));
+        time.style.color = 'var(--muted)';
+        head.append(left, time);
+
+        const body = createNode('p', 'turn-text', turn.text);
+
+        const foot = createNode('div', 'turn-foot');
+        const askBtn = createNode('button', 'btn-xs', 'Ask KB');
+        askBtn.type = 'button';
+        askBtn.addEventListener('click', () => runManualSearch(turn.text, turn.userName));
+        foot.append(createNode('span', '', ''), askBtn);
+
+        row.append(head, body, foot);
+        el.transcriptList.append(row);
+      });
+
+      el.transcriptList.scrollTop = el.transcriptList.scrollHeight;
+    }
+
+    async function runManualSearch(queryText, speakerLabel = 'Agent Search') {
+      const query = String(queryText || '').trim();
+      if (!query) return;
+
+      el.pendingBanner.textContent = `Searching KB: "${query.slice(0, 72)}"`;
+      el.pendingBanner.classList.add('show');
+
+      if (state.registered && sendWs({ type: 'manual_search', query, speaker: speakerLabel })) {
+        return;
+      }
+
+      try {
+        const res = await fetch('/api/search', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({
+            query,
+            meetingId: state.zoomContext?.meetingUUID || undefined
+          })
+        });
+        const data = await res.json();
+        el.pendingBanner.classList.remove('show');
+        if (res.ok && data.suggestion) {
+          upsertSuggestion(data.suggestion);
+          renderSuggestions();
+        }
+      } catch {
+        el.pendingBanner.classList.remove('show');
+      }
+    }
+
+    async function fetchKbStatus() {
+      try {
+        const res = await fetch('/api/kb');
+        if (res.ok) updateKbView(await res.json());
+      } catch {
+        // ignore
+      }
+    }
+
+    el.searchForm.addEventListener('submit', (e) => {
+      e.preventDefault();
+      const q = el.searchInput.value.trim();
+      if (!q) return;
+      runManualSearch(q);
+      el.searchInput.value = '';
+    });
+
+    el.toggleKbDocsBtn.addEventListener('click', () => {
+      el.kbDrawer.classList.toggle('open');
+    });
+
+    el.reloadKbBtn.addEventListener('click', async () => {
+      el.reloadKbBtn.disabled = true;
+      el.reloadKbBtn.textContent = 'Reloading...';
+      try {
+        const res = await fetch('/api/kb/reload', { method: 'POST' });
+        if (res.ok) updateKbView(await res.json());
+      } finally {
+        el.reloadKbBtn.disabled = false;
+        el.reloadKbBtn.textContent = 'Reload KB';
+      }
+    });
+
+    el.filterAllBtn.addEventListener('click', () => {
+      state.showPinnedOnly = false;
+      el.filterAllBtn.classList.add('btn-primary');
+      el.filterPinnedBtn.classList.remove('btn-primary');
+      renderSuggestions();
+    });
+
+    el.filterPinnedBtn.addEventListener('click', () => {
+      state.showPinnedOnly = true;
+      el.filterPinnedBtn.classList.add('btn-primary');
+      el.filterAllBtn.classList.remove('btn-primary');
+      renderSuggestions();
+    });
+
+    document.querySelectorAll('.tab[data-tab]').forEach((btn) => {
+      btn.addEventListener('click', () => {
+        const target = btn.dataset.tab;
+        state.activeMobileTab = target;
+        document.querySelectorAll('.tab[data-tab]').forEach((t) => t.classList.toggle('active', t.dataset.tab === target));
+        document.querySelectorAll('.panel[data-pane]').forEach((pane) => {
+          pane.classList.toggle('hidden-mobile', pane.dataset.pane !== target);
+        });
+      });
+    });
+
+    el.startRtmsBtn.addEventListener('click', async () => {
+      try {
+        el.startRtmsBtn.disabled = true;
+        await zoomSdk.startRTMS();
+        setPill(el.rtmsStatus, 'RTMS Starting...', 'warn');
+      } catch (err) {
+        setPill(el.rtmsStatus, err?.message || 'Start RTMS failed', 'err');
+      } finally {
+        el.startRtmsBtn.disabled = false;
+      }
+    });
+
+    el.stopRtmsBtn.addEventListener('click', async () => {
+      try {
+        el.stopRtmsBtn.disabled = true;
+        await zoomSdk.stopRTMS();
+        setPill(el.rtmsStatus, 'RTMS Stopped', 'warn');
+      } catch (err) {
+        setPill(el.rtmsStatus, err?.message || 'Stop RTMS failed', 'err');
+      } finally {
+        el.stopRtmsBtn.disabled = false;
+      }
+    });
+
+    fetchKbStatus();
+    connectWebSocket();
+
+    (async () => {
+      try {
+        const configRes = await zoomSdk.config({
+          version: '0.16.31',
+          capabilities: [
+            'getRunningContext',
+            'getUserContext',
+            'getMeetingUUID',
+            'startRTMS',
+            'stopRTMS'
+          ]
+        });
+
+        const unsupported = new Set(configRes?.unsupportedApis || []);
+        if (!unsupported.has('startRTMS')) el.startRtmsBtn.disabled = false;
+        if (!unsupported.has('stopRTMS')) el.stopRtmsBtn.disabled = false;
+
+        const [runningContext, userContext, meeting] = await Promise.all([
+          zoomSdk.getRunningContext(),
+          zoomSdk.getUserContext(),
+          zoomSdk.getMeetingUUID()
+        ]);
+
+        const identityIds = [
+          userContext?.participantUUID,
+          userContext?.participantUuid,
+          userContext?.participantId,
+          userContext?.userId
+        ].filter(Boolean).map(String);
+
+        const userName = userContext?.screenName || userContext?.displayName || 'Agent';
+        el.agentIdentity.textContent = `Agent: ${userName}`;
+
+        if (meeting?.meetingUUID && identityIds.length > 0) {
+          state.zoomContext = {
+            meetingUUID: meeting.meetingUUID,
+            userID: identityIds[0],
+            identityIds,
+            userName,
+            runningContext: runningContext?.context
+          };
+          sendRegistration();
+        }
+      } catch {
+        el.agentIdentity.textContent = 'Browser Preview Mode';
+      }
+    })();
+  </script>
+</body>
 </html>

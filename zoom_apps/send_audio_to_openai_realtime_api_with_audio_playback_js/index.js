@@ -1,4 +1,5 @@
 import { RTMSManager } from '../../library/javascript/rtmsManager/RTMSManager.js';
+import { FrontendWssManager } from '../../library/javascript/rtmsManager/FrontendWssManager.js';
 import WebhookManager from '../../library/javascript/webhookManager/WebhookManager.js';
 import WebsocketManager from '../../library/javascript/webSocketManager/WebsocketManager.js';
 import dotenv from 'dotenv';
@@ -8,14 +9,22 @@ import express from 'express';
 import { closeHttpServer, installGracefulShutdown } from '../../library/javascript/commonHelpers/gracefulShutdown.js';
 import http from 'http';
 
-import { setupFrontendWss, broadcastToFrontendClients, frontendClientCount } from './frontendWss.js';
+import {
+  decryptZoomAppContext,
+  mintFrontendWsToken,
+  createAuthorizeRegistration,
+} from './frontendAuth.js';
 import {
   initializeRealtimeSession,
   cleanupMeeting,
   sendAudioChunk,
+  sendTextMessageToRealtime,
   truncateRealtimeAudioPlayback,
+  setSpeakerSafeMode,
+  setClientPlaybackActive,
   closeOpenAIRealtime,
   setRealtimeFrontendCallbacks,
+  validateOpenAIConfig,
 } from './openaiRealtime.js';
 
 const __filename = fileURLToPath(import.meta.url);
@@ -30,6 +39,7 @@ const appConfig = {
   managerType: process.env.MODE || process.env.RTMSTRIGGERMANAGERTYPE || 'webhook',
   webhookPath: process.env.WEBHOOK_PATH || '/webhook',
   frontendWssUrl: process.env.FRONTEND_WSS_URL_TO_CONNECT_TO || '',
+  frontendWssPath: '/ws',
 };
 
 const sourceAudioSampleRate = Number.parseInt(process.env.AUDIO_SAMPLE_RATE || '48000', 10);
@@ -37,17 +47,12 @@ const sourceAudioSampleRate = Number.parseInt(process.env.AUDIO_SAMPLE_RATE || '
 const rtmsConfig = {
   logging: process.env.RTMS_LOGGING || 'info',
   logDir: path.join(__dirname, 'logs'),
-  mediaTypesFlag: 1, // Audio only
+  mediaTypes: RTMSManager.MEDIA.AUDIO,
   credentials: {
     meeting: {
       clientId: process.env.ZOOM_CLIENT_ID,
       clientSecret: process.env.ZOOM_CLIENT_SECRET,
-      zoomSecretToken: process.env.ZOOM_SECRET_TOKEN,
-    },
-    s2s: {
-      clientId: process.env.ZOOM_S2S_CLIENT_ID || null,
-      clientSecret: process.env.ZOOM_S2S_CLIENT_SECRET || null,
-      accountId: process.env.ZOOM_ACCOUNT_ID || null,
+      secretToken: process.env.ZOOM_SECRET_TOKEN,
     },
     websocket: {
       zoomWSURLForEvents: process.env.zoomWSURLForEvents || '',
@@ -67,8 +72,15 @@ const rtmsConfig = {
   },
 };
 
+const configCheck = validateOpenAIConfig();
+if (!configCheck.valid) {
+  console.warn(`[OpenAI Realtime Playback] Configuration warning: ${configCheck.error}`);
+}
+
 console.log('[OpenAI Realtime Playback] App Configuration:', appConfig);
 console.log('[OpenAI Realtime Playback] RTMS Configuration:', RTMSManager.redactSecrets(rtmsConfig));
+
+const wsSigningSecret = process.env.FRONTEND_WSS_SIGNING_SECRET || process.env.ZOOM_CLIENT_SECRET || '';
 
 const app = express();
 const server = http.createServer(app);
@@ -79,42 +91,107 @@ app.use(express.json({ verify: (req, _res, buffer) => { req.rawBody = Buffer.fro
 app.use(express.static(path.join(__dirname, 'public')));
 
 app.get('/', (req, res) => {
+  const verifiedContext = decryptZoomAppContext(
+    req.headers['x-zoom-app-context'],
+    process.env.ZOOM_CLIENT_SECRET,
+  );
+  const wsAuthToken = verifiedContext
+    ? mintFrontendWsToken(verifiedContext, wsSigningSecret)
+    : (process.env.ALLOW_PRE_RTMS_REGISTRATION === 'true' ? (process.env.FRONTEND_WSS_AUTH_TOKEN || '') : '');
+
   res.render('index', {
     websocket_url: appConfig.frontendWssUrl || deriveFrontendWssUrl(req),
+    ws_auth_token: wsAuthToken,
   });
 });
 
-setRealtimeFrontendCallbacks({
-  broadcast: broadcastToFrontendClients,
-});
-
-const frontendWss = setupFrontendWss(server, {
-  onClientReady: async (data) => {
-    console.log('[Zoom App] Client ready:', data);
-    broadcastToFrontendClients({
-      type: 'status',
-      data: `Frontend connected. Active frontend clients: ${frontendClientCount()}`,
-    });
-  },
-  onPlaybackInterrupted: async ({ data, metadata }) => {
-    truncateRealtimeAudioPlayback({
-      meetingUuid: metadata?.meeting_uuid || metadata?.meetingUUID || null,
-      responseId: data.responseId,
-      itemId: data.itemId,
-      contentIndex: data.contentIndex,
-      audioEndMs: data.audioEndMs,
-      skipCancel: data.skipCancel,
-    });
-  },
-});
-
 await RTMSManager.init(rtmsConfig);
+
+const frontendWssManager = new FrontendWssManager({
+  config: {
+    frontendWssEnabled: true,
+    frontendWssPath: appConfig.frontendWssPath,
+  },
+  server,
+  authorizeRegistration: createAuthorizeRegistration({
+    getActiveConnections: () => RTMSManager.getActiveConnections(),
+    signingSecret: wsSigningSecret,
+    staticAuthToken: process.env.FRONTEND_WSS_AUTH_TOKEN || '',
+    allowPreRtmsRegistration: process.env.ALLOW_PRE_RTMS_REGISTRATION === 'true',
+  }),
+});
+frontendWssManager.setup();
+
+// Handle authenticated application messages on registered meeting sockets
+if (frontendWssManager.wss) {
+  frontendWssManager.wss.on('connection', (ws) => {
+    ws.on('message', (raw) => {
+      if (!ws.meetingUUID || !ws.userID) {
+        return;
+      }
+
+      let message;
+      try {
+        message = JSON.parse(raw.toString());
+      } catch {
+        return;
+      }
+
+      try {
+        switch (message.type) {
+          case 'register':
+          case 'pong':
+            break;
+          case 'heartbeat':
+            if (ws.readyState === 1) {
+              ws.send(JSON.stringify({ type: 'heartbeat_ack', timestamp: Date.now() }));
+            }
+            break;
+          case 'playback_interrupted':
+            truncateRealtimeAudioPlayback({
+              meetingUuid: ws.meetingUUID,
+              responseId: message.data?.responseId,
+              itemId: message.data?.itemId,
+              contentIndex: message.data?.contentIndex,
+              audioEndMs: message.data?.audioEndMs,
+              skipCancel: message.data?.skipCancel,
+            });
+            break;
+          case 'speaker_safe_mode':
+            setSpeakerSafeMode(ws.meetingUUID, Boolean(message.data?.enabled));
+            break;
+          case 'playback_state':
+            setClientPlaybackActive(ws.meetingUUID, Boolean(message.data?.playing));
+            break;
+          case 'text':
+            sendTextMessageToRealtime(String(message.data || ''), ws.meetingUUID);
+            break;
+          default:
+            break;
+        }
+      } catch (error) {
+        console.error('[OpenAI Realtime Playback] Frontend message error:', error.message);
+        if (ws.readyState === 1) {
+          ws.send(JSON.stringify({ type: 'error', data: error.message || 'Frontend message failed' }));
+        }
+      }
+    });
+  });
+}
+
+setRealtimeFrontendCallbacks({
+  broadcastToMeeting: (meetingUuid, message) => {
+    frontendWssManager.broadcastToMeeting(meetingUuid, message);
+  },
+});
+
+let websocketManager = null;
 
 if (appConfig.managerType === 'webhook') {
   const webhookManager = new WebhookManager({
     config: {
       webhookPath: appConfig.webhookPath,
-      zoomSecretToken: rtmsConfig.credentials.meeting.zoomSecretToken,
+      zoomSecretToken: rtmsConfig.credentials.meeting.secretToken,
     },
     app,
   });
@@ -128,7 +205,7 @@ if (appConfig.managerType === 'webhook') {
   webhookManager.setup();
   console.log('[OpenAI Realtime Playback] Webhook Manager initialized');
 } else if (appConfig.managerType === 'websocket') {
-  const websocketManager = new WebsocketManager({
+  websocketManager = new WebsocketManager({
     config: {
       zoomWSURLForEvents: rtmsConfig.credentials.websocket.zoomWSURLForEvents,
       clientId: rtmsConfig.credentials.websocket.clientId,
@@ -152,7 +229,10 @@ RTMSManager.on('audio', (event) => {
 
 RTMSManager.on('error', (error) => {
   console.error('[OpenAI Realtime Playback] RTMS Error:', error.message);
-  broadcastToFrontendClients({ type: 'error', data: error.message });
+  const meetingId = error?.meetingId || error?.meetingUuid || null;
+  if (meetingId) {
+    frontendWssManager.broadcastToMeeting(meetingId, { type: 'error', data: error.message });
+  }
 });
 
 await RTMSManager.start();
@@ -160,16 +240,21 @@ await RTMSManager.start();
 server.listen(appConfig.port, () => {
   console.log(`[OpenAI Realtime Playback] Server listening on port ${appConfig.port}`);
   console.log(`[OpenAI Realtime Playback] Webhook path ${appConfig.webhookPath}`);
-  console.log(`[OpenAI Realtime Playback] Frontend WebSocket path /ws`);
+  console.log(`[OpenAI Realtime Playback] Frontend WebSocket path ${appConfig.frontendWssPath}`);
 });
 
-installGracefulShutdown({ name: 'OpenAI Realtime Playback', cleanup: async () => {
-  await closeOpenAIRealtime();
-  await RTMSManager.stop();
-  for (const client of frontendWss.clients) client.terminate();
-  await new Promise((resolve) => frontendWss.close(resolve));
-  await closeHttpServer(server);
-} });
+installGracefulShutdown({
+  name: 'OpenAI Realtime Playback',
+  cleanup: async () => {
+    await closeOpenAIRealtime();
+    if (websocketManager) {
+      websocketManager.stop();
+    }
+    await RTMSManager.stop();
+    frontendWssManager.stop();
+    await closeHttpServer(server);
+  },
+});
 
 function handleRtmsLifecycleEvent(event, payload) {
   const id = payload?.meeting_uuid || payload?.session_id;
@@ -179,12 +264,12 @@ function handleRtmsLifecycleEvent(event, payload) {
 
   if (event.endsWith('.rtms_started')) {
     initializeRealtimeSession(id);
-    broadcastToFrontendClients({ type: 'status', data: `RTMS started: ${id}` });
+    frontendWssManager.broadcastToMeeting(id, { type: 'status', data: `RTMS started: ${id}` });
   }
 
   if (event.endsWith('.rtms_stopped')) {
     cleanupMeeting(id);
-    broadcastToFrontendClients({ type: 'status', data: `RTMS stopped: ${id}` });
+    frontendWssManager.broadcastToMeeting(id, { type: 'status', data: `RTMS stopped: ${id}` });
   }
 }
 
@@ -208,5 +293,5 @@ function deriveFrontendWssUrl(req) {
   const forwardedProto = req.get('x-forwarded-proto');
   const proto = forwardedProto || req.protocol;
   const wsProto = proto === 'https' ? 'wss' : 'ws';
-  return `${wsProto}://${req.get('host')}/ws`;
+  return `${wsProto}://${req.get('host')}${appConfig.frontendWssPath}`;
 }

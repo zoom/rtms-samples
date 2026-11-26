@@ -1,25 +1,24 @@
 const express = require('express');
 const router = express.Router();
 const path = require('path');
+const { decryptZoomAppContext, mintContextToken } = require('../middleware/security');
 
 /**
  * GET /api/zoomapp/home
  * App home page (Zoom client entry point)
- * In development: Returns HTML that redirects to root (handled by proxy middleware)
- * In production: Serves the built React app
+ * Verifies x-zoom-app-context if present and saves it in the server session.
  */
 router.get('/home', (req, res) => {
-  console.log('\n' + '='.repeat(60));
-  console.log('📱 ZOOM APP HOME ACCESSED');
-  console.log('='.repeat(60));
-  console.log('User-Agent:', req.headers['user-agent']);
-  console.log('X-Zoom-App-Context:', req.headers['x-zoom-app-context'] ? 'Present' : 'Not present');
-  console.log('='.repeat(60) + '\n');
+  const contextHeader = req.headers['x-zoom-app-context'];
+  const zoomContext = decryptZoomAppContext(contextHeader);
+
+  if (zoomContext && req.session) {
+    req.session.zoomContext = zoomContext;
+    req.session.zoomAuthToken = mintContextToken(zoomContext);
+  }
 
   // In development, redirect to root which will be proxied to frontend
   if (process.env.NODE_ENV === 'development') {
-    console.log(`🔀 Redirecting to / (will be proxied to frontend)`);
-    // Use JavaScript redirect instead of HTTP redirect to avoid CORS issues
     return res.send(`
       <!DOCTYPE html>
       <html>
@@ -27,7 +26,6 @@ router.get('/home', (req, res) => {
           <meta charset="utf-8">
           <title>Loading Zoom App...</title>
           <script>
-            // Redirect to root path which will be handled by the proxy middleware
             window.location.replace('/');
           </script>
           <noscript>
@@ -47,39 +45,38 @@ router.get('/home', (req, res) => {
 });
 
 /**
- * GET /api/zoomapp/install
- * Initiate web-based OAuth flow
- * Will be implemented in Phase 6
+ * GET /api/zoomapp/session-token
+ * Returns the short-lived HMAC token minted from the verified session context.
  */
+router.get('/session-token', (req, res) => {
+  if (!req.session?.zoomContext) {
+    return res.status(401).json({ error: 'No verified Zoom App session context' });
+  }
+
+  const token = req.session.zoomAuthToken || mintContextToken(req.session.zoomContext);
+  req.session.zoomAuthToken = token;
+
+  return res.json({
+    token,
+    role: req.session.zoomContext.role || 'attendee',
+    mid: req.session.zoomContext.mid || null
+  });
+});
+
 router.get('/install', (req, res) => {
-  res.send('OAuth Installation - Will be implemented in Phase 6');
+  res.send('OAuth Installation - Configure OAuth in Zoom Marketplace');
 });
 
-/**
- * GET /api/zoomapp/auth
- * OAuth callback handler
- * Will be implemented in Phase 6
- */
 router.get('/auth', (req, res) => {
-  res.send('OAuth Callback - Will be implemented in Phase 6');
+  res.send('OAuth Callback - Configure OAuth in Zoom Marketplace');
 });
 
-/**
- * GET /api/zoomapp/authorize
- * Get PKCE challenge for in-client OAuth
- * Will be implemented in Phase 6
- */
 router.get('/authorize', (req, res) => {
-  res.send('PKCE Challenge - Will be implemented in Phase 6');
+  res.send('PKCE Challenge - Configure OAuth in Zoom Marketplace');
 });
 
-/**
- * POST /api/zoomapp/onauthorized
- * Exchange OAuth code for token
- * Will be implemented in Phase 6
- */
 router.post('/onauthorized', (req, res) => {
-  res.send('OAuth Token Exchange - Will be implemented in Phase 6');
+  res.send('OAuth Token Exchange - Configure OAuth in Zoom Marketplace');
 });
 
 module.exports = router;

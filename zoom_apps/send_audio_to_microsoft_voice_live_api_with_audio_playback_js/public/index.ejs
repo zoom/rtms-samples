@@ -1,0 +1,612 @@
+<!DOCTYPE html>
+<html lang="en">
+
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Microsoft Voice Live Zoom App</title>
+  <script src="https://appssdk.zoom.us/sdk.js"></script>
+  <style>
+    * { box-sizing: border-box; }
+
+    body {
+      margin: 0;
+      font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
+      background: #f6f7f9;
+      color: #202124;
+      height: 100vh;
+      display: flex;
+      flex-direction: column;
+    }
+
+    header {
+      background: #ffffff;
+      border-bottom: 1px solid #d9dde3;
+      padding: 12px 16px;
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      gap: 12px;
+    }
+
+    h1 {
+      font-size: 18px;
+      line-height: 1.2;
+      margin: 0;
+      font-weight: 650;
+    }
+
+    .status {
+      color: #5f6368;
+      font-size: 13px;
+      white-space: nowrap;
+      overflow: hidden;
+      text-overflow: ellipsis;
+      max-width: 48vw;
+    }
+
+    main {
+      display: grid;
+      grid-template-rows: auto auto 1fr;
+      gap: 10px;
+      min-height: 0;
+      flex: 1;
+      padding: 12px;
+    }
+
+    .toolbar {
+      display: flex;
+      gap: 8px;
+      flex-wrap: wrap;
+      align-items: center;
+    }
+
+    .divider {
+      width: 1px;
+      height: 24px;
+      background: #d9dde3;
+      margin: 0 2px;
+    }
+
+    button {
+      border: 1px solid #c9d2e3;
+      background: #ffffff;
+      color: #1f2937;
+      border-radius: 6px;
+      min-height: 36px;
+      padding: 0 12px;
+      font: inherit;
+      font-size: 13px;
+      cursor: pointer;
+    }
+
+    button.primary {
+      background: #2563eb;
+      border-color: #2563eb;
+      color: #ffffff;
+    }
+
+    button.active-toggle {
+      background: #0f766e;
+      border-color: #0f766e;
+      color: #ffffff;
+    }
+
+    button.warn-toggle {
+      background: #b45309;
+      border-color: #b45309;
+      color: #ffffff;
+    }
+
+    button.danger {
+      color: #b42318;
+      border-color: #f2b8b5;
+    }
+
+    button:disabled {
+      cursor: not-allowed;
+      opacity: 0.55;
+    }
+
+    .captions-bar {
+      background: #0f172a;
+      color: #cbd5e1;
+      border-radius: 8px;
+      padding: 10px 12px;
+      font-size: 14px;
+      line-height: 1.5;
+      min-height: 44px;
+      display: flex;
+      flex-wrap: wrap;
+      align-items: center;
+      gap: 4px;
+    }
+
+    .captions-label {
+      font-size: 11px;
+      text-transform: uppercase;
+      letter-spacing: 0.05em;
+      color: #38bdf8;
+      margin-right: 6px;
+      font-weight: 600;
+    }
+
+    .caption-word {
+      padding: 1px 3px;
+      border-radius: 4px;
+      transition: background 0.1s ease, color 0.1s ease;
+    }
+
+    .caption-word.spoken {
+      color: #ffffff;
+    }
+
+    .caption-word.active {
+      background: #2563eb;
+      color: #ffffff;
+      font-weight: 600;
+    }
+
+    .conversation {
+      min-height: 0;
+      overflow-y: auto;
+      background: #ffffff;
+      border: 1px solid #d9dde3;
+      border-radius: 8px;
+      padding: 12px;
+    }
+
+    .message {
+      display: flex;
+      margin-bottom: 10px;
+    }
+
+    .message.user {
+      justify-content: flex-end;
+    }
+
+    .bubble {
+      max-width: 82%;
+      border-radius: 8px;
+      padding: 9px 11px;
+      line-height: 1.45;
+      font-size: 14px;
+      white-space: pre-wrap;
+      word-break: break-word;
+    }
+
+    .user .bubble {
+      background: #2563eb;
+      color: #ffffff;
+    }
+
+    .assistant .bubble {
+      background: #edf2f7;
+      color: #202124;
+    }
+
+    .note {
+      display: block;
+      width: fit-content;
+      max-width: 100%;
+      margin: 6px auto 10px;
+      color: #5f6368;
+      background: #f1f3f4;
+      border: 1px solid #e0e3e7;
+      border-radius: 999px;
+      padding: 5px 10px;
+      font-size: 12px;
+    }
+
+    @media (max-width: 640px) {
+      header {
+        align-items: flex-start;
+        flex-direction: column;
+      }
+      .status { max-width: 100%; }
+    }
+  </style>
+</head>
+
+<body>
+  <header>
+    <h1>Microsoft Voice Live Zoom App</h1>
+    <div id="status" class="status">Connecting...</div>
+  </header>
+
+  <main>
+    <section class="toolbar" aria-label="RTMS and Audio Controls">
+      <button id="startRtmsBtn" class="primary" type="button">Start RTMS</button>
+      <button id="stopRtmsBtn" class="danger" type="button">Stop RTMS</button>
+      <span class="divider" aria-hidden="true"></span>
+      <button id="enableAudioBtn" type="button">Enable Audio</button>
+      <button id="mutePlaybackBtn" type="button">Mute Playback</button>
+      <button id="speakerSafeBtn" type="button" title="Pause mic audio forwarding while the assistant is speaking to prevent speaker echo self-interruption">Speaker-Safe: Off</button>
+    </section>
+
+    <section id="liveCaptionsBar" class="captions-bar" aria-live="polite">
+      <span class="captions-label">Live Captions</span>
+      <span id="liveCaptionsWords">Waiting for assistant speech...</span>
+    </section>
+
+    <section id="conversation" class="conversation" aria-live="polite">
+      <span class="note">Click Enable Audio (if joining an active stream) or Start RTMS, then speak in the meeting.</span>
+    </section>
+  </main>
+
+  <script>
+    const SERVER_WEBSOCKET_URL = <%- JSON.stringify(websocket_url) %>;
+    const WS_AUTH_TOKEN = <%- JSON.stringify(ws_auth_token || '') %>;
+  </script>
+  <script src="audio-client.js"></script>
+  <script>
+    const statusEl = document.getElementById('status');
+    const conversationEl = document.getElementById('conversation');
+    const liveCaptionsWordsEl = document.getElementById('liveCaptionsWords');
+    const startRtmsBtn = document.getElementById('startRtmsBtn');
+    const stopRtmsBtn = document.getElementById('stopRtmsBtn');
+    const enableAudioBtn = document.getElementById('enableAudioBtn');
+    const mutePlaybackBtn = document.getElementById('mutePlaybackBtn');
+    const speakerSafeBtn = document.getElementById('speakerSafeBtn');
+
+    const client = new RealtimeAudioClient(SERVER_WEBSOCKET_URL, { authToken: WS_AUTH_TOKEN });
+    const zoomState = {
+      ready: false,
+      sdkInitialized: false,
+      rtmsListenerAttached: false,
+      meetingUUID: '',
+      meetingID: '',
+      meetingTopic: '',
+      userID: '',
+      userName: '',
+      rtmsState: 'unknown',
+    };
+
+    let assistantBubble = null;
+    let assistantBuffer = '';
+    let captionWordSpans = [];
+
+    function setStatus(message) {
+      statusEl.textContent = message;
+    }
+
+    function addNote(message) {
+      const note = document.createElement('span');
+      note.className = 'note';
+      note.textContent = message;
+      conversationEl.appendChild(note);
+      conversationEl.scrollTop = conversationEl.scrollHeight;
+    }
+
+    function addMessage(text, sender) {
+      const wrapper = document.createElement('div');
+      wrapper.className = `message ${sender}`;
+      const bubble = document.createElement('div');
+      bubble.className = 'bubble';
+      bubble.textContent = text;
+      wrapper.appendChild(bubble);
+      conversationEl.appendChild(wrapper);
+      conversationEl.scrollTop = conversationEl.scrollHeight;
+      return bubble;
+    }
+
+    function appendAssistantText(delta) {
+      if (!delta) return;
+      if (!assistantBubble) {
+        assistantBuffer = '';
+        assistantBubble = addMessage('', 'assistant');
+      }
+      assistantBuffer += delta;
+      assistantBubble.textContent = assistantBuffer;
+      conversationEl.scrollTop = conversationEl.scrollHeight;
+    }
+
+    function finishAssistantText(finalText = '') {
+      const cleanFinalText = String(finalText || '').trim();
+      if (cleanFinalText) {
+        if (!assistantBubble) {
+          assistantBubble = addMessage(cleanFinalText, 'assistant');
+        } else {
+          assistantBubble.textContent = cleanFinalText;
+        }
+      }
+      assistantBubble = null;
+      assistantBuffer = '';
+    }
+
+    function resetLiveCaptions(placeholder = '') {
+      captionWordSpans = [];
+      liveCaptionsWordsEl.textContent = placeholder;
+    }
+
+    function appendCaptionWord(wordEntry) {
+      if (captionWordSpans.length === 0) {
+        liveCaptionsWordsEl.textContent = '';
+      }
+      const span = document.createElement('span');
+      span.className = 'caption-word';
+      span.textContent = wordEntry.text;
+      liveCaptionsWordsEl.appendChild(span);
+      liveCaptionsWordsEl.appendChild(document.createTextNode(' '));
+      captionWordSpans.push(span);
+    }
+
+    function highlightCaptionWord(activeIndex) {
+      for (let i = 0; i < captionWordSpans.length; i += 1) {
+        const span = captionWordSpans[i];
+        span.classList.toggle('active', i === activeIndex);
+        span.classList.toggle('spoken', i < activeIndex);
+      }
+    }
+
+    function updateAudioControlButtons() {
+      const state = client.getAudioState();
+      if (state === 'running') {
+        enableAudioBtn.textContent = 'Audio Ready';
+        enableAudioBtn.classList.add('active-toggle');
+      } else {
+        enableAudioBtn.textContent = 'Enable Audio';
+        enableAudioBtn.classList.remove('active-toggle');
+      }
+
+      mutePlaybackBtn.textContent = client.isMuted ? 'Unmute Playback' : 'Mute Playback';
+      mutePlaybackBtn.classList.toggle('warn-toggle', client.isMuted);
+
+      speakerSafeBtn.textContent = client.speakerSafeMode ? 'Speaker-Safe: On' : 'Speaker-Safe: Off';
+      speakerSafeBtn.classList.toggle('active-toggle', client.speakerSafeMode);
+    }
+
+    function setRtmsState(nextState) {
+      zoomState.rtmsState = nextState;
+      const active = nextState === 'active';
+      const pending = nextState === 'starting' || nextState === 'stopping' || nextState === 'checking';
+      const unavailable = nextState === 'unavailable';
+
+      startRtmsBtn.disabled = unavailable || pending || active;
+      stopRtmsBtn.disabled = unavailable || pending || !active;
+      startRtmsBtn.textContent = nextState === 'starting' ? 'Starting...' : 'Start RTMS';
+      stopRtmsBtn.textContent = nextState === 'stopping' ? 'Stopping...' : 'Stop RTMS';
+    }
+
+    function deriveRtmsState(status) {
+      if (Array.isArray(status)) {
+        return status.length > 0 ? 'active' : 'inactive';
+      }
+      const text = JSON.stringify(status || '').toLowerCase();
+      if (!text || text === '""') return 'inactive';
+      if (text.includes('stopped') || text.includes('inactive') || text.includes('not_started') || text.includes('none')) {
+        return 'inactive';
+      }
+      if (text.includes('active') || text.includes('started') || text.includes('running')) {
+        return 'active';
+      }
+      return 'unknown';
+    }
+
+    async function refreshRtmsStatus() {
+      if (!zoomState.ready || !window.zoomSdk?.getRTMSStatus) {
+        setRtmsState(zoomState.ready ? 'unknown' : 'unavailable');
+        return;
+      }
+
+      setRtmsState('checking');
+      try {
+        const rtmsStatus = await window.zoomSdk.getRTMSStatus();
+        const nextState = deriveRtmsState(rtmsStatus);
+        setRtmsState(nextState);
+        setStatus(nextState === 'active' ? 'RTMS active' : 'RTMS inactive');
+      } catch (error) {
+        console.error('Failed to get RTMS status:', error);
+        setRtmsState('unknown');
+        setStatus('RTMS status unavailable');
+      }
+    }
+
+    async function initializeZoomSdkOnce() {
+      if (zoomState.sdkInitialized) {
+        // Already initialized — just re-register on WS reconnect
+        if (zoomState.meetingUUID && zoomState.userID) {
+          client.setRegistration(zoomState.meetingUUID, zoomState.userID, WS_AUTH_TOKEN);
+        }
+        return;
+      }
+
+      const sdk = window.zoomSdk;
+      if (!sdk) {
+        setStatus('Open this page inside Zoom to use Zoom App controls.');
+        setRtmsState('unavailable');
+        return;
+      }
+
+      try {
+        await sdk.config({
+          version: '0.16.31',
+          capabilities: [
+            'getSupportedJsApis',
+            'getRunningContext',
+            'getMeetingContext',
+            'getUserContext',
+            'getMeetingUUID',
+            'getAppContext',
+            'startRTMS',
+            'stopRTMS',
+            'getRTMSStatus',
+            'onRTMSStatusChange',
+          ],
+        });
+
+        const [meetingContext, userContext, meetingUUID] = await Promise.all([
+          sdk.getMeetingContext().catch(() => ({})),
+          sdk.getUserContext(),
+          sdk.getMeetingUUID(),
+        ]);
+
+        zoomState.ready = true;
+        zoomState.sdkInitialized = true;
+        zoomState.meetingUUID = meetingUUID?.meetingUUID || '';
+        zoomState.meetingID = meetingContext?.meetingID || '';
+        zoomState.meetingTopic = meetingContext?.meetingTopic || '';
+        zoomState.userID = userContext?.participantUUID || userContext?.participantId || userContext?.screenName || 'zoom-user';
+        zoomState.userName = userContext?.screenName || userContext?.displayName || '';
+
+        client.setRegistration(zoomState.meetingUUID, zoomState.userID, WS_AUTH_TOKEN);
+
+        // Attach onRTMSStatusChange exactly once to prevent duplicate listeners on WS reconnect
+        if (!zoomState.rtmsListenerAttached) {
+          const handleRtmsStatusChange = (event) => {
+            const nextState = deriveRtmsState(event);
+            setRtmsState(nextState);
+            setStatus(nextState === 'active' ? 'RTMS active' : 'RTMS inactive');
+            addNote(`RTMS status: ${event?.status || JSON.stringify(event)}`);
+          };
+
+          if (typeof sdk.onRTMSStatusChange === 'function') {
+            sdk.onRTMSStatusChange(handleRtmsStatusChange);
+            zoomState.rtmsListenerAttached = true;
+          } else if (typeof sdk.on === 'function') {
+            sdk.on('onRTMSStatusChange', handleRtmsStatusChange);
+            zoomState.rtmsListenerAttached = true;
+          }
+        }
+
+        setStatus('Zoom App ready');
+        await refreshRtmsStatus();
+      } catch (error) {
+        console.error('Zoom SDK initialization failed:', error);
+        setStatus('Zoom SDK unavailable or missing capabilities');
+        setRtmsState('unavailable');
+      }
+    }
+
+    startRtmsBtn.addEventListener('click', async () => {
+      try {
+        setRtmsState('starting');
+        await client.enablePlayback();
+        updateAudioControlButtons();
+        await window.zoomSdk.startRTMS();
+        addNote('Requested RTMS start');
+        await refreshRtmsStatus();
+      } catch (error) {
+        await refreshRtmsStatus();
+        addNote(`Failed to start RTMS: ${error.message || error}`);
+      }
+    });
+
+    stopRtmsBtn.addEventListener('click', async () => {
+      try {
+        setRtmsState('stopping');
+        await window.zoomSdk.stopRTMS();
+        client.interrupt(true);
+        addNote('Requested RTMS stop');
+        await refreshRtmsStatus();
+      } catch (error) {
+        await refreshRtmsStatus();
+        addNote(`Failed to stop RTMS: ${error.message || error}`);
+      }
+    });
+
+    enableAudioBtn.addEventListener('click', async () => {
+      try {
+        const state = await client.enablePlayback();
+        updateAudioControlButtons();
+        addNote(`Audio playback unlocked (${state})`);
+      } catch (error) {
+        addNote(`Failed to unlock audio: ${error.message || error}`);
+      }
+    });
+
+    mutePlaybackBtn.addEventListener('click', () => {
+      const muted = client.setMuted(!client.isMuted);
+      updateAudioControlButtons();
+      addNote(muted ? 'Playback muted' : 'Playback unmuted');
+    });
+
+    speakerSafeBtn.addEventListener('click', () => {
+      const enabled = client.setSpeakerSafeMode(!client.speakerSafeMode);
+      updateAudioControlButtons();
+      addNote(
+        enabled
+          ? 'Speaker-Safe (Half-Duplex) enabled: mic audio pauses while assistant speaks'
+          : 'Speaker-Safe disabled: full-duplex barge-in active',
+      );
+    });
+
+    client.onConnected = () => {
+      setStatus('WebSocket connected, registering...');
+      initializeZoomSdkOnce();
+    };
+
+    client.onRegistered = () => {
+      setStatus('Connected to Microsoft Voice Live backend');
+      addNote('Registered for meeting audio stream');
+    };
+
+    client.onDisconnected = () => {
+      setStatus('WebSocket disconnected');
+    };
+
+    client.onStatus = (message) => {
+      setStatus(message);
+      addNote(message);
+    };
+
+    client.onTranscript = (text) => {
+      if (text.trim()) {
+        addMessage(text, 'user');
+      }
+    };
+
+    client.onTextDelta = (delta) => {
+      appendAssistantText(delta);
+    };
+
+    client.onTextDone = (text) => {
+      finishAssistantText(text);
+    };
+
+    client.onAudioStart = () => {
+      updateAudioControlButtons();
+      resetLiveCaptions('');
+      setStatus('Assistant speaking...');
+    };
+
+    client.onAudioTimestamp = (wordEntry) => {
+      appendCaptionWord(wordEntry);
+    };
+
+    client.onCaptionWordActive = (activeIndex) => {
+      highlightCaptionWord(activeIndex);
+    };
+
+    client.onAudioDone = () => {
+      setStatus('Assistant finished speaking');
+    };
+
+    client.onInterrupted = () => {
+      finishAssistantText();
+      addNote('Assistant interrupted by new speech');
+      setStatus('Interrupted');
+    };
+
+    client.onError = (message) => {
+      addNote(`Error: ${message}`);
+      setStatus('Error');
+    };
+
+    window.addEventListener('load', async () => {
+      updateAudioControlButtons();
+      setRtmsState('unavailable');
+      try {
+        await client.connect();
+      } catch (error) {
+        client.onError(error.message || String(error));
+      }
+    });
+
+    window.addEventListener('beforeunload', () => {
+      client.close();
+    });
+  </script>
+</body>
+
+</html>

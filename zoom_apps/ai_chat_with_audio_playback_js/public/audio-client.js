@@ -1,382 +1,410 @@
 /**
- * Audio processing client for bidirectional audio AI communication
+ * AudioClient: WebSocket + Web Audio playback client for AI Chat with Audio Playback.
+ * Supports FrontendWssManager registration, resilient exponential-backoff reconnect,
+ * WAV decodeAudioData() + raw PCM fallback, gapless scheduling, mute, and barge-in interrupt.
  */
-
 class AudioClient {
-    constructor(serverUrl) {
- 
-        this.serverUrl = serverUrl;
-        this.ws = null;
-        this.audioContext = null;
-        this.isConnected = false;
-        this.isModelSpeaking = false;
-        this.reconnectAttempts = 0;
-        this.maxReconnectAttempts = 3;
+  constructor(serverUrl) {
+    this.serverUrl = serverUrl;
+    this.ws = null;
+    this.audioContext = null;
+    this.isConnected = false;
+    this.isRegistered = false;
+    this.isModelSpeaking = false;
+    this.isMuted = false;
+    this.audioUnlocked = false;
+    this.manualClose = false;
 
-        // Heartbeat functionality
-        this.heartbeatInterval = null;
-        this.heartbeatIntervalMs = 30000; // 30 seconds
+    this.registrationPayload = null;
+    this.reconnectAttempts = 0;
+    this.maxReconnectDelayMs = 15000;
+    this.reconnectTimer = null;
 
-        // Callbacks
-        this.onReady = () => {};
-        this.onAudioReceived = () => {};
-        this.onTextReceived = () => {};
-        this.onError = () => {};
-        this.onHtmlReceived = () => {}; // New callback for HTML content
-      
+    // Gapless Web Audio scheduling state
+    this.activeSources = new Set();
+    this.nextStartTime = 0;
 
-        // Audio playback
-        this.audioQueue = [];
-        this.isPlaying = false;
-        this.currentSource = null;
+    // Callbacks
+    this.onConnected = () => {};
+    this.onDisconnected = () => {};
+    this.onRegistered = () => {};
+    this.onReady = () => {};
+    this.onTranscriptReceived = () => {};
+    this.onUserMessageReceived = () => {};
+    this.onTextReceived = () => {};
+    this.onAudioReceived = () => {};
+    this.onStateReceived = () => {};
+    this.onStatusChange = () => {};
+    this.onSpeakingChange = () => {};
+    this.onInterrupted = () => {};
+    this.onError = () => {};
+  }
 
-        // Clean up any existing audioContexts
-        if (window.existingAudioContexts) {
-            window.existingAudioContexts.forEach(ctx => {
-                try {
-                    ctx.close();
-                } catch (e) {
-                    console.error("Error closing existing audio context:", e);
-                }
-            });
-        }
+  /**
+   * Must be called inside a user gesture handler to unlock browser AudioContext playback.
+   */
+  async unlockAudio() {
+    if (!this.audioContext || this.audioContext.state === 'closed') {
+      const AudioCtx = window.AudioContext || window.webkitAudioContext;
+      this.audioContext = new AudioCtx();
+    }
+    if (this.audioContext.state === 'suspended') {
+      await this.audioContext.resume();
+    }
+    this.audioUnlocked = this.audioContext.state === 'running';
+    return this.audioUnlocked;
+  }
 
-        // Keep track of audio contexts created
-        window.existingAudioContexts = window.existingAudioContexts || [];
+  setMuted(muted) {
+    this.isMuted = Boolean(muted);
+    if (this.isMuted) {
+      this._stopLocalPlayback();
+    }
+  }
+
+  setRegistration(payload) {
+    this.registrationPayload = payload;
+    if (this.isConnected && this.ws && this.ws.readyState === WebSocket.OPEN) {
+      this._sendRegistration();
+    }
+  }
+
+  _sendRegistration() {
+    if (!this.registrationPayload || !this.ws || this.ws.readyState !== WebSocket.OPEN) {
+      return;
+    }
+    const { meetingUUID, userID, token } = this.registrationPayload;
+    this.ws.send(JSON.stringify({
+      type: 'register',
+      meetingUUID: String(meetingUUID),
+      userID: String(userID),
+      token: token || ''
+    }));
+  }
+
+  connect() {
+    this.manualClose = false;
+    if (this.reconnectTimer) {
+      clearTimeout(this.reconnectTimer);
+      this.reconnectTimer = null;
     }
 
-    // Connect to the WebSocket server
-    async connect() {
-        // Close existing connection if any
-        if (this.ws) {
-            try {
-                this.ws.close();
-            } catch (e) {
-                console.error("Error closing WebSocket:", e);
-            }
-        }
-
-        // Reset reconnect attempts if this is a new connection
-        if (this.reconnectAttempts > this.maxReconnectAttempts) {
-            this.reconnectAttempts = 0;
-        }
-
-        return new Promise((resolve, reject) => {
-            try {
-                this.ws = new WebSocket(this.serverUrl);
-
-                const connectionTimeout = setTimeout(() => {
-                    if (!this.isConnected) {
-                        console.error('WebSocket connection timed out');
-                        this.tryReconnect();
-                        reject(new Error('Connection timeout'));
-                    }
-                }, 5000);
-
-                this.ws.onopen = () => {
-                    console.log('WebSocket connection established');
-                    clearTimeout(connectionTimeout);
-                    this.reconnectAttempts = 0; // Reset on successful connection
-                    this.startHeartbeat(); // Start heartbeat when connection is established
-                };
-
-                this.ws.onclose = (event) => {
-                    console.log('WebSocket connection closed:', event.code, event.reason);
-                    this.isConnected = false;
-                    this.stopHeartbeat(); // Stop heartbeat when connection is closed
-
-                    // Try to reconnect if it wasn't a normal closure
-                    if (event.code !== 1000 && event.code !== 1001) {
-                        this.tryReconnect();
-                    }
-                };
-
-                this.ws.onerror = (error) => {
-                    console.error('WebSocket error:', error);
-                    clearTimeout(connectionTimeout);
-                    this.onError(error);
-                    reject(error);
-                };
-
-                this.ws.onmessage = async (event) => {
-                    try {
-                        // Log raw message data to help debug
-                        console.log('Raw WebSocket message received:', event.data);
-
-                        const message = JSON.parse(event.data);
-
-                        if (message.type === 'ready') {
-                            this.isConnected = true;
-                            this.onReady();
-                          
-                        }
-                        else if (message.type === 'audio') {
-                            // Handle receiving audio data from server
-                            const audioData = message.data;
-                            this.onAudioReceived(audioData);
-                            await this.playAudio(audioData);
-                        }
-                        else if (message.type === 'text') {
-                            // Handle receiving text from server
-                            this.onTextReceived(message.data);
-                        }
-                        else if (message.type === 'html') { // New message type for HTML content
-                            this.onHtmlReceived(message.data);
-                        }
-                        else if (message.type === 'error') {
-                            // Handle server error
-                            this.onError(message.data);
-                        }
-                    } catch (error) {
-                        console.error('Error processing message:', error);
-                    }
-                };
-            } catch (error) {
-                console.error('Error creating WebSocket:', error);
-                reject(error);
-            }
-        });
+    if (this.ws && (this.ws.readyState === WebSocket.OPEN || this.ws.readyState === WebSocket.CONNECTING)) {
+      try {
+        this.ws.onclose = null;
+        this.ws.close(1000, 'Reconnecting');
+      } catch {
+        // ignore close errors
+      }
     }
 
-    // Try to reconnect with exponential backoff
-    async tryReconnect() {
-        if (this.reconnectAttempts >= this.maxReconnectAttempts) {
-            console.error('Max reconnection attempts reached');
+    return new Promise((resolve, reject) => {
+      let settled = false;
+      try {
+        const ws = new WebSocket(this.serverUrl);
+        this.ws = ws;
+
+        const timeoutId = setTimeout(() => {
+          if (!settled) {
+            settled = true;
+            try { ws.close(); } catch { /* ignore */ }
+            reject(new Error('WebSocket connection timed out'));
+          }
+        }, 10000);
+
+        ws.onopen = () => {
+          clearTimeout(timeoutId);
+          this.isConnected = true;
+          this.isRegistered = false;
+          this.reconnectAttempts = 0;
+
+          if (this.registrationPayload) {
+            this._sendRegistration();
+          }
+
+          this.onConnected();
+          if (!settled) {
+            settled = true;
+            resolve();
+          }
+        };
+
+        ws.onmessage = async (event) => {
+          let message;
+          try {
+            message = JSON.parse(event.data);
+          } catch (err) {
+            console.warn('[AudioClient] Ignored non-JSON message:', err);
             return;
+          }
+
+          switch (message.type) {
+            case 'ping':
+              if (ws.readyState === WebSocket.OPEN) {
+                ws.send(JSON.stringify({ type: 'pong' }));
+              }
+              break;
+            case 'connected':
+              if (this.registrationPayload && !this.isRegistered) {
+                this._sendRegistration();
+              }
+              break;
+            case 'registration_success':
+              this.isRegistered = true;
+              this.onRegistered(message);
+              this.onReady(message);
+              if (ws.readyState === WebSocket.OPEN) {
+                ws.send(JSON.stringify({ type: 'sync_state' }));
+              }
+              break;
+            case 'session_state':
+            case 'settings_updated':
+              this.onStateReceived(message.state);
+              break;
+            case 'transcript':
+              this.onTranscriptReceived(message);
+              break;
+            case 'user_message':
+              this.onUserMessageReceived(message.message);
+              break;
+            case 'text':
+              this.onTextReceived(message.data, message.metadata || {});
+              break;
+            case 'audio':
+              this.onAudioReceived(message.data, message.metadata || {});
+              if (!this.isMuted) {
+                await this.playAudio(message.data, message.metadata || {});
+              }
+              break;
+            case 'assistant_status':
+            case 'rtms_status':
+              this.onStatusChange(message);
+              break;
+            case 'interrupted':
+              this._stopLocalPlayback();
+              this.onInterrupted(message);
+              break;
+            case 'error':
+              this.onError(message.message || message.data || 'Server error');
+              break;
+            default:
+              break;
+          }
+        };
+
+        ws.onerror = (err) => {
+          clearTimeout(timeoutId);
+          this.onError('WebSocket connection error');
+          if (!settled) {
+            settled = true;
+            reject(err instanceof Error ? err : new Error('WebSocket error'));
+          }
+        };
+
+        ws.onclose = (event) => {
+          clearTimeout(timeoutId);
+          this.isConnected = false;
+          this.isRegistered = false;
+          this.onDisconnected(event);
+          if (!this.manualClose) {
+            this._scheduleReconnect();
+          }
+        };
+      } catch (err) {
+        if (!settled) {
+          settled = true;
+          reject(err);
         }
+      }
+    });
+  }
 
-        this.reconnectAttempts++;
-        const backoffTime = Math.min(1000 * Math.pow(2, this.reconnectAttempts), 10000);
+  _scheduleReconnect() {
+    if (this.manualClose || this.reconnectTimer) return;
+    this.reconnectAttempts += 1;
+    const baseDelay = Math.min(1000 * Math.pow(2, this.reconnectAttempts - 1), this.maxReconnectDelayMs);
+    const jitter = Math.floor(Math.random() * 400);
+    const delay = baseDelay + jitter;
 
-        console.log(`Attempting to reconnect in ${backoffTime}ms (attempt ${this.reconnectAttempts})`);
+    this.reconnectTimer = setTimeout(() => {
+      this.reconnectTimer = null;
+      this.connect().catch(() => {
+        // onclose / onerror will schedule the next retry
+      });
+    }, delay);
+  }
 
-        setTimeout(async () => {
-            try {
-                await this.connect();
-                console.log('Reconnected successfully');
-            } catch (error) {
-                console.error('Reconnection failed:', error);
-            }
-        }, backoffTime);
+  sendText(text, speaker) {
+    if (!this.ws || this.ws.readyState !== WebSocket.OPEN || !this.isRegistered) {
+      return false;
     }
+    this.ws.send(JSON.stringify({
+      type: 'text',
+      data: text,
+      speaker: speaker || ''
+    }));
+    return true;
+  }
 
-  
+  sendSettings(settings) {
+    if (!this.ws || this.ws.readyState !== WebSocket.OPEN || !this.isRegistered) {
+      return false;
+    }
+    this.ws.send(JSON.stringify({
+      type: 'settings',
+      settings
+    }));
+    return true;
+  }
 
-    // Decode and play received audio
-    async playAudio(base64Audio) {
+  async playAudio(base64Audio, metadata = {}) {
+    if (!base64Audio || this.isMuted) return;
+
+    try {
+      const arrayBuffer = this._base64ToArrayBuffer(base64Audio);
+
+      if (!this.audioContext || this.audioContext.state === 'closed') {
+        const AudioCtx = window.AudioContext || window.webkitAudioContext;
+        this.audioContext = new AudioCtx();
+      }
+      if (this.audioContext.state === 'suspended') {
         try {
-            // Decode the base64 audio data
-            const audioData = this._base64ToArrayBuffer(base64Audio);
-
-            // Create an audio context if needed
-            if (!this.audioContext || this.audioContext.state === 'closed') {
-                this.audioContext = new (window.AudioContext || window.webkitAudioContext)({
-                    sampleRate: 24000 // Match the sample rate received from server
-                });
-
-                // Track this context for cleanup
-                window.existingAudioContexts.push(this.audioContext);
-
-                // Limit the number of contexts we track to avoid memory issues
-                if (window.existingAudioContexts.length > 5) {
-                    const oldContext = window.existingAudioContexts.shift();
-                    try {
-                        if (oldContext && oldContext !== this.audioContext && oldContext.state !== 'closed') {
-                            oldContext.close();
-                        }
-                    } catch (e) {
-                        console.error("Error closing old audio context:", e);
-                    }
-                }
-            }
-
-            // Resume audio context if suspended
-            if (this.audioContext.state === 'suspended') {
-                await this.audioContext.resume();
-            }
-
-            // Add to audio queue
-            this.audioQueue.push(audioData);
-
-            // If not currently playing, start playback
-            if (!this.isPlaying) {
-                this.playNextInQueue();
-            }
-
-            // Set flag to indicate model is speaking
-            this.isModelSpeaking = true;
-        } catch (error) {
-            console.error('Error playing audio:', error);
+          await this.audioContext.resume();
+        } catch {
+          this.onError('Click "Enable Audio" to allow voice playback in your browser.');
+          return;
         }
+      }
+
+      this.audioUnlocked = this.audioContext.state === 'running';
+      if (!this.audioUnlocked) {
+        this.onError('Audio is suspended. Click "Enable Audio" to hear AI voice responses.');
+        return;
+      }
+
+      const audioBuffer = await this._decodeAudioBuffer(arrayBuffer, metadata);
+      this._scheduleBuffer(audioBuffer);
+    } catch (error) {
+      console.error('[AudioClient] Error decoding/playing audio:', error);
+      this.onError('Could not play audio response.');
+    }
+  }
+
+  async _decodeAudioBuffer(arrayBuffer, metadata) {
+    const bytes = new Uint8Array(arrayBuffer);
+    const isWav = metadata.format === 'wav' || (
+      bytes.length >= 4 &&
+      bytes[0] === 0x52 && bytes[1] === 0x49 && bytes[2] === 0x46 && bytes[3] === 0x46
+    );
+
+    if (isWav) {
+      return await this.audioContext.decodeAudioData(arrayBuffer.slice(0));
     }
 
-    // Play next audio chunk from queue
-    playNextInQueue() {
-        if (this.audioQueue.length === 0) {
-            this.isPlaying = false;
-            return;
-        }
+    const sampleRate = Number(metadata.sampleRate) || 24000;
+    const sampleCount = Math.floor(arrayBuffer.byteLength / 2);
+    const int16 = new Int16Array(arrayBuffer, 0, sampleCount);
+    const float32 = new Float32Array(sampleCount);
+    for (let i = 0; i < sampleCount; i += 1) {
+      float32[i] = int16[i] / 32768.0;
+    }
+    const audioBuffer = this.audioContext.createBuffer(1, sampleCount, sampleRate);
+    audioBuffer.getChannelData(0).set(float32);
+    return audioBuffer;
+  }
 
-        this.isPlaying = true;
+  _scheduleBuffer(audioBuffer) {
+    const ctx = this.audioContext;
+    const source = ctx.createBufferSource();
+    source.buffer = audioBuffer;
+    source.connect(ctx.destination);
 
-        try {
-            // Stop any previous source if still active
-            if (this.currentSource) {
-                try {
-                    this.currentSource.onended = null; // Remove event listener
-                    this.currentSource.stop();
-                    this.currentSource.disconnect();
-                } catch (e) {
-                    // Ignore errors if already stopped
-                }
-                this.currentSource = null;
-            }
+    const now = ctx.currentTime;
+    const startAt = Math.max(now + 0.01, this.nextStartTime);
+    this.nextStartTime = startAt + audioBuffer.duration;
 
-            // Get next audio data from queue
-            const audioData = this.audioQueue.shift();
-
-            // Convert Int16Array to Float32Array for AudioBuffer
-            const int16Array = new Int16Array(audioData);
-            const float32Array = new Float32Array(int16Array.length);
-            for (let i = 0; i < int16Array.length; i++) {
-                float32Array[i] = int16Array[i] / 32768.0;
-            }
-
-            // Create an AudioBuffer
-            const audioBuffer = this.audioContext.createBuffer(1, float32Array.length, 24000);
-            audioBuffer.getChannelData(0).set(float32Array);
-
-            // Create a source node
-            const source = this.audioContext.createBufferSource();
-            source.buffer = audioBuffer;
-
-            // Store reference to current source
-            this.currentSource = source;
-
-            // Connect to destination
-            source.connect(this.audioContext.destination);
-
-            // When this buffer ends, play the next one
-            source.onended = () => {
-                this.currentSource = null;
-                this.playNextInQueue();
-            };
-
-            // Start playing
-            source.start(0);
-        } catch (error) {
-            console.error('Error during audio playback:', error);
-            this.currentSource = null;
-            // Try next buffer on error
-            setTimeout(() => this.playNextInQueue(), 100);
-        }
+    this.activeSources.add(source);
+    if (!this.isModelSpeaking) {
+      this.isModelSpeaking = true;
+      this.onSpeakingChange(true);
     }
 
-    // Interrupt current playback
-    interrupt() {
-        this.isModelSpeaking = false;
-
-        // Stop current audio source if active
-        if (this.currentSource) {
-            try {
-                this.currentSource.onended = null; // Remove event listener
-                this.currentSource.stop();
-                this.currentSource.disconnect();
-            } catch (e) {
-                // Ignore errors if already stopped
-            }
-            this.currentSource = null;
+    source.onended = () => {
+      source.disconnect();
+      this.activeSources.delete(source);
+      if (this.activeSources.size === 0) {
+        this.nextStartTime = 0;
+        if (this.isModelSpeaking) {
+          this.isModelSpeaking = false;
+          this.onSpeakingChange(false);
         }
+      }
+    };
 
-        // Clear queue and reset playing state
-        this.audioQueue = [];
-        this.isPlaying = false;
+    source.start(startAt);
+  }
+
+  _stopLocalPlayback() {
+    for (const source of this.activeSources) {
+      try {
+        source.onended = null;
+        source.stop();
+        source.disconnect();
+      } catch {
+        // already stopped
+      }
     }
-
-    // Start heartbeat to keep connection alive
-    startHeartbeat() {
-        // Clear any existing heartbeat
-        this.stopHeartbeat();
-        
-        console.log(`Starting heartbeat with ${this.heartbeatIntervalMs}ms interval`);
-        
-        this.heartbeatInterval = setInterval(() => {
-            if (this.ws && this.ws.readyState === WebSocket.OPEN) {
-                try {
-                    this.ws.send(JSON.stringify({ type: 'heartbeat' }));
-                    console.log('Heartbeat sent');
-                } catch (error) {
-                    console.error('Error sending heartbeat:', error);
-                    this.stopHeartbeat();
-                }
-            } else {
-                console.log('WebSocket not open, stopping heartbeat');
-                this.stopHeartbeat();
-            }
-        }, this.heartbeatIntervalMs);
+    this.activeSources.clear();
+    this.nextStartTime = 0;
+    if (this.isModelSpeaking) {
+      this.isModelSpeaking = false;
+      this.onSpeakingChange(false);
     }
+  }
 
-    // Stop heartbeat
-    stopHeartbeat() {
-        if (this.heartbeatInterval) {
-            clearInterval(this.heartbeatInterval);
-            this.heartbeatInterval = null;
-            console.log('Heartbeat stopped');
+  interrupt() {
+    this._stopLocalPlayback();
+    if (this.ws && this.ws.readyState === WebSocket.OPEN && this.isRegistered) {
+      this.ws.send(JSON.stringify({ type: 'interrupt' }));
+    }
+  }
+
+  close() {
+    this.manualClose = true;
+    if (this.reconnectTimer) {
+      clearTimeout(this.reconnectTimer);
+      this.reconnectTimer = null;
+    }
+    this._stopLocalPlayback();
+    if (this.audioContext && this.audioContext.state !== 'closed') {
+      this.audioContext.close().catch(() => {});
+    }
+    if (this.ws) {
+      try {
+        this.ws.onclose = null;
+        if (this.ws.readyState === WebSocket.OPEN || this.ws.readyState === WebSocket.CONNECTING) {
+          this.ws.close(1000, 'Client closed');
         }
+      } catch {
+        // ignore
+      }
+      this.ws = null;
     }
+    this.isConnected = false;
+    this.isRegistered = false;
+  }
 
-    // Cleanup resources
-    close() {
-        // Stop heartbeat
-        this.stopHeartbeat();
-
-        // Stop any audio playback
-        this.interrupt();
-        this.isModelSpeaking = false;
-
-        // Close audio context
-        if (this.audioContext && this.audioContext.state !== 'closed') {
-            try {
-                this.audioContext.close().catch(e => console.error("Error closing audio context:", e));
-            } catch (e) {
-                console.error("Error closing audio context:", e);
-            }
-        }
-
-        // Close WebSocket
-        if (this.ws) {
-            try {
-                if (this.ws.readyState === WebSocket.OPEN || this.ws.readyState === WebSocket.CONNECTING) {
-                    this.ws.close();
-                }
-                this.ws = null;
-            } catch (e) {
-                console.error("Error closing WebSocket:", e);
-            }
-        }
-
-        this.isConnected = false;
+  _base64ToArrayBuffer(base64) {
+    const binaryString = atob(base64);
+    const len = binaryString.length;
+    const bytes = new Uint8Array(len);
+    for (let i = 0; i < len; i += 1) {
+      bytes[i] = binaryString.charCodeAt(i);
     }
+    return bytes.buffer;
+  }
+}
 
-    // Utility: Convert ArrayBuffer to Base64
-    _arrayBufferToBase64(buffer) {
-        let binary = '';
-        const bytes = new Uint8Array(buffer);
-        const len = bytes.byteLength;
-        for (let i = 0; i < len; i++) {
-            binary += String.fromCharCode(bytes[i]);
-        }
-        return btoa(binary);
-    }
-
-    // Utility: Convert Base64 to ArrayBuffer
-    _base64ToArrayBuffer(base64) {
-        const binaryString = atob(base64);
-        const len = binaryString.length;
-        const bytes = new Uint8Array(len);
-        for (let i = 0; i < len; i++) {
-            bytes[i] = binaryString.charCodeAt(i);
-        }
-        return bytes.buffer;
-    }
+if (typeof module !== 'undefined' && module.exports) {
+  module.exports = { AudioClient };
 }

@@ -1,134 +1,79 @@
-// openrouterChat.js
-import OpenAI from 'openai';
 import dotenv from 'dotenv';
-dotenv.config();
+import path from 'path';
+import { fileURLToPath } from 'url';
 
-const DEFAULT_MODEL = process.env.OPENROUTER_MODEL || 'x-ai/grok-4.1-fast';
-const SYNTHESIS_MODEL = process.env.OPENROUTER_SYNTHESIS_MODEL || 'anthropic/claude-3-haiku';
+const __filename = fileURLToPath(import.meta.url);
+const __dirname = path.dirname(__filename);
 
-// Set up OpenAI client with OpenRouter endpoint
-const openai = new OpenAI({
-  apiKey: process.env.OPENROUTER_API_KEY,
-  baseURL: 'https://openrouter.ai/api/v1',
-});
+dotenv.config({ path: path.join(__dirname, '.env') });
+
+const OPENROUTER_API_URL = 'https://openrouter.ai/api/v1/chat/completions';
+export const DEFAULT_OPENROUTER_MODEL = 'openai/gpt-4o-mini';
+
+export const VOICE_ASSISTANT_SYSTEM_PROMPT =
+  'You are a concise, helpful real-time voice assistant inside a Zoom meeting. ' +
+  'Respond naturally in 1 to 2 short spoken sentences (roughly 15-35 words) without markdown formatting or bullet points.';
 
 /**
- * Sends a message to a model via OpenRouter
- * @param {string} message - The user message
- * @param {string} model - The model to use
+ * Sends a single prompt or conversation history array to OpenRouter.
+ * @param {string|Array<{role: string, content: string}>} input
+ * @param {Object} [options]
+ * @param {string} [options.model]
+ * @param {string} [options.apiKey]
+ * @param {string} [options.systemPrompt]
+ * @param {AbortSignal} [options.signal]
+ * @param {typeof fetch} [options.fetchImpl]
  * @returns {Promise<string>}
  */
-export async function chatWithOpenRouter(message, model = DEFAULT_MODEL) {
-  try {
-    const enhancedPrompt = `Please respond to the following message in approximately 10-20 words. preferable in one sentence. Be concise, clear, and helpful while staying within this word limit.
+export async function chatWithOpenRouter(input, options = {}) {
+  const {
+    model = process.env.OPENROUTER_MODEL || DEFAULT_OPENROUTER_MODEL,
+    apiKey = process.env.OPENROUTER_API_KEY,
+    systemPrompt = VOICE_ASSISTANT_SYSTEM_PROMPT,
+    signal,
+    fetchImpl = fetch
+  } = typeof options === 'string' ? { model: options } : options;
 
-User message: ${message}`;
-
-    const response = await openai.chat.completions.create({
-      model: model,
-      messages: [{ role: 'user', content: enhancedPrompt }],
-    });
-
-    return response.choices[0].message.content;
-  } catch (err) {
-    console.error('❌ Error with OpenRouter:', err.response?.data || err.message);
-    throw err;
+  if (!apiKey) {
+    throw new Error('OPENROUTER_API_KEY is not configured');
   }
-}
 
-export async function chatWithMultipleModels(message) {
-  const models = [DEFAULT_MODEL];
+  let messages;
+  if (Array.isArray(input)) {
+    const hasSystem = input.some((m) => m.role === 'system');
+    messages = hasSystem
+      ? input
+      : [{ role: 'system', content: systemPrompt }, ...input];
+  } else {
+    messages = [
+      { role: 'system', content: systemPrompt },
+      { role: 'user', content: String(input || '') }
+    ];
+  }
 
-  await Promise.all(models.map(async (model) => {
-    try {
-      const response = await openai.chat.completions.create({
-        model,
-        messages: [{ role: 'user', content: message }],
-      });
-
-      const reply = response.choices[0].message.content;
-
-      console.log('='.repeat(60));
-      console.log(`🧠 MODEL: ${model}`);
-      console.log('-'.repeat(60));
-      console.log(`💬 RESPONSE:\n${reply}`);
-      console.log('='.repeat(60));
-    } catch (err) {
-      console.error(`❌ Error with model ${model}:`, err.response?.data || err.message);
-      console.log('='.repeat(60));
-    }
-  }));
-}
-
-export async function contextualSynthesisFromMultipleModels(message) {
-  const models = [DEFAULT_MODEL];
-
-  console.log(`📨 Received prompt: "${message}"\n`);
-  console.log(`🤖 Sending prompt to ${models.length} models in parallel...\n`);
-
-  const modelTasks = models.map(async (model) => {
-    try {
-      console.log(`⏳ Querying model: ${model}`);
-      const response = await openai.chat.completions.create({
-        model,
-        messages: [{ role: 'user', content: message }],
-      });
-
-      console.log(`✅ Received response from ${model}`);
-      return { model, reply: response.choices[0].message.content };
-    } catch (err) {
-      console.error(`❌ Error with model ${model}:`, err.response?.data || err.message);
-      return null;
-    }
+  const res = await fetchImpl(OPENROUTER_API_URL, {
+    method: 'POST',
+    headers: {
+      Authorization: `Bearer ${apiKey}`,
+      'Content-Type': 'application/json'
+    },
+    body: JSON.stringify({
+      model,
+      messages
+    }),
+    signal
   });
 
-  const modelResponses = (await Promise.all(modelTasks)).filter(Boolean);
-
-  if (modelResponses.length === 0) {
-    console.error('❌ No successful responses to synthesize from.');
-    return;
+  if (!res.ok) {
+    const errorBody = await res.text().catch(() => '');
+    throw new Error(`OpenRouter API error (${res.status}): ${errorBody.slice(0, 200)}`);
   }
 
-  console.log('\n🧠 All model responses received. Preparing for synthesis...\n');
-
-  const combinedContext = modelResponses.map(({ model, reply }) =>
-    `Response from ${model}:\n${reply}`
-  ).join('\n\n');
-
-  const synthesisPrompt = `
-You are an expert assistant. The user asked:
-
-"${message}"
-
-Here are responses from multiple AI models. Cross-check the answers, validate facts, and generate a final answer that is accurate, clear, and well-supported. Do not summarize — synthesize the best answer possible using their content.
-
-${combinedContext}
-  `.trim();
-
-  try {
-    console.log(`🧪 Synthesizing final answer using ${SYNTHESIS_MODEL}...\n`);
-
-    let seconds = 0;
-    const spinner = setInterval(() => {
-      seconds++;
-      process.stdout.write(`⏳ Thinking... ${seconds}s\r`);
-    }, 1000);
-
-    const finalResponse = await openai.chat.completions.create({
-      model: SYNTHESIS_MODEL,
-      messages: [{ role: 'user', content: synthesisPrompt }],
-    });
-
-    clearInterval(spinner);
-    process.stdout.write('\n');
-
-    const finalAnswer = finalResponse.choices[0].message.content;
-
-    console.log('\n✅ FINAL SYNTHESIZED ANSWER');
-    console.log('='.repeat(60));
-    console.log(finalAnswer);
-    console.log('='.repeat(60));
-  } catch (err) {
-    console.error(`❌ Error during synthesis:`, err.response?.data || err.message);
+  const data = await res.json();
+  const content = data?.choices?.[0]?.message?.content;
+  if (typeof content !== 'string' || !content.trim()) {
+    throw new Error('OpenRouter returned an empty response');
   }
+
+  return content.trim();
 }

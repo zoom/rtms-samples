@@ -13,8 +13,8 @@
         <p class="eyebrow">Zoom App RTMS Monitor</p>
         <h1>Media Verification Console</h1>
         <p>
-          Select a participant, open the individual media stream, then run video
-          and audio checks from the backend services.
+          Select a participant directly from the list, preview their isolated individual stream,
+          and monitor combined audio + video trust verdicts with rolling confidence history.
         </p>
       </div>
       <div class="hero-panel" aria-label="Current system status">
@@ -31,7 +31,7 @@
           <span class="step-pill">01</span>
           <div>
             <h2>Meeting Control</h2>
-            <p>Start RTMS, choose the media source, and track participant states.</p>
+            <p>Start RTMS, click any video-on participant to inspect, and track per-participant trust.</p>
           </div>
         </div>
         <div class="button-row">
@@ -40,6 +40,7 @@
         </div>
         <dl class="status-list">
           <div><dt>Zoom SDK</dt><dd id="zoomSdkStatus" class="status-chip">loading</dd></div>
+          <div><dt>Socket Room</dt><dd id="socketStatus" class="status-chip muted">connecting</dd></div>
           <div><dt>RTMS</dt><dd id="rtmsStatus" class="status-chip muted">stopped</dd></div>
           <div><dt>Stream</dt><dd id="streamId">none</dd></div>
           <div><dt>Active speaker</dt><dd id="activeSpeaker">none</dd></div>
@@ -61,7 +62,7 @@
 
         <section class="participant-panel" aria-label="Meeting participant verification">
           <div class="participant-panel-heading">
-            <h3>Meeting Participants</h3>
+            <h3>Meeting Participants (click to select)</h3>
             <span id="participantCount">0 loaded</span>
           </div>
           <div id="participantStatusList" class="participant-status-list">
@@ -75,7 +76,7 @@
           <span class="step-pill">02</span>
           <div>
             <h2>Live Preview</h2>
-            <p>HLS output from the backend ffmpeg pipeline.</p>
+            <p>Isolated per-meeting HLS output from the backend ffmpeg pipeline.</p>
           </div>
         </div>
         <div class="video-frame">
@@ -88,10 +89,33 @@
         <div class="card-heading">
           <span class="step-pill">03</span>
           <div>
-            <h2>Detection</h2>
-            <p>Run video and audio verification independently.</p>
+            <h2>Combined Trust &amp; Detection</h2>
+            <p>Run video and audio verification independently with rolling confidence tracking.</p>
           </div>
         </div>
+
+        <section class="verification-section combined-verification" aria-label="Combined trust verdict">
+          <div class="verification-heading">
+            <h3>Combined Audio + Video Trust Verdict</h3>
+            <span id="combinedConfidenceScore">Confidence: n/a</span>
+          </div>
+          <div id="combinedVerdictBadge" class="verdict-badge pending">Unverified</div>
+          <div class="history-bars-wrap">
+            <div class="history-row">
+              <span class="history-label">Video trend</span>
+              <div id="videoHistoryBars" class="history-bars" aria-label="Video real-score rolling history">
+                <span class="history-empty">No readings yet</span>
+              </div>
+            </div>
+            <div class="history-row">
+              <span class="history-label">Audio trend</span>
+              <div id="audioHistoryBars" class="history-bars" aria-label="Audio real-score rolling history">
+                <span class="history-empty">No readings yet</span>
+              </div>
+            </div>
+          </div>
+        </section>
+
         <section class="verification-section video-verification" aria-label="Video verification">
           <div class="verification-heading">
             <h3>Video Verification</h3>
@@ -121,8 +145,8 @@
           </div>
           <div id="audioVerdictBadge" class="verdict-badge pending">Audio no result yet</div>
           <dl class="status-list">
-            <div><dt>Audio model</dt><dd id="audioModelName">Audio service</dd></div>
-            <div><dt>Audio clip</dt><dd id="audioClipDuration">n/a</dd></div>
+            <div><dt>Audio model</dt><dd id="audioModelName"><%= config.audioVendorName %></dd></div>
+            <div><dt>Audio clip</dt><dd id="audioClipDuration"><%= config.audioClipSeconds %> s</dd></div>
             <div><dt>Clip name</dt><dd id="audioClipName">n/a</dd></div>
             <div><dt>Processing</dt><dd id="audioProcessingTime">n/a</dd></div>
             <div><dt>Real score</dt><dd id="audioRealScore">n/a</dd></div>

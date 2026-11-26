@@ -1,4 +1,4 @@
-import React, { createContext, useContext, useState, useEffect, useRef } from 'react';
+import React, { createContext, useContext, useState, useEffect, useRef, useCallback } from 'react';
 import { io } from 'socket.io-client';
 
 const WebSocketContext = createContext(null);
@@ -16,30 +16,38 @@ export const WebSocketProvider = ({ children }) => {
   const [isConnected, setIsConnected] = useState(false);
   const [meetingRoomJoined, setMeetingRoomJoined] = useState(false);
   const socketRef = useRef(null);
+  const desiredJoinRef = useRef(null);
 
   useEffect(() => {
-    // Connect to same origin as page (works with both ngrok and localhost)
-    // When loaded via ngrok, connects to ngrok
-    // When loaded locally, connects to localhost
     const backendUrl = window.location.origin;
 
-    console.log('Connecting to WebSocket server at:', backendUrl);
     const newSocket = io(backendUrl, {
       path: '/socket.io',
       transports: ['websocket', 'polling'],
+      withCredentials: true,
       reconnection: true,
-      reconnectionAttempts: 5,
+      reconnectionAttempts: Infinity,
       reconnectionDelay: 1000,
+      reconnectionDelayMax: 10000,
+      randomizationFactor: 0.3,
       secure: window.location.protocol === 'https:'
     });
 
     socketRef.current = newSocket;
     setSocket(newSocket);
 
-    // Connection event handlers
     newSocket.on('connect', () => {
       console.log('WebSocket connected');
       setIsConnected(true);
+
+      // Re-join meeting room automatically after reconnect
+      if (desiredJoinRef.current) {
+        newSocket.emit('join_meeting', desiredJoinRef.current, (ack) => {
+          if (ack?.ok) {
+            setMeetingRoomJoined(true);
+          }
+        });
+      }
     });
 
     newSocket.on('disconnect', () => {
@@ -53,21 +61,30 @@ export const WebSocketProvider = ({ children }) => {
       setIsConnected(false);
     });
 
-    // Cleanup on unmount
+    newSocket.on('join_error', (err) => {
+      console.error('Failed to join meeting room:', err);
+      setMeetingRoomJoined(false);
+    });
+
     return () => {
-      console.log('Cleaning up WebSocket connection');
       newSocket.close();
     };
   }, []);
 
-  // Function to join meeting room
-  const joinMeetingRoom = (meetingId) => {
-    if (socket && isConnected && !meetingRoomJoined) {
-      console.log(`📡 Joining WebSocket room for meeting: ${meetingId}`);
-      socket.emit('join_meeting', meetingId);
-      setMeetingRoomJoined(true);
+  const joinMeetingRoom = useCallback((meetingId, zoomAppContext = null) => {
+    if (!meetingId) return;
+    const payload = { meetingId, ...(zoomAppContext ? { zoomAppContext } : {}) };
+    desiredJoinRef.current = payload;
+
+    const activeSocket = socketRef.current;
+    if (activeSocket && activeSocket.connected && !meetingRoomJoined) {
+      activeSocket.emit('join_meeting', payload, (ack) => {
+        if (!ack || ack.ok) {
+          setMeetingRoomJoined(true);
+        }
+      });
     }
-  };
+  }, [meetingRoomJoined]);
 
   const value = {
     socket,

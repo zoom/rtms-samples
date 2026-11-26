@@ -1,0 +1,17 @@
+{
+  "name": "send-audio-to-microsoft-voice-live-api-with-audio-playback",
+  "version": "1.0.0",
+  "private": true,
+  "type": "module",
+  "scripts": {
+    "start": "node index.js",
+    "test": "node --test tests/*.test.js"
+  },
+  "dependencies": {
+    "dotenv": "^16.4.1",
+    "ejs": "^3.1.10",
+    "express": "^4.21.2",
+    "rtms-manager": "file:../../library/javascript/rtmsManager",
+    "ws": "^8.16.0"
+  }
+}

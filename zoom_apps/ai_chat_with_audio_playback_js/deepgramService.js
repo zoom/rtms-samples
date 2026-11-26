@@ -1,76 +1,83 @@
 import { createClient } from '@deepgram/sdk';
 import dotenv from 'dotenv';
+import path from 'path';
+import { fileURLToPath } from 'url';
 
-dotenv.config();
+const __filename = fileURLToPath(import.meta.url);
+const __dirname = path.dirname(__filename);
 
-// Initialize Deepgram client
-const deepgram = createClient(process.env.DEEPGRAM_API_KEY);
+dotenv.config({ path: path.join(__dirname, '.env') });
 
-/**
- * Convert text to speech using Deepgram's TTS API
- * @param {string} text - The text to convert to speech
- * @param {Object} options - TTS options
- * @returns {Promise<Buffer>} - Audio buffer in the specified format
- */
-export async function textToSpeech(text, options = {}) {
-  try {
-    const {
-      model = 'aura-asteria-en',
-      encoding = 'linear16',
-      sample_rate = 24000,
-      container = 'wav'
-    } = options;
+let cachedClient = null;
+let cachedKey = null;
 
-    console.log('🎤 Converting text to speech:', text.substring(0, 50) + '...');
-
-    const response = await deepgram.speak.request(
-      { text },
-      {
-        model,
-        encoding,
-        sample_rate,
-        container
-      }
-    );
-
-    const stream = await response.getStream();
-    if (!stream) {
-      throw new Error('No audio stream received from Deepgram');
-    }
-
-    // Convert stream to buffer
-    const chunks = [];
-    const reader = stream.getReader();
-    
-    while (true) {
-      const { done, value } = await reader.read();
-      if (done) break;
-      chunks.push(value);
-    }
-
-    const audioBuffer = Buffer.concat(chunks);
-    console.log('✅ Text-to-speech conversion completed, audio size:', audioBuffer.length, 'bytes');
-    
-    return audioBuffer;
-
-  } catch (error) {
-    console.error('❌ Error in text-to-speech conversion:', error);
-    throw error;
+function getDeepgramClient(apiKey = process.env.DEEPGRAM_API_KEY) {
+  if (!apiKey) {
+    throw new Error('DEEPGRAM_API_KEY is not configured');
   }
+  if (!cachedClient || cachedKey !== apiKey) {
+    cachedClient = createClient(apiKey);
+    cachedKey = apiKey;
+  }
+  return cachedClient;
 }
 
 /**
- * Convert text to speech and return as base64
- * @param {string} text - The text to convert to speech
- * @param {Object} options - TTS options
- * @returns {Promise<string>} - Base64 encoded audio
+ * Convert text to speech using Deepgram's TTS API.
+ * Defaults to linear16 WAV at 24kHz so browser clients can decode reliably with decodeAudioData().
+ * @param {string} text
+ * @param {Object} [options]
+ * @returns {Promise<Buffer>}
+ */
+export async function textToSpeech(text, options = {}) {
+  const {
+    model = process.env.DEEPGRAM_TTS_MODEL || 'aura-asteria-en',
+    encoding = 'linear16',
+    sample_rate = 24000,
+    container = 'wav',
+    apiKey = process.env.DEEPGRAM_API_KEY,
+    client
+  } = options;
+
+  const trimmed = String(text || '').trim();
+  if (!trimmed) {
+    throw new Error('Cannot synthesize empty text');
+  }
+
+  const dg = client || getDeepgramClient(apiKey);
+  const response = await dg.speak.request(
+    { text: trimmed },
+    {
+      model,
+      encoding,
+      sample_rate,
+      container
+    }
+  );
+
+  const stream = await response.getStream();
+  if (!stream) {
+    throw new Error('No audio stream received from Deepgram');
+  }
+
+  const chunks = [];
+  const reader = stream.getReader();
+  while (true) {
+    const { done, value } = await reader.read();
+    if (done) break;
+    chunks.push(Buffer.from(value));
+  }
+
+  return Buffer.concat(chunks);
+}
+
+/**
+ * Convert text to speech and return base64 encoded WAV audio.
+ * @param {string} text
+ * @param {Object} [options]
+ * @returns {Promise<string>}
  */
 export async function textToSpeechBase64(text, options = {}) {
-  try {
-    const audioBuffer = await textToSpeech(text, options);
-    return audioBuffer.toString('base64');
-  } catch (error) {
-    console.error('❌ Error converting text to speech (base64):', error);
-    throw error;
-  }
+  const audioBuffer = await textToSpeech(text, options);
+  return audioBuffer.toString('base64');
 }

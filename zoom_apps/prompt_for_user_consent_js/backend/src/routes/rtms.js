@@ -1,28 +1,55 @@
 const express = require('express');
 const router = express.Router();
 const { validateMeetingId } = require('../utils/validators');
-const { getConsentState } = require('../utils/redis');
+const ConsentManager = require('../services/ConsentManager');
+const { saveConsentState } = require('../utils/redis');
+const { requireHostRole } = require('../middleware/security');
+const { syncConsentPolicyToRtms } = require('../utils/rtmsNotifier');
+
+let wsServer = null;
+function setWebSocketServer(server) {
+  wsServer = server;
+}
 
 /**
  * POST /api/rtms/start
- * Manually start RTMS (host only)
- * Note: In Phase 4, this will be automatic when unanimous consent is achieved
+ * Manually start RTMS (host/co-host only; blocked unless consent policy is satisfied)
  */
-router.post('/start', async (req, res) => {
+router.post('/start', requireHostRole, async (req, res) => {
   try {
     const { error, value } = validateMeetingId(req.body);
     if (error) {
       return res.status(400).json({ error: error.details[0].message });
     }
 
-    // TODO: Add authentication check for host role
-    // TODO: Implement actual RTMS start via Zoom SDK (Phase 4)
+    const state = await ConsentManager.getConsentState(value.meetingId);
+    if (!ConsentManager.canCaptureRTMS(state)) {
+      return res.status(403).json({
+        error: 'Consent policy requirements are not met to start RTMS',
+        policyMode: state.policyMode,
+        unanimousConsent: state.unanimousConsent
+      });
+    }
 
-    console.log(`Manual RTMS start requested for meeting ${value.meetingId}`);
+    state.rtmsStatus = 'running';
+    state.rtmsPausedReason = null;
+    ConsentManager.recordAuditEvent(state, {
+      eventType: 'rtms_started',
+      source: 'manual_host_api',
+      details: 'Host manually started RTMS'
+    });
+
+    const saved = await saveConsentState(value.meetingId, state);
+    if (wsServer) {
+      wsServer.broadcastRTMSStatus(value.meetingId, saved.rtmsStatus, null);
+      wsServer.broadcastConsentUpdate(value.meetingId, saved);
+    }
+    await syncConsentPolicyToRtms(value.meetingId, saved);
 
     res.json({
       success: true,
-      message: 'RTMS start command issued (Phase 4 will implement actual start)'
+      rtmsStatus: saved.rtmsStatus,
+      policyMode: saved.policyMode
     });
   } catch (error) {
     console.error('Error starting RTMS:', error);
@@ -32,23 +59,34 @@ router.post('/start', async (req, res) => {
 
 /**
  * POST /api/rtms/stop
- * Manually stop RTMS (host only)
+ * Manually stop RTMS (host/co-host only)
  */
-router.post('/stop', async (req, res) => {
+router.post('/stop', requireHostRole, async (req, res) => {
   try {
     const { error, value } = validateMeetingId(req.body);
     if (error) {
       return res.status(400).json({ error: error.details[0].message });
     }
 
-    // TODO: Add authentication check for host role
-    // TODO: Implement actual RTMS stop via Zoom SDK (Phase 4)
+    const state = await ConsentManager.getConsentState(value.meetingId);
+    state.rtmsStatus = 'stopped';
+    state.rtmsPausedReason = 'Stopped by host';
+    ConsentManager.recordAuditEvent(state, {
+      eventType: 'rtms_stopped',
+      source: 'manual_host_api',
+      details: 'Host manually stopped RTMS'
+    });
 
-    console.log(`Manual RTMS stop requested for meeting ${value.meetingId}`);
+    const saved = await saveConsentState(value.meetingId, state);
+    if (wsServer) {
+      wsServer.broadcastRTMSStatus(value.meetingId, saved.rtmsStatus, saved.rtmsPausedReason);
+      wsServer.broadcastConsentUpdate(value.meetingId, saved);
+    }
+    await syncConsentPolicyToRtms(value.meetingId, saved);
 
     res.json({
       success: true,
-      message: 'RTMS stop command issued (Phase 4 will implement actual stop)'
+      rtmsStatus: saved.rtmsStatus
     });
   } catch (error) {
     console.error('Error stopping RTMS:', error);
@@ -67,12 +105,13 @@ router.get('/status', async (req, res) => {
       return res.status(400).json({ error: error.details[0].message });
     }
 
-    const state = await getConsentState(value.meetingId);
+    const state = await ConsentManager.getConsentState(value.meetingId);
 
     res.json({
       rtmsStatus: state.rtmsStatus,
       rtmsPausedReason: state.rtmsPausedReason,
-      unanimousConsent: state.unanimousConsent
+      unanimousConsent: state.unanimousConsent,
+      policyMode: state.policyMode
     });
   } catch (error) {
     console.error('Error getting RTMS status:', error);
@@ -81,3 +120,4 @@ router.get('/status', async (req, res) => {
 });
 
 module.exports = router;
+module.exports.setWebSocketServer = setWebSocketServer;

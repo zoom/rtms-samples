@@ -1,0 +1,719 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>AI Industry Notetaker (RTMS)</title>
+  <script src="https://appssdk.zoom.us/sdk.js"></script>
+  <style>
+    * { box-sizing: border-box; margin: 0; padding: 0; }
+    :root {
+      --bg: #f8fafc;
+      --surface: #ffffff;
+      --surface-alt: #f1f5f9;
+      --border: #cbd5e1;
+      --text: #0f172a;
+      --muted: #475569;
+      --primary: #2563eb;
+      --primary-soft: #dbeafe;
+      --success: #16a34a;
+      --warn: #d97706;
+      --danger: #dc2626;
+    }
+    body {
+      font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
+      background: var(--bg);
+      color: var(--text);
+      height: 100vh;
+      display: flex;
+      flex-direction: column;
+      overflow: hidden;
+    }
+    header {
+      background: var(--surface);
+      border-bottom: 1px solid var(--border);
+      padding: 0.65rem 0.9rem;
+      display: flex;
+      flex-wrap: wrap;
+      align-items: center;
+      justify-content: space-between;
+      gap: 0.5rem;
+    }
+    .brand { display: flex; align-items: center; gap: 0.45rem; font-weight: 700; font-size: 0.95rem; }
+    .badge {
+      font-size: 0.7rem;
+      font-weight: 600;
+      padding: 0.15rem 0.5rem;
+      border-radius: 999px;
+      border: 1px solid var(--border);
+      background: var(--surface-alt);
+      color: var(--muted);
+    }
+    .badge.ok { background: #dcfce7; color: #166534; border-color: #86efac; }
+    .badge.warn { background: #fef3c7; color: #92400e; border-color: #fcd34d; }
+    .badge.err { background: #fee2e2; color: #991b1b; border-color: #fca5a5; }
+    .toolbar {
+      background: var(--surface);
+      border-bottom: 1px solid var(--border);
+      padding: 0.55rem 0.9rem;
+      display: flex;
+      flex-wrap: wrap;
+      gap: 0.45rem;
+      align-items: center;
+      justify-content: space-between;
+    }
+    .group { display: flex; flex-wrap: wrap; align-items: center; gap: 0.4rem; }
+    button, select {
+      font-family: inherit;
+      font-size: 0.78rem;
+      border-radius: 7px;
+      border: 1px solid var(--border);
+      padding: 0.35rem 0.65rem;
+      background: var(--surface);
+      color: var(--text);
+    }
+    button { cursor: pointer; font-weight: 600; }
+    button:hover { background: var(--surface-alt); }
+    button.primary { background: var(--primary); color: #fff; border-color: var(--primary); }
+    button.primary:hover { filter: brightness(1.06); }
+
+    .tabs {
+      display: flex;
+      background: var(--surface);
+      border-bottom: 1px solid var(--border);
+      padding: 0 0.9rem;
+      gap: 0.25rem;
+    }
+    .tab-btn {
+      border: none;
+      border-bottom: 2px solid transparent;
+      border-radius: 0;
+      padding: 0.6rem 0.8rem;
+      background: transparent;
+      color: var(--muted);
+      font-weight: 600;
+    }
+    .tab-btn.active {
+      color: var(--primary);
+      border-bottom-color: var(--primary);
+    }
+
+    main {
+      flex: 1;
+      overflow-y: auto;
+      padding: 0.9rem;
+    }
+    .tab-pane { display: none; flex-direction: column; gap: 0.75rem; }
+    .tab-pane.active { display: flex; }
+
+    .card {
+      background: var(--surface);
+      border: 1px solid var(--border);
+      border-radius: 10px;
+      padding: 0.8rem 0.9rem;
+    }
+    .card-title {
+      font-size: 0.82rem;
+      font-weight: 700;
+      text-transform: uppercase;
+      letter-spacing: 0.03em;
+      color: var(--muted);
+      margin-bottom: 0.45rem;
+      display: flex;
+      justify-content: space-between;
+      align-items: center;
+    }
+    .summary-text {
+      font-size: 0.88rem;
+      line-height: 1.5;
+      white-space: pre-wrap;
+    }
+    .bullet-list {
+      padding-left: 1.1rem;
+      display: flex;
+      flex-direction: column;
+      gap: 0.3rem;
+      font-size: 0.85rem;
+      line-height: 1.45;
+    }
+    .empty-hint { color: var(--muted); font-size: 0.82rem; font-style: italic; }
+
+    .action-item {
+      display: flex;
+      align-items: flex-start;
+      gap: 0.6rem;
+      padding: 0.55rem 0;
+      border-bottom: 1px solid var(--surface-alt);
+    }
+    .action-item:last-child { border-bottom: none; }
+    .action-item.done .action-task { text-decoration: line-through; color: var(--muted); }
+    .action-task { font-size: 0.86rem; font-weight: 500; }
+    .action-meta { font-size: 0.74rem; color: var(--muted); margin-top: 0.15rem; }
+
+    .transcript-line {
+      padding: 0.5rem 0.65rem;
+      border-radius: 8px;
+      background: var(--surface-alt);
+      font-size: 0.84rem;
+      line-height: 1.45;
+    }
+    .transcript-speaker {
+      font-size: 0.73rem;
+      font-weight: 700;
+      color: var(--primary);
+      margin-bottom: 0.15rem;
+    }
+
+    .chip-wrap { display: flex; flex-wrap: wrap; gap: 0.4rem; }
+    .chip {
+      font-size: 0.76rem;
+      padding: 0.25rem 0.55rem;
+      border-radius: 999px;
+      background: var(--primary-soft);
+      color: #1e40af;
+      font-weight: 600;
+    }
+    .chip.entity {
+      background: var(--surface-alt);
+      color: var(--text);
+      border: 1px solid var(--border);
+    }
+    .wrapup-banner {
+      background: #dcfce7;
+      border: 1px solid #86efac;
+      color: #166534;
+      border-radius: 8px;
+      padding: 0.6rem 0.8rem;
+      font-size: 0.82rem;
+      font-weight: 600;
+      display: none;
+    }
+    .wrapup-banner.visible { display: block; }
+  </style>
+</head>
+<body>
+  <header>
+    <div class="brand">
+      <span>AI Industry Notetaker</span>
+      <span id="ws-badge" class="badge">Connecting...</span>
+      <span id="rtms-badge" class="badge">RTMS: Idle</span>
+    </div>
+    <div class="group">
+      <button id="btn-start-rtms" class="primary">Start RTMS</button>
+      <button id="btn-stop-rtms">Stop RTMS</button>
+    </div>
+  </header>
+
+  <div class="toolbar">
+    <div class="group">
+      <label for="template-select" style="font-size: 0.76rem; font-weight: 600; color: var(--muted);">Template:</label>
+      <select id="template-select">
+        <option value="general">General Meeting</option>
+        <option value="healthcare_soap">Healthcare (SOAP Note)</option>
+        <option value="legal_compliance">Legal & Compliance</option>
+        <option value="sales_meddic">Sales (MEDDIC)</option>
+        <option value="finance_advisory">Financial Advisory</option>
+        <option value="engineering_rfc">Engineering RFC</option>
+      </select>
+      <button id="btn-refresh">Refresh Notes</button>
+    </div>
+    <div class="group">
+      <button id="btn-export-md">Export Markdown</button>
+      <button id="btn-export-json">Export JSON</button>
+    </div>
+  </div>
+
+  <div class="tabs">
+    <button class="tab-btn active" data-tab="notes">Structured Notes</button>
+    <button class="tab-btn" data-tab="actions">Action Items (<span id="actions-count">0</span>)</button>
+    <button class="tab-btn" data-tab="transcript">Live Transcript</button>
+    <button class="tab-btn" data-tab="entities">Entities & Topics</button>
+  </div>
+
+  <main>
+    <div id="wrapup-banner" class="wrapup-banner">Final meeting wrap-up generated. You can export your notes above.</div>
+
+    <section id="tab-notes" class="tab-pane active">
+      <div class="card">
+        <div class="card-title">
+          <span>Summary</span>
+          <span id="source-badge" class="badge">Waiting</span>
+        </div>
+        <div id="summary-body" class="summary-text empty-hint">Notes will populate automatically as participants speak.</div>
+      </div>
+      <div id="sections-container" style="display: flex; flex-direction: column; gap: 0.75rem;"></div>
+    </section>
+
+    <section id="tab-actions" class="tab-pane">
+      <div class="card">
+        <div class="card-title">
+          <span>Action Items</span>
+          <span id="actions-progress" class="badge">0 / 0 done</span>
+        </div>
+        <div id="actions-list">
+          <div class="empty-hint">No action items captured yet.</div>
+        </div>
+      </div>
+    </section>
+
+    <section id="tab-transcript" class="tab-pane">
+      <div class="card">
+        <div class="card-title">
+          <span>Live Transcript (Rewind-Safe)</span>
+          <span id="transcript-count" class="badge">0 turns</span>
+        </div>
+        <div id="transcript-list" style="display: flex; flex-direction: column; gap: 0.45rem;">
+          <div class="empty-hint">Waiting for live speech...</div>
+        </div>
+      </div>
+    </section>
+
+    <section id="tab-entities" class="tab-pane">
+      <div class="card">
+        <div class="card-title"><span>Topics</span></div>
+        <div id="topics-list" class="chip-wrap"><span class="empty-hint">No topics yet.</span></div>
+      </div>
+      <div class="card">
+        <div class="card-title"><span>Extracted Entities</span></div>
+        <div id="entities-list" class="chip-wrap"><span class="empty-hint">No entities yet.</span></div>
+      </div>
+    </section>
+  </main>
+
+  <script>
+    const WEBSOCKET_URL = <%- JSON.stringify(websocketUrl).replace(/</g, '\\u003c') %>;
+    const WS_AUTH_TOKEN = <%- JSON.stringify(typeof wsAuthToken === 'string' ? wsAuthToken : '').replace(/</g, '\\u003c') %>;
+
+    (function () {
+      const wsBadge = document.getElementById('ws-badge');
+      const rtmsBadge = document.getElementById('rtms-badge');
+      const sourceBadge = document.getElementById('source-badge');
+      const wrapupBanner = document.getElementById('wrapup-banner');
+      const templateSelect = document.getElementById('template-select');
+      const btnStartRtms = document.getElementById('btn-start-rtms');
+      const btnStopRtms = document.getElementById('btn-stop-rtms');
+      const btnRefresh = document.getElementById('btn-refresh');
+      const btnExportMd = document.getElementById('btn-export-md');
+      const btnExportJson = document.getElementById('btn-export-json');
+      const summaryBody = document.getElementById('summary-body');
+      const sectionsContainer = document.getElementById('sections-container');
+      const actionsList = document.getElementById('actions-list');
+      const actionsCount = document.getElementById('actions-count');
+      const actionsProgress = document.getElementById('actions-progress');
+      const transcriptList = document.getElementById('transcript-list');
+      const transcriptCount = document.getElementById('transcript-count');
+      const topicsList = document.getElementById('topics-list');
+      const entitiesList = document.getElementById('entities-list');
+
+      let socket = null;
+      let reconnectAttempts = 0;
+      let reconnectTimer = null;
+      let manualClose = false;
+      let isRegistered = false;
+      let zoomReady = false;
+      let currentMeetingUUID = '';
+      let currentUserID = '';
+      let latestState = null;
+      const transcriptNodes = new Map();
+
+      function setBadge(el, text, kind) {
+        el.textContent = text;
+        el.className = 'badge' + (kind ? ' ' + kind : '');
+      }
+
+      function sendWs(payload) {
+        if (!socket || socket.readyState !== WebSocket.OPEN) return false;
+        socket.send(JSON.stringify(payload));
+        return true;
+      }
+
+      // Tabs
+      document.querySelectorAll('.tab-btn').forEach((btn) => {
+        btn.addEventListener('click', () => {
+          const target = btn.getAttribute('data-tab');
+          document.querySelectorAll('.tab-btn').forEach((b) => b.classList.toggle('active', b === btn));
+          document.querySelectorAll('.tab-pane').forEach((p) => p.classList.toggle('active', p.id === `tab-${target}`));
+        });
+      });
+
+      function upsertTranscriptTurn(turn) {
+        if (!turn || !turn.text) return;
+        const empty = transcriptList.querySelector('.empty-hint');
+        if (empty) empty.remove();
+
+        const key = turn.sentenceKey || `${turn.userId}:${turn.timestamp}`;
+        const time = new Date(turn.timestamp || Date.now()).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit', second: '2-digit' });
+        const label = `${turn.userName || 'Speaker'} · ${time}${turn.revision > 0 ? ' (revised)' : ''}`;
+
+        if (transcriptNodes.has(key)) {
+          const existing = transcriptNodes.get(key);
+          existing.speakerEl.textContent = label;
+          existing.textEl.textContent = turn.text;
+          return;
+        }
+
+        const line = document.createElement('div');
+        line.className = 'transcript-line';
+
+        const speakerEl = document.createElement('div');
+        speakerEl.className = 'transcript-speaker';
+        speakerEl.textContent = label;
+
+        const textEl = document.createElement('div');
+        textEl.textContent = turn.text;
+
+        line.appendChild(speakerEl);
+        line.appendChild(textEl);
+        transcriptList.appendChild(line);
+        transcriptNodes.set(key, { line, speakerEl, textEl });
+        transcriptCount.textContent = `${transcriptNodes.size} turns`;
+      }
+
+      function renderState(state) {
+        if (!state) return;
+        latestState = state;
+        templateSelect.value = state.templateId || 'general';
+
+        setBadge(
+          sourceBadge,
+          state.extractionSource === 'llm' ? 'AI Structured' : (state.extractionSource === 'fallback' ? 'Local Fallback' : 'Waiting'),
+          state.extractionSource === 'llm' ? 'ok' : (state.extractionSource === 'fallback' ? 'warn' : '')
+        );
+
+        if (state.summary) {
+          summaryBody.className = 'summary-text';
+          summaryBody.textContent = state.summary;
+        } else {
+          summaryBody.className = 'summary-text empty-hint';
+          summaryBody.textContent = 'Notes will populate automatically as participants speak.';
+        }
+
+        // Template sections
+        sectionsContainer.textContent = '';
+        (state.templateSections || []).forEach((secName) => {
+          const card = document.createElement('div');
+          card.className = 'card';
+
+          const title = document.createElement('div');
+          title.className = 'card-title';
+          title.textContent = secName;
+          card.appendChild(title);
+
+          const items = (state.sections && state.sections[secName]) || [];
+          if (items.length === 0) {
+            const empty = document.createElement('div');
+            empty.className = 'empty-hint';
+            empty.textContent = 'Nothing captured for this section yet.';
+            card.appendChild(empty);
+          } else {
+            const ul = document.createElement('ul');
+            ul.className = 'bullet-list';
+            items.forEach((bullet) => {
+              const li = document.createElement('li');
+              li.textContent = bullet;
+              ul.appendChild(li);
+            });
+            card.appendChild(ul);
+          }
+          sectionsContainer.appendChild(card);
+        });
+
+        // Action items
+        const items = Array.isArray(state.actionItems) ? state.actionItems : [];
+        const completedCount = items.filter((i) => i.completed).length;
+        actionsCount.textContent = String(items.length);
+        actionsProgress.textContent = `${completedCount} / ${items.length} done`;
+
+        actionsList.textContent = '';
+        if (items.length === 0) {
+          const empty = document.createElement('div');
+          empty.className = 'empty-hint';
+          empty.textContent = 'No action items captured yet.';
+          actionsList.appendChild(empty);
+        } else {
+          items.forEach((item) => {
+            const row = document.createElement('div');
+            row.className = 'action-item' + (item.completed ? ' done' : '');
+
+            const checkbox = document.createElement('input');
+            checkbox.type = 'checkbox';
+            checkbox.checked = Boolean(item.completed);
+            checkbox.addEventListener('change', () => {
+              if (!isRegistered) return;
+              sendWs({ type: 'toggle_action_item', itemId: item.id });
+            });
+
+            const body = document.createElement('div');
+            const taskEl = document.createElement('div');
+            taskEl.className = 'action-task';
+            taskEl.textContent = item.task;
+
+            const metaEl = document.createElement('div');
+            metaEl.className = 'action-meta';
+            metaEl.textContent = [
+              `Owner: ${item.owner || 'Unassigned'}`,
+              `Priority: ${item.priority || 'Medium'}`,
+              item.dueDate ? `Due: ${item.dueDate}` : ''
+            ].filter(Boolean).join(' · ');
+
+            body.appendChild(taskEl);
+            body.appendChild(metaEl);
+            row.appendChild(checkbox);
+            row.appendChild(body);
+            actionsList.appendChild(row);
+          });
+        }
+
+        // Topics
+        topicsList.textContent = '';
+        const topics = Array.isArray(state.topics) ? state.topics : [];
+        if (topics.length === 0) {
+          const empty = document.createElement('span');
+          empty.className = 'empty-hint';
+          empty.textContent = 'No topics yet.';
+          topicsList.appendChild(empty);
+        } else {
+          topics.forEach((topic) => {
+            const chip = document.createElement('span');
+            chip.className = 'chip';
+            chip.textContent = topic;
+            topicsList.appendChild(chip);
+          });
+        }
+
+        // Entities
+        entitiesList.textContent = '';
+        const entities = Array.isArray(state.entities) ? state.entities : [];
+        if (entities.length === 0) {
+          const empty = document.createElement('span');
+          empty.className = 'empty-hint';
+          empty.textContent = 'No entities yet.';
+          entitiesList.appendChild(empty);
+        } else {
+          entities.forEach((ent) => {
+            const chip = document.createElement('span');
+            chip.className = 'chip entity';
+            chip.textContent = `${ent.name} (${ent.type || 'Term'})`;
+            entitiesList.appendChild(chip);
+          });
+        }
+
+        // Sync full transcript if present
+        if (Array.isArray(state.transcript) && state.transcript.length > 0 && transcriptNodes.size === 0) {
+          state.transcript.forEach((turn) => upsertTranscriptTurn(turn));
+        }
+      }
+
+      function buildMarkdownFromState(state) {
+        if (!state) return '# Meeting Notes\n\n_No notes captured yet._\n';
+        const lines = [
+          `# ${state.templateName || 'Meeting'} Notes`,
+          `- **Meeting ID:** ${state.meetingId || ''}`,
+          '',
+          '## Summary',
+          state.summary || '_No summary yet._',
+          ''
+        ];
+        (state.templateSections || []).forEach((sec) => {
+          lines.push(`## ${sec}`);
+          const bullets = (state.sections && state.sections[sec]) || [];
+          if (bullets.length === 0) lines.push('- _None_');
+          else bullets.forEach((b) => lines.push(`- ${b}`));
+          lines.push('');
+        });
+        lines.push('## Action Items');
+        if (!state.actionItems || state.actionItems.length === 0) {
+          lines.push('- _None_');
+        } else {
+          state.actionItems.forEach((a) => {
+            lines.push(`- [${a.completed ? 'x' : ' '}] ${a.task} (${a.owner || 'Unassigned'})`);
+          });
+        }
+        return lines.join('\n');
+      }
+
+      function triggerDownload(filename, content, mimeType) {
+        const blob = new Blob([content], { type: mimeType });
+        const url = URL.createObjectURL(blob);
+        const a = document.createElement('a');
+        a.href = url;
+        a.download = filename;
+        document.body.appendChild(a);
+        a.click();
+        a.remove();
+        URL.revokeObjectURL(url);
+      }
+
+      btnExportMd.addEventListener('click', () => {
+        const md = buildMarkdownFromState(latestState);
+        triggerDownload(`notes-${latestState?.templateId || 'meeting'}.md`, md, 'text/markdown;charset=utf-8');
+      });
+
+      btnExportJson.addEventListener('click', () => {
+        const json = JSON.stringify(latestState || {}, null, 2);
+        triggerDownload(`notes-${latestState?.templateId || 'meeting'}.json`, json, 'application/json;charset=utf-8');
+      });
+
+      templateSelect.addEventListener('change', () => {
+        if (!isRegistered) return;
+        sendWs({ type: 'set_template', templateId: templateSelect.value });
+      });
+
+      btnRefresh.addEventListener('click', () => {
+        if (!isRegistered) return;
+        sendWs({ type: 'analyze_now' });
+      });
+
+      btnStartRtms.addEventListener('click', async () => {
+        if (!zoomReady || typeof zoomSdk === 'undefined') return;
+        try {
+          await zoomSdk.startRTMS();
+          setBadge(rtmsBadge, 'RTMS: Starting...', 'warn');
+        } catch (err) {
+          console.error('startRTMS failed:', err);
+        }
+      });
+
+      btnStopRtms.addEventListener('click', async () => {
+        if (!zoomReady || typeof zoomSdk === 'undefined') return;
+        try {
+          await zoomSdk.stopRTMS();
+          setBadge(rtmsBadge, 'RTMS: Stopping...', 'warn');
+        } catch (err) {
+          console.error('stopRTMS failed:', err);
+        }
+      });
+
+      function connectWs() {
+        if (reconnectTimer) {
+          clearTimeout(reconnectTimer);
+          reconnectTimer = null;
+        }
+        if (socket && (socket.readyState === WebSocket.OPEN || socket.readyState === WebSocket.CONNECTING)) {
+          socket.onclose = null;
+          socket.close(1000, 'Reconnecting');
+        }
+
+        socket = new WebSocket(WEBSOCKET_URL);
+        socket.onopen = () => {
+          reconnectAttempts = 0;
+          isRegistered = false;
+          setBadge(wsBadge, 'Registering...', 'warn');
+          if (currentMeetingUUID && currentUserID) {
+            sendWs({
+              type: 'register',
+              meetingUUID: currentMeetingUUID,
+              userID: currentUserID,
+              token: WS_AUTH_TOKEN
+            });
+          }
+        };
+
+        socket.onmessage = (event) => {
+          let msg;
+          try {
+            msg = JSON.parse(event.data);
+          } catch {
+            return;
+          }
+
+          if (msg.type === 'ping') {
+            sendWs({ type: 'pong' });
+            return;
+          }
+          if (msg.type === 'connected') {
+            if (currentMeetingUUID && currentUserID && !isRegistered) {
+              sendWs({
+                type: 'register',
+                meetingUUID: currentMeetingUUID,
+                userID: currentUserID,
+                token: WS_AUTH_TOKEN
+              });
+            }
+            return;
+          }
+          if (msg.type === 'registration_success') {
+            isRegistered = true;
+            setBadge(wsBadge, 'Connected', 'ok');
+            sendWs({ type: 'sync_state' });
+            return;
+          }
+          if (msg.type === 'transcript_turn' && msg.turn) {
+            upsertTranscriptTurn(msg.turn);
+            return;
+          }
+          if (msg.type === 'session_state' || msg.type === 'notes_update' || msg.type === 'template_changed' || msg.type === 'action_item_updated') {
+            renderState(msg.state);
+            return;
+          }
+          if (msg.type === 'rtms_status') {
+            setBadge(rtmsBadge, `RTMS: ${msg.status}`, msg.status === 'started' ? 'ok' : '');
+            if (msg.status === 'started') wrapupBanner.classList.remove('visible');
+            if (msg.state) renderState(msg.state);
+            return;
+          }
+          if (msg.type === 'meeting_wrapup') {
+            setBadge(rtmsBadge, 'RTMS: Stopped', '');
+            wrapupBanner.classList.add('visible');
+            if (msg.state) renderState(msg.state);
+          }
+        };
+
+        socket.onclose = () => {
+          isRegistered = false;
+          setBadge(wsBadge, 'Reconnecting...', 'err');
+          if (!manualClose) {
+            reconnectAttempts += 1;
+            const delay = Math.min(1000 * Math.pow(2, reconnectAttempts - 1), 15000);
+            reconnectTimer = setTimeout(connectWs, delay);
+          }
+        };
+      }
+
+      async function bootstrap() {
+        if (typeof zoomSdk !== 'undefined') {
+          try {
+            await zoomSdk.config({
+              version: '1.10.0',
+              capabilities: [
+                'getMeetingContext',
+                'getUserContext',
+                'getMeetingUUID',
+                'startRTMS',
+                'stopRTMS',
+                'onRTMSStatusChange'
+              ]
+            });
+            zoomReady = true;
+            const [uuidRes, userRes] = await Promise.all([
+              zoomSdk.getMeetingUUID().catch(() => null),
+              zoomSdk.getUserContext().catch(() => null)
+            ]);
+            currentMeetingUUID = uuidRes?.meetingUUID || '';
+            currentUserID = userRes?.participantUUID || userRes?.participantId || '';
+            if (typeof zoomSdk.onRTMSStatusChange === 'function') {
+              zoomSdk.onRTMSStatusChange((ev) => {
+                const st = ev?.status || ev?.state || 'Updated';
+                setBadge(rtmsBadge, `RTMS: ${st}`, st === 'started' ? 'ok' : 'warn');
+              });
+            }
+          } catch (err) {
+            console.warn('[ZoomSDK] Fallback mode:', err);
+          }
+        }
+
+        const params = new URLSearchParams(window.location.search);
+        if (!currentMeetingUUID) currentMeetingUUID = params.get('meetingUUID') || 'local-dev-meeting';
+        if (!currentUserID) currentUserID = params.get('userID') || 'local-dev-user';
+        connectWs();
+      }
+
+      window.addEventListener('load', bootstrap);
+      window.addEventListener('beforeunload', () => {
+        manualClose = true;
+        if (socket) socket.close(1000, 'Unload');
+      });
+    })();
+  </script>
+</body>
+</html>

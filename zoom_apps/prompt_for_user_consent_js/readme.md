@@ -10,14 +10,15 @@ This Zoom in-meeting application ensures that RTMS transcript access only begins
 
 ## Features
 
-1. **Unanimous Consent Requirement** - RTMS transcript access requires explicit agreement from all meeting participants
+1. **Unanimous Consent Gate & Per-Participant Redaction** - Choose per meeting between strict unanimous consent gating (RTMS pauses/stops when anyone hasn't consented) or per-participant redaction (unconsented speakers are redacted server-side)
 2. **Real-Time Participant Tracking** - Automatically detects when participants join or leave the meeting
-3. **Dynamic Pause/Resume** - RTMS pauses when new participants join and resumes after they consent
-4. **Host Dashboard** - Full visibility into participant list with color-coded consent status
-5. **Guest Mode** - Simple consent-only interface for meeting participants
-6. **Live State Synchronization** - WebSocket-powered real-time updates across all app instances
-7. **Automatic App Invitations** - New participants automatically receive invitations to open the app
-8. **Real-Time Transcript Capture** - Direct integration with Zoom's RTMS API for live transcript streaming
+3. **Dynamic Pause/Resume & Decline Stop** - RTMS pauses when new participants join, resumes when they consent or leave, and immediately stops server-side if a participant declines
+4. **Consent Audit Trail Export** - Timestamped audit log downloadable as JSON or CSV (`GET /api/consent/:meetingId/audit?format=json|csv`) from the Host Dashboard
+5. **Host Dashboard** - Full visibility into participant list with color-coded consent status, policy selector, and audit export
+6. **Guest Mode** - Simple consent-only interface for meeting participants
+7. **Live State Synchronization** - WebSocket-powered real-time updates across all app instances with Zoom App context verification
+8. **Automatic App Invitations** - New participants automatically receive invitations to open the app (host/co-host gated)
+9. **Real-Time Transcript Capture** - Server-side consent-gated transcript streaming with transcript rewind (`attribute === 2`) handling
 
 ---
 
@@ -76,9 +77,11 @@ Before you begin, ensure you have the following:
    - **App Type:** Meeting App (Zoom Apps SDK)
    - **Domain Allowlist:** Must include `appssdk.zoom.us`
    - **OAuth Redirect URL:** Configured before installation
-   - **SDK Capabilities:** `getMeetingContext`, `getMeetingUUID`, `getUserContext`, `getMeetingParticipants`, `onParticipantChange`, `sendAppInvitationToAllParticipants`, `startRTMS`, `stopRTMS`
-   - **Event Subscriptions:** `meeting.rtms_started`, `meeting.rtms_stopped`, `meeting.participant_joined`, `meeting.participant_left`, `endpoint.url_validation`
+   - **SDK Capabilities:** `getMeetingContext`, `getMeetingUUID`, `getUserContext`, `getAppContext`, `getMeetingParticipants`, `onParticipantChange`, `sendAppInvitationToAllParticipants`, `startRTMS`, `stopRTMS`, `pauseRTMS`, `resumeRTMS`
+   - **Event Subscriptions:** `meeting.rtms_started`, `meeting.rtms_stopped`, `meeting.participant_joined`, `meeting.participant_left`, `meeting.ended`, `endpoint.url_validation`
    - **RTMS Scopes:** At minimum `meeting:read:meeting_transcript`
+
+> **Protocol V2 Note:** This demo uses `@zoom/rtms` in `rtms/sdk/index.js`. For RTMS Protocol V2 deployments that do not require the native `@zoom/rtms` SDK, we recommend using the shared `RTMSManager` (`../../library/javascript/rtmsManager/RTMSManager.js`) together with `TranscriptRevisionStore`.
 
 ---
 

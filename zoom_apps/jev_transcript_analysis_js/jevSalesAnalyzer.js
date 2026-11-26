@@ -102,6 +102,10 @@ function positiveInteger(value, fallback, name) {
   return parsed;
 }
 
+function getHistoryLimit() {
+  return positiveInteger(process.env.JEV_HISTORY_TURNS, DEFAULT_HISTORY_TURNS, 'JEV_HISTORY_TURNS');
+}
+
 function getConfig() {
   const apiKey = String(process.env.OPENROUTER_API_KEY || '').trim();
   if (!apiKey) throw new Error('OPENROUTER_API_KEY is required');
@@ -109,7 +113,7 @@ function getConfig() {
     apiKey,
     endpoint: process.env.JEV_DECISIONS_URL || DEFAULT_ENDPOINT,
     model: process.env.JEV_MODEL || DEFAULT_MODEL,
-    historyTurns: positiveInteger(process.env.JEV_HISTORY_TURNS, DEFAULT_HISTORY_TURNS, 'JEV_HISTORY_TURNS'),
+    historyTurns: getHistoryLimit(),
     timeoutMs: positiveInteger(process.env.JEV_TIMEOUT_MS, DEFAULT_TIMEOUT_MS, 'JEV_TIMEOUT_MS')
   };
 }
@@ -117,6 +121,16 @@ function getConfig() {
 function finiteNumber(value, fallback = 0) {
   const parsed = Number(value);
   return Number.isFinite(parsed) ? parsed : fallback;
+}
+
+function normalizeRole(role) {
+  return String(role || '').toLowerCase() === 'seller' ? 'seller' : 'buyer';
+}
+
+export function formatTaggedSpeaker(userName, userId, role) {
+  const cleanName = String(userName || `User ${userId || 'unknown'}`).replace(/^\[(Buyer|Seller)\]\s*/i, '').trim();
+  const tag = normalizeRole(role) === 'seller' ? '[Seller]' : '[Buyer]';
+  return `${tag} ${cleanName}`;
 }
 
 function normalizeChoice(answer = {}) {
@@ -181,11 +195,11 @@ export function normalizeJevResponse(payload) {
   };
 }
 
-async function postDecision(config, body) {
+async function postDecision(config, body, fetchImpl = globalThis.fetch) {
   const controller = new AbortController();
   const timeout = setTimeout(() => controller.abort(), config.timeoutMs);
   try {
-    const response = await fetch(config.endpoint, {
+    const response = await fetchImpl(config.endpoint, {
       method: 'POST',
       headers: {
         Authorization: `Bearer ${config.apiKey}`,
@@ -213,53 +227,211 @@ async function postDecision(config, body) {
 
 function sessionFor(streamId) {
   const key = String(streamId || 'unknown-stream');
-  if (!sessions.has(key)) sessions.set(key, { history: [], queue: Promise.resolve() });
+  if (!sessions.has(key)) {
+    sessions.set(key, {
+      history: [],
+      inFlight: false,
+      pendingTask: null // bounded single-slot coalescing queue
+    });
+  }
   return sessions.get(key);
 }
 
-export function analyzeSalesTurn({ turnId, streamId, meetingId, userId, userName, text, timestamp }) {
+/**
+ * Records or updates a turn in the stream's rolling history (including short turns
+ * like "Yes.", "$50k", "Q3", Seller turns, and transcript rewind updates) without
+ * calling the Jev API.
+ */
+export function recordSalesTurn({ turnId, streamId, userId, userName, role = 'buyer', text, timestamp }) {
+  const trimmedText = String(text || '').trim().slice(0, 4000);
+  if (!trimmedText) return null;
+
   const session = sessionFor(streamId);
-  const work = async () => {
-    const config = getConfig();
-    const turn = {
-      id: turnId,
-      speaker: userName || `User ${userId || 'unknown'}`,
-      text: String(text || '').trim().slice(0, 4000),
-      timestamp: finiteNumber(timestamp, Date.now())
-    };
-    if (!turn.text) throw new Error('Transcript text is empty');
-
-    session.history.push(turn);
-    if (session.history.length > config.historyTurns) session.history.splice(0, session.history.length - config.historyTurns);
-
-    const startedAt = Date.now();
-    const raw = await postDecision(config, {
-      model: config.model,
-      state: {
-        meeting: { id: meetingId || null },
-        sales_context: process.env.SALES_CONTEXT || 'B2B software sales conversation',
-        latest_turn: turn,
-        recent_turns: session.history
-      },
-      questions: SALES_QUESTIONS
-    });
-    return {
-      ...normalizeJevResponse(raw),
-      latencyMs: Date.now() - startedAt,
-      analyzedAt: Date.now(),
-      turn
-    };
+  const resolvedRole = normalizeRole(role);
+  const rawName = String(userName || `User ${userId || 'unknown'}`).trim();
+  const turn = {
+    id: turnId,
+    userId: userId ?? null,
+    userName: rawName,
+    role: resolvedRole,
+    speaker: formatTaggedSpeaker(rawName, userId, resolvedRole),
+    text: trimmedText,
+    timestamp: finiteNumber(timestamp, Date.now())
   };
 
-  const result = session.queue.then(work, work);
-  session.queue = result.catch(() => undefined);
-  return result;
+  const existingIdx = turnId != null ? session.history.findIndex((item) => item.id === turnId) : -1;
+  if (existingIdx !== -1) {
+    session.history[existingIdx] = {
+      ...session.history[existingIdx],
+      ...turn,
+      timestamp: session.history[existingIdx].timestamp
+    };
+  } else {
+    session.history.push(turn);
+    const limit = getHistoryLimit();
+    if (session.history.length > limit) {
+      session.history.splice(0, session.history.length - limit);
+    }
+  }
+
+  return turn;
+}
+
+/**
+ * Updates `[Buyer]` / `[Seller]` tags on existing turns in a stream's history when
+ * a speaker's role is changed.
+ */
+export function updateHistorySpeakerRole(streamId, { userId, userName, role }) {
+  const session = sessions.get(String(streamId || ''));
+  if (!session) return;
+  const resolvedRole = normalizeRole(role);
+  const normId = userId != null ? String(userId).trim().toLowerCase() : '';
+  const normName = userName ? String(userName).trim().toLowerCase() : '';
+
+  for (const turn of session.history) {
+    const matchId = normId && turn.userId != null && String(turn.userId).trim().toLowerCase() === normId;
+    const matchName = normName && turn.userName && String(turn.userName).trim().toLowerCase() === normName;
+    if (matchId || matchName) {
+      turn.role = resolvedRole;
+      turn.speaker = formatTaggedSpeaker(turn.userName, turn.userId, resolvedRole);
+    }
+  }
+}
+
+export function getSalesSessionHistory(streamId) {
+  const session = sessions.get(String(streamId || ''));
+  return session ? session.history.map((t) => ({ ...t })) : [];
+}
+
+async function drainSessionQueue(streamKey, session) {
+  if (session.inFlight) return;
+
+  while (session.pendingTask && sessions.has(streamKey)) {
+    const task = session.pendingTask;
+    session.pendingTask = null;
+    session.inFlight = true;
+
+    try {
+      const config = getConfig();
+      const historySnapshot = session.history.map((t) => ({
+        id: t.id,
+        role: t.role,
+        speaker: t.speaker,
+        text: t.text,
+        timestamp: t.timestamp
+      }));
+
+      const startedAt = Date.now();
+      const raw = await postDecision(
+        config,
+        {
+          model: config.model,
+          state: {
+            meeting: { id: task.meetingId || null },
+            sales_context: process.env.SALES_CONTEXT || 'B2B software sales conversation',
+            latest_turn: {
+              id: task.turn.id,
+              role: task.turn.role,
+              speaker: task.turn.speaker,
+              text: task.turn.text,
+              timestamp: task.turn.timestamp
+            },
+            recent_turns: historySnapshot
+          },
+          questions: SALES_QUESTIONS
+        },
+        task.fetchImpl
+      );
+
+      task.resolve({
+        ...normalizeJevResponse(raw),
+        latencyMs: Date.now() - startedAt,
+        analyzedAt: Date.now(),
+        turn: task.turn
+      });
+    } catch (err) {
+      task.reject(err);
+    } finally {
+      session.inFlight = false;
+    }
+  }
+}
+
+/**
+ * Evaluates a buyer turn with Jev, bounding queued requests to at most 1 pending
+ * slot per stream (coalescing bursty speech so latency never grows unbounded).
+ * Skips redundant inference if role === 'seller'.
+ */
+export function analyzeSalesTurn({
+  turnId,
+  streamId,
+  meetingId,
+  userId,
+  userName,
+  role = 'buyer',
+  text,
+  timestamp,
+  fetchImpl = globalThis.fetch
+}) {
+  const turn = recordSalesTurn({ turnId, streamId, userId, userName, role, text, timestamp });
+  if (!turn) {
+    return Promise.reject(new Error('Transcript text is empty'));
+  }
+
+  if (turn.role === 'seller') {
+    return Promise.resolve({
+      skipped: true,
+      reason: 'seller_turn',
+      turnId: turn.id,
+      turn
+    });
+  }
+
+  const streamKey = String(streamId || 'unknown-stream');
+  const session = sessionFor(streamKey);
+
+  return new Promise((resolve, reject) => {
+    // Coalesce: if another request is already queued waiting behind an in-flight call,
+    // supersede it cleanly (its turn remains recorded in session.history!).
+    if (session.pendingTask) {
+      session.pendingTask.resolve({
+        skipped: true,
+        reason: 'superseded',
+        turnId: session.pendingTask.turn.id,
+        turn: session.pendingTask.turn
+      });
+    }
+
+    session.pendingTask = {
+      meetingId,
+      turn,
+      fetchImpl,
+      resolve,
+      reject
+    };
+
+    drainSessionQueue(streamKey, session);
+  });
 }
 
 export function resetSalesSession(streamId) {
-  if (streamId) sessions.delete(String(streamId));
+  if (!streamId) return;
+  const key = String(streamId);
+  const session = sessions.get(key);
+  if (session?.pendingTask) {
+    session.pendingTask.resolve({
+      skipped: true,
+      reason: 'session_reset',
+      turnId: session.pendingTask.turn.id,
+      turn: session.pendingTask.turn
+    });
+    session.pendingTask = null;
+  }
+  sessions.delete(key);
 }
 
 export function resetAllSalesSessions() {
-  sessions.clear();
+  for (const key of Array.from(sessions.keys())) {
+    resetSalesSession(key);
+  }
 }

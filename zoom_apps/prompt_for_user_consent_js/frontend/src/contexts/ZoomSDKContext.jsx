@@ -15,15 +15,13 @@ export const ZoomSDKProvider = ({ children }) => {
   const [sdkReady, setSdkReady] = useState(false);
   const [meetingContext, setMeetingContext] = useState(null);
   const [participants, setParticipants] = useState([]);
+  const [appContextToken, setAppContextToken] = useState(null);
 
   useEffect(() => {
-    // SDK is initialized in App.js, mark as ready
     setSdkReady(true);
 
-    // Fetch meeting context (combining multiple SDK calls)
     const fetchMeetingContext = async () => {
       try {
-        // STEP 1: Get user context first (works for all users including guests)
         let userContext = null;
         let participantUUID = null;
         let screenName = null;
@@ -34,99 +32,72 @@ export const ZoomSDKProvider = ({ children }) => {
           participantUUID = userContext?.participantUUID || null;
           screenName = userContext?.screenName || null;
           userStatus = userContext?.status || 'unknown';
-
-          console.log('📋 User Context:', {
-            status: userStatus,
-            participantUUID,
-            screenName,
-            role: userContext?.role
-          });
         } catch (userError) {
           console.error('❌ getUserContext failed:', userError.message);
-          // This is critical - if we can't get user context, we can't proceed
           return;
         }
 
-        // STEP 2: Get meeting UUID (should work for all users)
         let meetingUUID = null;
         try {
           const uuidResult = await zoomSdk.getMeetingUUID();
           meetingUUID = uuidResult?.meetingUUID || null;
-          console.log('📋 Meeting UUID:', meetingUUID);
         } catch (uuidError) {
           console.warn('⚠️  getMeetingUUID failed:', uuidError.message);
         }
 
-        // STEP 3: Try to get full meeting context (only works for authorized users)
-        let meetingContext = null;
+        // Retrieve signed x-zoom-app-context from Zoom SDK if supported
         try {
-          meetingContext = await zoomSdk.getMeetingContext();
-          console.log('✅ getMeetingContext succeeded (authorized user)');
-        } catch (contextError) {
-          // Guest mode users will fail here with "require_meeting_role" error
-          if (contextError.message.includes('require_meeting_role') || contextError.message.includes('80012')) {
-            console.log('👤 Guest Mode: getMeetingContext not available (expected for guests)');
-            console.log('   Building context from available APIs...');
-          } else {
-            console.warn('⚠️  getMeetingContext failed:', contextError.message);
+          if (typeof zoomSdk.getAppContext === 'function') {
+            const ctxResult = await zoomSdk.getAppContext();
+            if (ctxResult?.context) {
+              setAppContextToken(ctxResult.context);
+            }
           }
-          // For guests, we'll build a minimal context below
+        } catch (ctxErr) {
+          console.warn('⚠️  getAppContext unavailable:', ctxErr.message);
         }
 
-        // STEP 4: Build complete context (works for both authorized users and guests)
+        let sdkMeetingContext = null;
+        try {
+          sdkMeetingContext = await zoomSdk.getMeetingContext();
+        } catch (contextError) {
+          if (!contextError.message.includes('require_meeting_role') && !contextError.message.includes('80012')) {
+            console.warn('⚠️  getMeetingContext failed:', contextError.message);
+          }
+        }
+
+        const role = userContext?.role || 'participant';
+        const isHostRole = role === 'host' || role === 'coHost';
+
         const completeContext = {
-          // If we got meetingContext, use it; otherwise provide minimal guest context
-          meetingID: meetingContext?.meetingID || meetingUUID || 'unknown',
-          meetingTopic: meetingContext?.meetingTopic || 'Meeting',
-          role: userContext?.role || 'participant',
-
-          // These come from user context (works for all users)
-          participantUUID: participantUUID,
-          screenName: screenName,
-          userStatus: userStatus,
-
-          // Meeting UUID (works for all users)
-          meetingUUID: meetingUUID,
-
-          // Guest mode flag
-          isGuestMode: userStatus === 'unauthenticated' || !meetingContext
+          meetingID: sdkMeetingContext?.meetingID || meetingUUID || 'unknown',
+          meetingTopic: sdkMeetingContext?.meetingTopic || 'Meeting',
+          role,
+          isHost: role === 'host',
+          isCoHost: role === 'coHost',
+          isHostOrCoHost: isHostRole,
+          participantUUID,
+          screenName,
+          userStatus,
+          meetingUUID,
+          isGuestMode: userStatus === 'unauthenticated' || !sdkMeetingContext
         };
 
         setMeetingContext(completeContext);
-        console.log('✅ ZoomSDKContext: Complete meeting context:', completeContext);
-
-        if (completeContext.isGuestMode) {
-          console.log('👤 Running in Guest Mode');
-          console.log('   Guest users have limited API access');
-          console.log('   To enable full features, user can sign in via promptAuthorize()');
-        }
       } catch (error) {
         console.error('❌ ZoomSDKContext: Failed to fetch meeting context:', error.message);
-        console.error('   This is unexpected - at minimum getUserContext should work');
       }
     };
 
-    // Fetch participants (may be restricted for guest users)
     const fetchParticipants = async () => {
       try {
         const { participants: participantList } = await zoomSdk.getMeetingParticipants();
         setParticipants(participantList);
-        console.log('✅ ZoomSDKContext: Participants fetched:', participantList.length);
-
-        // DEBUG: Log participant UUIDs to compare with getUserContext
-        console.log('📋 Participant UUIDs from getMeetingParticipants:');
-        participantList.forEach(p => {
-          console.log(`   ${p.screenName}: ${p.participantUUID}`);
-        });
       } catch (error) {
-        // Guest mode users may not have access to getMeetingParticipants
         if (error.message.includes('require_meeting_role') || error.message.includes('80012')) {
-          console.log('👤 Guest Mode: getMeetingParticipants not available (expected for guests)');
-          console.log('   Guests will see limited participant information');
-          setParticipants([]); // Empty list for guests
+          setParticipants([]);
         } else {
           console.error('❌ ZoomSDKContext: getMeetingParticipants failed:', error.message);
-          console.error('   Make sure "getMeetingParticipants" is enabled in Zoom Marketplace > Features > Zoom Apps SDK');
         }
       }
     };
@@ -134,9 +105,7 @@ export const ZoomSDKProvider = ({ children }) => {
     fetchMeetingContext();
     fetchParticipants();
 
-    // Listen for participant changes
     const handleParticipantChange = async () => {
-      console.log('✅ Participant change detected');
       await fetchParticipants();
     };
 
@@ -144,13 +113,12 @@ export const ZoomSDKProvider = ({ children }) => {
       zoomSdk.addEventListener('onParticipantChange', handleParticipantChange);
     } catch (error) {
       console.error('❌ ZoomSDKContext: addEventListener for onParticipantChange failed:', error.message);
-      console.error('   Make sure "onParticipantChange" is enabled in Zoom Marketplace > Features > Zoom Apps SDK');
     }
 
     return () => {
       try {
         zoomSdk.removeEventListener('onParticipantChange', handleParticipantChange);
-      } catch (error) {
+      } catch {
         // Ignore cleanup errors
       }
     };
@@ -160,32 +128,34 @@ export const ZoomSDKProvider = ({ children }) => {
     try {
       const { participants: participantList } = await zoomSdk.getMeetingParticipants();
       setParticipants(participantList);
-      console.log('✅ Participants refreshed:', participantList.length);
       return participantList;
     } catch (error) {
-      console.error('❌ refreshParticipants: getMeetingParticipants failed:', error.message);
-      console.error('   Make sure "getMeetingParticipants" is enabled in Zoom Marketplace > Features > Zoom Apps SDK');
+      console.error('❌ refreshParticipants failed:', error.message);
       return [];
     }
   };
 
   const sendChatMessage = async (message) => {
     try {
-      console.log('📤 Sending chat message:', message);
       await zoomSdk.sendMessageToChat({ message });
-      console.log('✅ Chat message sent successfully');
       return true;
     } catch (error) {
       console.error('❌ Failed to send chat message:', error.message);
-      console.error('   Make sure "sendMessageToChat" is enabled in Zoom Marketplace > Features > Zoom Apps SDK');
       return false;
     }
   };
+
+  const getAuthHeaders = (extra = {}) => ({
+    ...extra,
+    ...(appContextToken ? { 'x-zoom-app-context': appContextToken } : {})
+  });
 
   const value = {
     sdkReady,
     meetingContext,
     participants,
+    appContextToken,
+    getAuthHeaders,
     refreshParticipants,
     sendChatMessage,
     zoomSdk: typeof zoomSdk !== 'undefined' ? zoomSdk : null

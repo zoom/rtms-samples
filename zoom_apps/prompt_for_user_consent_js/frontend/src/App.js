@@ -81,6 +81,7 @@ function App() {
             'getMeetingUUID',
             'getMeetingParticipants',
             'getRunningContext',
+            'getAppContext',
 
             // User Context
             'getUserContext',

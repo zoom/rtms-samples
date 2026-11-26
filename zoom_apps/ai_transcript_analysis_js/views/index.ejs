@@ -1,0 +1,785 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>Live Transcript Trait Analyzer</title>
+  <script src="https://appssdk.zoom.us/sdk.js"></script>
+  <script src="./lib/d3.v7.min.js"></script>
+  <style>
+    :root {
+      --bg: #f5f7fb;
+      --surface: #ffffff;
+      --surface-alt: #f8fafc;
+      --border: #dfe5ef;
+      --ink: #142136;
+      --muted: #5d6c82;
+      --primary: #0b5cff;
+      --primary-soft: #e9f1ff;
+      --ok: #15803d;
+      --ok-bg: #dcfce7;
+      --warn: #b45309;
+      --warn-bg: #fef3c7;
+      --err: #b91c1c;
+      --err-bg: #fee2e2;
+      --radius: 10px;
+      --shadow: 0 2px 10px rgba(20, 33, 54, 0.06);
+    }
+
+    * { box-sizing: border-box; }
+
+    body {
+      margin: 0;
+      font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
+      background: var(--bg);
+      color: var(--ink);
+      font-size: 13px;
+      line-height: 1.45;
+    }
+
+    .app {
+      max-width: 920px;
+      margin: 0 auto;
+      padding: 12px;
+      display: flex;
+      flex-direction: column;
+      gap: 10px;
+    }
+
+    .topbar {
+      background: var(--surface);
+      border: 1px solid var(--border);
+      border-radius: var(--radius);
+      padding: 12px 14px;
+      box-shadow: var(--shadow);
+      display: flex;
+      flex-wrap: wrap;
+      align-items: center;
+      justify-content: space-between;
+      gap: 10px;
+    }
+
+    h1 {
+      margin: 0;
+      font-size: 16px;
+      font-weight: 700;
+    }
+
+    .status-row {
+      display: flex;
+      flex-wrap: wrap;
+      gap: 6px;
+      margin-top: 4px;
+    }
+
+    .pill {
+      display: inline-flex;
+      align-items: center;
+      gap: 5px;
+      font-size: 11px;
+      font-weight: 600;
+      padding: 2px 8px;
+      border-radius: 999px;
+      background: var(--surface-alt);
+      border: 1px solid var(--border);
+      color: var(--muted);
+    }
+
+    .pill::before {
+      content: '';
+      width: 7px;
+      height: 7px;
+      border-radius: 50%;
+      background: #94a3b8;
+    }
+
+    .pill.ok { background: var(--ok-bg); border-color: #bbf7d0; color: var(--ok); }
+    .pill.ok::before { background: var(--ok); }
+    .pill.warn { background: var(--warn-bg); border-color: #fde68a; color: var(--warn); }
+    .pill.warn::before { background: var(--warn); }
+    .pill.err { background: var(--err-bg); border-color: #fecaca; color: var(--err); }
+    .pill.err::before { background: var(--err); }
+
+    .controls {
+      display: flex;
+      gap: 6px;
+      flex-wrap: wrap;
+    }
+
+    button {
+      font: inherit;
+      font-weight: 600;
+      cursor: pointer;
+      border-radius: 7px;
+      border: 1px solid var(--border);
+      background: var(--surface);
+      color: var(--ink);
+      padding: 6px 10px;
+      font-size: 12px;
+    }
+
+    button:hover:not(:disabled) {
+      border-color: var(--primary);
+      background: var(--primary-soft);
+    }
+
+    button:disabled { opacity: 0.5; cursor: not-allowed; }
+
+    .btn-primary { background: var(--primary); border-color: var(--primary); color: #fff; }
+    .btn-primary:hover:not(:disabled) { background: #0047d4; border-color: #0047d4; color: #fff; }
+    .btn-danger { color: var(--err); border-color: #fecaca; background: #fff5f5; }
+    .btn-danger:hover:not(:disabled) { background: var(--err-bg); border-color: var(--err); }
+
+    .panel {
+      background: var(--surface);
+      border: 1px solid var(--border);
+      border-radius: var(--radius);
+      padding: 12px;
+      box-shadow: var(--shadow);
+      min-width: 0;
+    }
+
+    .panel-header {
+      display: flex;
+      flex-wrap: wrap;
+      align-items: center;
+      justify-content: space-between;
+      gap: 8px;
+      margin-bottom: 10px;
+    }
+
+    .panel-title {
+      margin: 0;
+      font-size: 12px;
+      font-weight: 700;
+      text-transform: uppercase;
+      letter-spacing: 0.05em;
+      color: var(--muted);
+    }
+
+    .speaker-strip {
+      display: flex;
+      flex-wrap: wrap;
+      gap: 6px;
+      margin-bottom: 10px;
+    }
+
+    .speaker-btn {
+      padding: 4px 10px;
+      border-radius: 999px;
+      font-size: 11.5px;
+      background: var(--surface-alt);
+      border: 1px solid var(--border);
+      color: var(--muted);
+    }
+
+    .speaker-btn.active {
+      background: var(--primary);
+      border-color: var(--primary);
+      color: #fff;
+    }
+
+    #chartContainer {
+      width: 100%;
+      min-height: 220px;
+    }
+
+    #chartContainer svg {
+      display: block;
+      width: 100%;
+      height: auto;
+    }
+
+    .grid-2 {
+      display: grid;
+      grid-template-columns: 1fr 1fr;
+      gap: 10px;
+      align-items: start;
+    }
+
+    .feed-list {
+      display: flex;
+      flex-direction: column;
+      gap: 8px;
+      max-height: 360px;
+      overflow-y: auto;
+    }
+
+    .empty {
+      text-align: center;
+      color: var(--muted);
+      padding: 20px 10px;
+      border: 1px dashed var(--border);
+      border-radius: 8px;
+      background: var(--surface-alt);
+    }
+
+    .evidence-card {
+      padding: 8px 10px;
+      border-radius: 8px;
+      border: 1px solid var(--border);
+      background: var(--surface-alt);
+    }
+
+    .evidence-head {
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      gap: 6px;
+      margin-bottom: 4px;
+      font-size: 11px;
+      color: var(--muted);
+    }
+
+    .trait-chip {
+      display: inline-block;
+      padding: 1px 7px;
+      border-radius: 999px;
+      font-size: 10.5px;
+      font-weight: 700;
+      color: #fff;
+    }
+
+    .evidence-phrase {
+      margin: 0;
+      font-weight: 600;
+      color: var(--ink);
+      font-size: 12.5px;
+    }
+
+    .transcript-item {
+      padding: 8px 10px;
+      border-radius: 8px;
+      border: 1px solid var(--border);
+      background: var(--surface-alt);
+    }
+
+    .transcript-head {
+      display: flex;
+      justify-content: space-between;
+      gap: 8px;
+      font-size: 11px;
+      color: var(--muted);
+      margin-bottom: 3px;
+    }
+
+    .transcript-speaker { font-weight: 700; color: var(--ink); }
+    .transcript-text { margin: 0 0 6px; word-break: break-word; }
+
+    .chip-row {
+      display: flex;
+      flex-wrap: wrap;
+      gap: 4px;
+    }
+
+    @media (max-width: 640px) {
+      .grid-2 { grid-template-columns: 1fr; }
+    }
+  </style>
+</head>
+<body>
+  <div class="app">
+    <header class="topbar">
+      <div>
+        <h1>Live Trait Analyzer</h1>
+        <div class="status-row">
+          <span id="wsStatus" class="pill warn">Connecting...</span>
+          <span id="rtmsStatus" class="pill">RTMS Idle</span>
+        </div>
+      </div>
+      <div class="controls">
+        <button id="startRtmsBtn" class="btn-primary" type="button" disabled>Start RTMS</button>
+        <button id="stopRtmsBtn" class="btn-danger" type="button" disabled>Stop RTMS</button>
+      </div>
+    </header>
+
+    <section class="panel" aria-label="Trait Distribution">
+      <div class="panel-header">
+        <h2 class="panel-title">Trait Scores</h2>
+        <span id="activeSpeakerLabel" style="font-size:11.5px;color:var(--muted);">Viewing: All Speakers</span>
+      </div>
+      <div id="speakerStrip" class="speaker-strip"></div>
+      <div id="chartContainer"></div>
+    </section>
+
+    <div class="grid-2">
+      <section class="panel" aria-label="Evidence Quote Feed">
+        <div class="panel-header">
+          <h2 class="panel-title">Evidence Quotes</h2>
+          <span id="evidenceCount" style="font-size:11px;color:var(--muted);">0 matched</span>
+        </div>
+        <div id="evidenceFeed" class="feed-list">
+          <div class="empty">Matched phrases explaining why each trait incremented will appear here.</div>
+        </div>
+      </section>
+
+      <section class="panel" aria-label="Live Annotated Transcript">
+        <div class="panel-header">
+          <h2 class="panel-title">Annotated Transcript</h2>
+          <span id="utteranceCount" style="font-size:11px;color:var(--muted);">0 lines</span>
+        </div>
+        <div id="transcriptFeed" class="feed-list">
+          <div class="empty">Waiting for live Zoom RTMS transcript...</div>
+        </div>
+      </section>
+    </div>
+  </div>
+
+  <script>
+    const WS_URL = <%- JSON.stringify(websocketUrl) %>;
+    const WS_AUTH_TOKEN = <%- JSON.stringify(typeof wsAuthToken === 'string' ? wsAuthToken : '') %>;
+
+    const TRAIT_ORDER = ['Curiosity', 'Empathy', 'Assertiveness', 'Creativity', 'Analytical'];
+    const TRAIT_COLORS = {
+      Curiosity: '#2563eb',
+      Empathy: '#0d9488',
+      Assertiveness: '#d97706',
+      Creativity: '#7c3aed',
+      Analytical: '#0891b2'
+    };
+
+    const state = {
+      ws: null,
+      reconnectAttempts: 0,
+      reconnectTimer: null,
+      zoomContext: null,
+      selectedSpeakerId: '__all__',
+      aggregateTotals: { Curiosity: 0, Empathy: 0, Assertiveness: 0, Creativity: 0, Analytical: 0 },
+      speakers: [],
+      utterances: new Map(),
+      utteranceOrder: [],
+      evidenceFeed: []
+    };
+
+    const el = {
+      wsStatus: document.getElementById('wsStatus'),
+      rtmsStatus: document.getElementById('rtmsStatus'),
+      startRtmsBtn: document.getElementById('startRtmsBtn'),
+      stopRtmsBtn: document.getElementById('stopRtmsBtn'),
+      speakerStrip: document.getElementById('speakerStrip'),
+      activeSpeakerLabel: document.getElementById('activeSpeakerLabel'),
+      chartContainer: document.getElementById('chartContainer'),
+      evidenceFeed: document.getElementById('evidenceFeed'),
+      evidenceCount: document.getElementById('evidenceCount'),
+      transcriptFeed: document.getElementById('transcriptFeed'),
+      utteranceCount: document.getElementById('utteranceCount')
+    };
+
+    function setPill(node, text, kind = '') {
+      node.textContent = text;
+      node.className = `pill ${kind}`.trim();
+    }
+
+    function createNode(tag, className, text) {
+      const node = document.createElement(tag);
+      if (className) node.className = className;
+      if (text != null) node.textContent = text;
+      return node;
+    }
+
+    function formatTime(ts) {
+      const n = Number(ts) || Date.now();
+      const ms = n > 1e14 ? n / 1000 : n;
+      const d = new Date(ms);
+      return Number.isNaN(d.getTime()) ? '' : d.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit', second: '2-digit' });
+    }
+
+    // Responsive D3 Bar Chart
+    let chartSvg = null;
+    let chartDims = { width: 420, height: 220, margin: { top: 20, right: 16, bottom: 38, left: 36 } };
+
+    function initChart() {
+      const containerWidth = Math.max(260, Math.floor(el.chartContainer.clientWidth || 420));
+      const height = containerWidth < 380 ? 200 : 230;
+      chartDims = {
+        width: containerWidth,
+        height,
+        margin: { top: 22, right: 14, bottom: 42, left: 34 }
+      };
+
+      d3.select(el.chartContainer).selectAll('*').remove();
+      chartSvg = d3.select(el.chartContainer)
+        .append('svg')
+        .attr('viewBox', `0 0 ${chartDims.width} ${chartDims.height}`)
+        .attr('preserveAspectRatio', 'xMidYMid meet');
+
+      chartSvg.append('g').attr('class', 'x-axis')
+        .attr('transform', `translate(0, ${chartDims.height - chartDims.margin.bottom})`);
+      chartSvg.append('g').attr('class', 'y-axis')
+        .attr('transform', `translate(${chartDims.margin.left}, 0)`);
+      chartSvg.append('g').attr('class', 'bars');
+      chartSvg.append('g').attr('class', 'labels');
+
+      renderChart();
+    }
+
+    function getActiveTraits() {
+      if (state.selectedSpeakerId === '__all__') {
+        return state.aggregateTotals;
+      }
+      const speaker = state.speakers.find((s) => String(s.userId) === String(state.selectedSpeakerId));
+      return speaker ? speaker.totals : state.aggregateTotals;
+    }
+
+    function renderChart() {
+      if (!chartSvg) return;
+      const traits = getActiveTraits();
+      const data = TRAIT_ORDER.map((trait) => ({ trait, count: Number(traits?.[trait]) || 0 }));
+      const { width, height, margin } = chartDims;
+
+      const x = d3.scaleBand()
+        .domain(TRAIT_ORDER)
+        .range([margin.left, width - margin.right])
+        .padding(0.28);
+
+      const maxVal = Math.max(4, d3.max(data, (d) => d.count) || 0);
+      const y = d3.scaleLinear()
+        .domain([0, maxVal])
+        .nice()
+        .range([height - margin.bottom, margin.top]);
+
+      const xAxis = chartSvg.select('.x-axis').call(d3.axisBottom(x));
+      xAxis.selectAll('text')
+        .style('font-size', width < 380 ? '10px' : '11.5px')
+        .style('fill', '#334155')
+        .attr('transform', width < 360 ? 'rotate(-20)' : null)
+        .style('text-anchor', width < 360 ? 'end' : 'middle');
+
+      chartSvg.select('.y-axis')
+        .call(d3.axisLeft(y).ticks(4).tickFormat(d3.format('d')))
+        .selectAll('text')
+        .style('font-size', '10.5px')
+        .style('fill', '#64748b');
+
+      const bars = chartSvg.select('.bars').selectAll('rect').data(data, (d) => d.trait);
+      bars.join(
+        (enter) => enter.append('rect')
+          .attr('rx', 5)
+          .attr('x', (d) => x(d.trait))
+          .attr('width', x.bandwidth())
+          .attr('y', y(0))
+          .attr('height', 0)
+          .attr('fill', (d) => TRAIT_COLORS[d.trait] || '#2563eb')
+          .call((e) => e.transition().duration(350)
+            .attr('y', (d) => y(d.count))
+            .attr('height', (d) => Math.max(0, height - margin.bottom - y(d.count)))),
+        (update) => update.transition().duration(350)
+          .attr('x', (d) => x(d.trait))
+          .attr('width', x.bandwidth())
+          .attr('y', (d) => y(d.count))
+          .attr('height', (d) => Math.max(0, height - margin.bottom - y(d.count)))
+      );
+
+      const labels = chartSvg.select('.labels').selectAll('text').data(data, (d) => d.trait);
+      labels.join(
+        (enter) => enter.append('text')
+          .attr('text-anchor', 'middle')
+          .style('font-size', '11px')
+          .style('font-weight', '700')
+          .style('fill', '#1e293b')
+          .attr('x', (d) => x(d.trait) + x.bandwidth() / 2)
+          .attr('y', (d) => y(d.count) - 5)
+          .text((d) => String(d.count)),
+        (update) => update.transition().duration(350)
+          .attr('x', (d) => x(d.trait) + x.bandwidth() / 2)
+          .attr('y', (d) => y(d.count) - 5)
+          .text((d) => String(d.count))
+      );
+    }
+
+    function renderSpeakers() {
+      el.speakerStrip.replaceChildren();
+
+      const allBtn = createNode(
+        'button',
+        `speaker-btn${state.selectedSpeakerId === '__all__' ? ' active' : ''}`,
+        'All Speakers'
+      );
+      allBtn.type = 'button';
+      allBtn.addEventListener('click', () => {
+        state.selectedSpeakerId = '__all__';
+        renderAll();
+      });
+      el.speakerStrip.append(allBtn);
+
+      let activeLabel = 'All Speakers';
+      state.speakers.forEach((speaker) => {
+        const isActive = String(state.selectedSpeakerId) === String(speaker.userId);
+        if (isActive) activeLabel = speaker.userName;
+        const btn = createNode(
+          'button',
+          `speaker-btn${isActive ? ' active' : ''}`,
+          `${speaker.userName} (${speaker.utteranceCount})`
+        );
+        btn.type = 'button';
+        btn.addEventListener('click', () => {
+          state.selectedSpeakerId = String(speaker.userId);
+          renderAll();
+        });
+        el.speakerStrip.append(btn);
+      });
+
+      el.activeSpeakerLabel.textContent = `Viewing: ${activeLabel}`;
+    }
+
+    function renderEvidence() {
+      const items = state.selectedSpeakerId === '__all__'
+        ? state.evidenceFeed
+        : state.evidenceFeed.filter((item) => String(item.userId) === String(state.selectedSpeakerId));
+
+      el.evidenceCount.textContent = `${items.length} matched`;
+      el.evidenceFeed.replaceChildren();
+
+      if (items.length === 0) {
+        el.evidenceFeed.append(createNode('div', 'empty', 'No trait evidence phrases matched yet for this filter.'));
+        return;
+      }
+
+      items.forEach((item) => {
+        const card = createNode('div', 'evidence-card');
+        const head = createNode('div', 'evidence-head');
+        const chip = createNode('span', 'trait-chip', item.trait);
+        chip.style.background = TRAIT_COLORS[item.trait] || '#2563eb';
+        const meta = createNode('span', '', `${item.userName || 'Speaker'} · ${formatTime(item.timestamp)}`);
+        head.append(chip, meta);
+        const quote = createNode('p', 'evidence-phrase', `"${item.phrase}"`);
+        card.append(head, quote);
+        el.evidenceFeed.append(card);
+      });
+    }
+
+    function renderTranscripts() {
+      const ordered = state.utteranceOrder
+        .map((k) => state.utterances.get(k))
+        .filter(Boolean)
+        .filter((u) => state.selectedSpeakerId === '__all__' || String(u.userId) === String(state.selectedSpeakerId));
+
+      el.utteranceCount.textContent = `${ordered.length} lines`;
+      el.transcriptFeed.replaceChildren();
+
+      if (ordered.length === 0) {
+        el.transcriptFeed.append(createNode('div', 'empty', 'Waiting for live Zoom RTMS transcript...'));
+        return;
+      }
+
+      ordered.forEach((u) => {
+        const item = createNode('div', 'transcript-item');
+        const head = createNode('div', 'transcript-head');
+        head.append(
+          createNode('span', 'transcript-speaker', u.userName || 'Speaker'),
+          createNode('span', '', formatTime(u.timestamp) + (u.revision > 0 ? ' (updated)' : ''))
+        );
+        const text = createNode('p', 'transcript-text', u.text);
+        item.append(head, text);
+
+        const matchedTraits = TRAIT_ORDER.filter((t) => (u.counts?.[t] || 0) > 0);
+        if (matchedTraits.length > 0) {
+          const chipRow = createNode('div', 'chip-row');
+          matchedTraits.forEach((t) => {
+            const chip = createNode('span', 'trait-chip', `${t} +${u.counts[t]}`);
+            chip.style.background = TRAIT_COLORS[t] || '#2563eb';
+            chipRow.append(chip);
+          });
+          item.append(chipRow);
+        }
+
+        el.transcriptFeed.append(item);
+      });
+
+      el.transcriptFeed.scrollTop = el.transcriptFeed.scrollHeight;
+    }
+
+    function renderAll() {
+      renderSpeakers();
+      renderChart();
+      renderEvidence();
+      renderTranscripts();
+    }
+
+    function upsertUtterance(u) {
+      if (!u) return;
+      const key = u.sentenceKey || u.id;
+      if (!state.utterances.has(key)) {
+        state.utteranceOrder.push(key);
+        if (state.utteranceOrder.length > 120) {
+          const evicted = state.utteranceOrder.shift();
+          state.utterances.delete(evicted);
+        }
+      }
+      state.utterances.set(key, u);
+    }
+
+    function sendWs(payload) {
+      if (state.ws && state.ws.readyState === WebSocket.OPEN) {
+        state.ws.send(JSON.stringify(payload));
+      }
+    }
+
+    function sendRegistration() {
+      if (!state.zoomContext) return;
+      sendWs({
+        type: 'register',
+        meetingUUID: state.zoomContext.meetingUUID,
+        userID: String(state.zoomContext.userID),
+        token: WS_AUTH_TOKEN || undefined
+      });
+    }
+
+    function connectWebSocket() {
+      if (state.reconnectTimer) {
+        clearTimeout(state.reconnectTimer);
+        state.reconnectTimer = null;
+      }
+      if (state.ws && (state.ws.readyState === WebSocket.OPEN || state.ws.readyState === WebSocket.CONNECTING)) {
+        return;
+      }
+
+      setPill(el.wsStatus, state.reconnectAttempts > 0 ? 'Reconnecting...' : 'Connecting...', 'warn');
+      const ws = new WebSocket(WS_URL);
+      state.ws = ws;
+
+      ws.addEventListener('open', () => {
+        state.reconnectAttempts = 0;
+        setPill(el.wsStatus, 'Connected', 'warn');
+        sendRegistration();
+      });
+
+      ws.addEventListener('message', (event) => {
+        let msg;
+        try {
+          msg = JSON.parse(event.data);
+        } catch {
+          return;
+        }
+
+        if (msg.type === 'ping') return sendWs({ type: 'pong' });
+        if (msg.type === 'connected') return sendRegistration();
+        if (msg.type === 'registration_success') {
+          setPill(el.wsStatus, 'Live Connected', 'ok');
+          return;
+        }
+
+        if (msg.type === 'session_snapshot' && msg.snapshot) {
+          const snap = msg.snapshot;
+          setPill(el.rtmsStatus, snap.rtmsActive ? 'RTMS Live' : 'RTMS Idle', snap.rtmsActive ? 'ok' : '');
+          state.aggregateTotals = snap.aggregateTotals || state.aggregateTotals;
+          state.speakers = Array.isArray(snap.speakers) ? snap.speakers : [];
+          state.evidenceFeed = Array.isArray(snap.evidenceFeed) ? snap.evidenceFeed : [];
+          state.utterances.clear();
+          state.utteranceOrder = [];
+          (snap.utterances || []).forEach(upsertUtterance);
+          renderAll();
+          return;
+        }
+
+        if (msg.type === 'rtms_started') {
+          setPill(el.rtmsStatus, 'RTMS Live', 'ok');
+          return;
+        }
+
+        if (msg.type === 'rtms_stopped') {
+          setPill(el.rtmsStatus, 'RTMS Stopped', 'warn');
+          return;
+        }
+
+        if (msg.type === 'transcript' && msg.utterance) {
+          setPill(el.rtmsStatus, 'RTMS Live', 'ok');
+          upsertUtterance(msg.utterance);
+          renderTranscripts();
+          return;
+        }
+
+        if (msg.type === 'traits_update') {
+          setPill(el.rtmsStatus, 'RTMS Live', 'ok');
+          if (msg.utterance) upsertUtterance(msg.utterance);
+          if (msg.aggregateTotals) state.aggregateTotals = msg.aggregateTotals;
+          if (Array.isArray(msg.speakers)) state.speakers = msg.speakers;
+          if (Array.isArray(msg.evidenceFeed)) state.evidenceFeed = msg.evidenceFeed;
+          renderAll();
+          return;
+        }
+
+        if (msg.type === 'error') {
+          setPill(el.wsStatus, msg.message || 'Auth pending', 'warn');
+        }
+      });
+
+      ws.addEventListener('close', () => {
+        const delayMs = Math.min(15000, 1000 * Math.pow(2, state.reconnectAttempts));
+        state.reconnectAttempts += 1;
+        setPill(el.wsStatus, `Reconnecting in ${Math.round(delayMs / 1000)}s...`, 'warn');
+        state.reconnectTimer = setTimeout(connectWebSocket, delayMs);
+      });
+
+      ws.addEventListener('error', () => {});
+    }
+
+    el.startRtmsBtn.addEventListener('click', async () => {
+      try {
+        el.startRtmsBtn.disabled = true;
+        await zoomSdk.startRTMS();
+        setPill(el.rtmsStatus, 'RTMS Starting...', 'warn');
+      } catch (err) {
+        setPill(el.rtmsStatus, err?.message || 'Start RTMS failed', 'err');
+      } finally {
+        el.startRtmsBtn.disabled = false;
+      }
+    });
+
+    el.stopRtmsBtn.addEventListener('click', async () => {
+      try {
+        el.stopRtmsBtn.disabled = true;
+        await zoomSdk.stopRTMS();
+        setPill(el.rtmsStatus, 'RTMS Stopped', 'warn');
+      } catch (err) {
+        setPill(el.rtmsStatus, err?.message || 'Stop RTMS failed', 'err');
+      } finally {
+        el.stopRtmsBtn.disabled = false;
+      }
+    });
+
+    initChart();
+    renderSpeakers();
+    if (typeof ResizeObserver !== 'undefined') {
+      new ResizeObserver(() => initChart()).observe(el.chartContainer);
+    }
+
+    connectWebSocket();
+
+    (async () => {
+      try {
+        const configRes = await zoomSdk.config({
+          version: '0.16.31',
+          capabilities: [
+            'getRunningContext',
+            'getUserContext',
+            'getMeetingUUID',
+            'startRTMS',
+            'stopRTMS'
+          ]
+        });
+
+        const unsupported = new Set(configRes?.unsupportedApis || []);
+        if (!unsupported.has('startRTMS')) el.startRtmsBtn.disabled = false;
+        if (!unsupported.has('stopRTMS')) el.stopRtmsBtn.disabled = false;
+
+        const [userContext, meeting] = await Promise.all([
+          zoomSdk.getUserContext(),
+          zoomSdk.getMeetingUUID()
+        ]);
+
+        const userId = userContext?.participantUUID || userContext?.participantId || userContext?.userId;
+        if (meeting?.meetingUUID && userId) {
+          state.zoomContext = {
+            meetingUUID: meeting.meetingUUID,
+            userID: String(userId)
+          };
+          sendRegistration();
+        }
+      } catch {
+        setPill(el.wsStatus, 'Open inside a Zoom meeting', 'warn');
+      }
+    })();
+  </script>
+</body>
+</html>

@@ -1,83 +1,140 @@
 class RealtimeAudioClient {
-  constructor(serverUrl) {
+  constructor(serverUrl, options = {}) {
     this.serverUrl = serverUrl;
+    this.authToken = options.authToken || '';
     this.ws = null;
     this.audioContext = null;
+    this.gainNode = null;
+    this.isMuted = false;
+    this.speakerSafeMode = false;
     this.isConnected = false;
-    this.audioQueue = [];
-    this.isPlaying = false;
-    this.currentSource = null;
-    this.currentChunk = null;
-    this.currentChunkStartedAt = 0;
+    this.isRegistered = false;
+    this.registrationPayload = null;
+    this.shouldReconnect = true;
+
+    // Gapless Web Audio scheduling state
+    this.jitterBufferSec = 0.06; // ~60ms jitter buffer
+    this.nextPlayTime = 0;
+    this.scheduledSources = new Set();
+    this.turnActive = false;
     this.receivedAudioDone = false;
+    this.lastAudioDoneMetadata = {};
     this.playedMsByItem = new Map();
+    this.maxTrackedItems = 50;
+
+    // Reconnection state (exponential backoff with cap)
     this.reconnectAttempts = 0;
-    this.maxReconnectAttempts = 3;
+    this.reconnectTimer = null;
     this.heartbeatInterval = null;
     this.heartbeatIntervalMs = 30000;
 
-    this.onReady = () => {};
+    this.onConnected = () => {};
+    this.onRegistered = () => {};
+    this.onDisconnected = () => {};
     this.onStatus = () => {};
     this.onTranscript = () => {};
     this.onTextDelta = () => {};
     this.onTextDone = () => {};
     this.onAudioStart = () => {};
     this.onAudioDone = () => {};
+    this.onMcpToolEvent = () => {};
+    this.onUsage = () => {};
     this.onInterrupted = () => {};
     this.onError = () => {};
   }
 
-  async connect() {
-    if (this.ws) {
-      this.ws.close();
+  setRegistration(meetingUUID, userID, token = null) {
+    this.registrationPayload = {
+      meetingUUID: String(meetingUUID || ''),
+      userID: String(userID || ''),
+      token: token !== null ? token : this.authToken,
+    };
+    if (this.ws && this.ws.readyState === WebSocket.OPEN && this.registrationPayload.meetingUUID && this.registrationPayload.userID) {
+      this.sendSafe({
+        type: 'register',
+        meetingUUID: this.registrationPayload.meetingUUID,
+        userID: this.registrationPayload.userID,
+        token: this.registrationPayload.token,
+      });
+    }
+  }
+
+  connect() {
+    this.shouldReconnect = true;
+    if (this.reconnectTimer) {
+      clearTimeout(this.reconnectTimer);
+      this.reconnectTimer = null;
+    }
+
+    if (this.ws && [WebSocket.OPEN, WebSocket.CONNECTING].includes(this.ws.readyState)) {
+      try {
+        this.ws.close(1000, 'reconnecting');
+      } catch {
+        // Ignore close errors
+      }
     }
 
     return new Promise((resolve, reject) => {
-      this.ws = new WebSocket(this.serverUrl);
+      let settled = false;
+      const ws = new WebSocket(this.serverUrl);
+      this.ws = ws;
 
       const timeout = setTimeout(() => {
-        if (!this.isConnected) {
+        if (!settled) {
+          settled = true;
           reject(new Error('WebSocket connection timeout'));
         }
-      }, 7000);
+      }, 10000);
 
-      this.ws.onopen = () => {
-        clearTimeout(timeout);
+      ws.onopen = () => {
+        this.isConnected = true;
         this.reconnectAttempts = 0;
         this.startHeartbeat();
+        if (this.registrationPayload?.meetingUUID && this.registrationPayload?.userID) {
+          this.sendSafe({
+            type: 'register',
+            meetingUUID: this.registrationPayload.meetingUUID,
+            userID: this.registrationPayload.userID,
+            token: this.registrationPayload.token,
+          });
+        }
+        this.onConnected();
+        if (!settled) {
+          settled = true;
+          clearTimeout(timeout);
+          resolve();
+        }
       };
 
-      this.ws.onmessage = async (event) => {
+      ws.onmessage = async (event) => {
         try {
           const message = JSON.parse(event.data);
           await this.handleServerMessage(message);
-          if (message.type === 'ready') {
-            this.isConnected = true;
-            clearTimeout(timeout);
-            resolve();
-          }
         } catch (error) {
           this.onError(error.message || String(error));
         }
       };
 
-      this.ws.onerror = (error) => {
-        clearTimeout(timeout);
+      ws.onerror = () => {
         const connectionError = new Error(`Frontend WebSocket connection failed: ${this.serverUrl}`);
-        if (this.isConnected) {
-          this.onError(connectionError.message);
-        } else {
+        if (!settled) {
+          settled = true;
+          clearTimeout(timeout);
           reject(connectionError);
+        } else {
+          this.onError(connectionError.message);
         }
       };
 
-      this.ws.onclose = (event) => {
+      ws.onclose = (event) => {
         clearTimeout(timeout);
         this.isConnected = false;
+        this.isRegistered = false;
         this.stopHeartbeat();
         this.interrupt(false);
-        if (event.code !== 1000 && event.code !== 1001) {
-          this.tryReconnect();
+        this.onDisconnected(event.code, event.reason);
+        if (this.shouldReconnect && event.code !== 1000 && event.code !== 1001) {
+          this.scheduleReconnect();
         }
       };
     });
@@ -85,8 +142,25 @@ class RealtimeAudioClient {
 
   async handleServerMessage(message) {
     switch (message.type) {
-      case 'ready':
-        this.onReady();
+      case 'ping':
+        this.sendSafe({ type: 'pong' });
+        break;
+      case 'connected':
+        if (this.registrationPayload?.meetingUUID && this.registrationPayload?.userID) {
+          this.sendSafe({
+            type: 'register',
+            meetingUUID: this.registrationPayload.meetingUUID,
+            userID: this.registrationPayload.userID,
+            token: this.registrationPayload.token,
+          });
+        }
+        break;
+      case 'registration_success':
+        this.isRegistered = true;
+        if (this.speakerSafeMode) {
+          this.sendSafe({ type: 'speaker_safe_mode', data: { enabled: true } });
+        }
+        this.onRegistered(message);
         break;
       case 'status':
         this.onStatus(message.data || '');
@@ -105,22 +179,25 @@ class RealtimeAudioClient {
         break;
       case 'audio_done':
         this.receivedAudioDone = true;
-        this.finishAudioIfIdle(message.metadata || {});
+        this.lastAudioDoneMetadata = message.metadata || {};
+        this.finishAudioIfIdle();
+        break;
+      case 'mcp_tool_event':
+        this.onMcpToolEvent(message.data || {});
+        break;
+      case 'usage':
+        this.onUsage(message.data || {});
         break;
       case 'interrupt':
         this.interrupt(true, { skipCancel: message.data === 'speech_started' });
         this.onInterrupted(message.data || 'interrupted', message.metadata || {});
         break;
       case 'error':
-        this.onError(message.data || 'Server error');
+        this.onError(message.data || message.message || 'Server error');
         break;
       default:
         break;
     }
-  }
-
-  sendReady(data) {
-    this.send({ type: 'client_ready', data });
   }
 
   send(message) {
@@ -130,28 +207,51 @@ class RealtimeAudioClient {
     this.ws.send(JSON.stringify(message));
   }
 
-  async enqueueAudio(base64Audio, metadata = {}) {
-    const audioBuffer = this.base64ToArrayBuffer(base64Audio);
-    const int16Array = new Int16Array(audioBuffer);
-    const sampleRate = metadata.sampleRate || 24000;
-    const durationMs = (int16Array.length / sampleRate) * 1000;
-    this.audioQueue.push({
-      audioBuffer,
-      metadata,
-      durationMs,
-      sampleRate,
-    });
-
-    this.onAudioStart(metadata);
-
-    if (!this.isPlaying) {
-      await this.playNext();
+  sendSafe(message) {
+    if (!this.ws || this.ws.readyState !== WebSocket.OPEN) {
+      return false;
     }
+    try {
+      this.ws.send(JSON.stringify(message));
+      return true;
+    } catch {
+      return false;
+    }
+  }
+
+  sendText(text) {
+    const clean = String(text || '').trim();
+    if (!clean) return false;
+    if (!this.isRegistered) {
+      throw new Error('Not registered to a meeting session yet');
+    }
+    this.send({ type: 'text', data: clean });
+    return true;
+  }
+
+  setMuted(muted) {
+    this.isMuted = Boolean(muted);
+    if (this.gainNode && this.audioContext) {
+      this.gainNode.gain.setValueAtTime(this.isMuted ? 0 : 1, this.audioContext.currentTime);
+    }
+    return this.isMuted;
+  }
+
+  setSpeakerSafeMode(enabled) {
+    this.speakerSafeMode = Boolean(enabled);
+    if (this.isRegistered) {
+      this.sendSafe({ type: 'speaker_safe_mode', data: { enabled: this.speakerSafeMode } });
+    }
+    return this.speakerSafeMode;
   }
 
   async ensureAudioContext(sampleRate = 24000) {
     if (!this.audioContext || this.audioContext.state === 'closed') {
-      this.audioContext = new (window.AudioContext || window.webkitAudioContext)({ sampleRate });
+      const AudioCtx = window.AudioContext || window.webkitAudioContext;
+      this.audioContext = new AudioCtx({ sampleRate });
+      this.gainNode = this.audioContext.createGain();
+      this.gainNode.gain.value = this.isMuted ? 0 : 1;
+      this.gainNode.connect(this.audioContext.destination);
     }
 
     if (this.audioContext.state === 'suspended') {
@@ -164,73 +264,95 @@ class RealtimeAudioClient {
     return this.audioContext?.state || 'unknown';
   }
 
-  async playNext() {
-    if (this.audioQueue.length === 0) {
-      this.isPlaying = false;
-      this.currentChunk = null;
+  getAudioState() {
+    return this.audioContext?.state || 'uninitialized';
+  }
+
+  async enqueueAudio(base64Audio, metadata = {}) {
+    if (!base64Audio) return;
+
+    const sampleRate = metadata.sampleRate || 24000;
+    await this.ensureAudioContext(sampleRate);
+
+    const arrayBuffer = this.base64ToArrayBuffer(base64Audio);
+    const int16Array = new Int16Array(arrayBuffer);
+    if (int16Array.length === 0) return;
+
+    const float32Array = new Float32Array(int16Array.length);
+    for (let i = 0; i < int16Array.length; i += 1) {
+      float32Array[i] = int16Array[i] / 32768;
+    }
+
+    const audioBuffer = this.audioContext.createBuffer(1, float32Array.length, sampleRate);
+    audioBuffer.getChannelData(0).set(float32Array);
+
+    const now = this.audioContext.currentTime;
+    const isNewTurn = !this.turnActive;
+
+    // Gapless scheduling with ~60ms jitter buffer on initial turn start / underrun
+    if (this.nextPlayTime < now + 0.005) {
+      this.nextPlayTime = now + this.jitterBufferSec;
+    }
+
+    const startTime = this.nextPlayTime;
+    const durationSec = audioBuffer.duration;
+    const endTime = startTime + durationSec;
+    this.nextPlayTime = endTime;
+
+    if (isNewTurn) {
+      this.turnActive = true;
+      this.receivedAudioDone = false;
+      this.sendSafe({ type: 'playback_state', data: { playing: true } });
+      this.onAudioStart(metadata);
+    }
+
+    const source = this.audioContext.createBufferSource();
+    source.buffer = audioBuffer;
+    source.connect(this.gainNode || this.audioContext.destination);
+
+    const entry = {
+      source,
+      startTime,
+      endTime,
+      durationMs: durationSec * 1000,
+      metadata,
+    };
+    this.scheduledSources.add(entry);
+
+    source.onended = () => {
+      this.scheduledSources.delete(entry);
+      this.addCompletedChunkPlayback(entry);
       this.finishAudioIfIdle();
-      return;
-    }
+    };
 
-    this.isPlaying = true;
-    this.currentChunk = this.audioQueue.shift();
-
-    try {
-      await this.ensureAudioContext(this.currentChunk.sampleRate);
-
-      const int16Array = new Int16Array(this.currentChunk.audioBuffer);
-      const float32Array = new Float32Array(int16Array.length);
-      for (let index = 0; index < int16Array.length; index += 1) {
-        float32Array[index] = Math.max(-1, Math.min(1, int16Array[index] / 32768));
-      }
-
-      const audioBuffer = this.audioContext.createBuffer(1, float32Array.length, this.currentChunk.sampleRate);
-      audioBuffer.getChannelData(0).set(float32Array);
-
-      const source = this.audioContext.createBufferSource();
-      source.buffer = audioBuffer;
-      source.connect(this.audioContext.destination);
-
-      this.currentSource = source;
-      this.currentChunkStartedAt = this.audioContext.currentTime;
-
-      source.onended = () => {
-        this.addCompletedChunkPlayback(this.currentChunk);
-        this.currentSource = null;
-        this.currentChunk = null;
-        this.playNext();
-      };
-
-      source.start(0);
-    } catch (error) {
-      this.onError(error.message || String(error));
-      this.currentSource = null;
-      this.currentChunk = null;
-      setTimeout(() => this.playNext(), 50);
-    }
+    source.start(startTime);
   }
 
   interrupt(reportToServer = true, options = {}) {
     const interruption = this.currentPlaybackPosition();
 
-    if (this.currentSource) {
+    for (const entry of this.scheduledSources) {
       try {
-        this.currentSource.onended = null;
-        this.currentSource.stop();
-        this.currentSource.disconnect();
+        entry.source.onended = null;
+        entry.source.stop();
+        entry.source.disconnect();
       } catch {
-        // Ignore already-stopped audio sources.
+        // Ignore already-stopped sources
       }
     }
+    this.scheduledSources.clear();
 
-    this.currentSource = null;
-    this.currentChunk = null;
-    this.audioQueue = [];
-    this.isPlaying = false;
+    const wasTurnActive = this.turnActive;
+    this.turnActive = false;
     this.receivedAudioDone = false;
+    this.nextPlayTime = 0;
+
+    if (wasTurnActive) {
+      this.sendSafe({ type: 'playback_state', data: { playing: false } });
+    }
 
     if (reportToServer && interruption?.itemId) {
-      this.send({
+      this.sendSafe({
         type: 'playback_interrupted',
         data: {
           ...interruption,
@@ -241,44 +363,64 @@ class RealtimeAudioClient {
   }
 
   currentPlaybackPosition() {
-    const chunk = this.currentChunk;
-    if (!chunk?.metadata?.itemId) {
+    if (this.scheduledSources.size === 0 || !this.audioContext) {
       return null;
     }
 
-    const itemKey = this.playbackKey(chunk.metadata);
+    const now = this.audioContext.currentTime;
+    let activeEntry = null;
+
+    for (const entry of this.scheduledSources) {
+      if (!entry.metadata?.itemId) continue;
+      if (now >= entry.startTime && now <= entry.endTime) {
+        activeEntry = entry;
+        break;
+      }
+      if (!activeEntry || entry.startTime < activeEntry.startTime) {
+        activeEntry = entry;
+      }
+    }
+
+    if (!activeEntry?.metadata?.itemId) {
+      return null;
+    }
+
+    const itemKey = this.playbackKey(activeEntry.metadata);
     const alreadyPlayedMs = this.playedMsByItem.get(itemKey) || 0;
-    const elapsedCurrentMs = this.audioContext
-      ? Math.max(0, (this.audioContext.currentTime - this.currentChunkStartedAt) * 1000)
-      : 0;
+    const elapsedCurrentMs = Math.max(0, Math.min(activeEntry.durationMs, (now - activeEntry.startTime) * 1000));
 
     return {
-      responseId: chunk.metadata.responseId,
-      itemId: chunk.metadata.itemId,
-      contentIndex: chunk.metadata.contentIndex || 0,
-      audioEndMs: Math.min(
-        Math.round(alreadyPlayedMs + elapsedCurrentMs),
-        Math.round(alreadyPlayedMs + chunk.durationMs),
-      ),
+      responseId: activeEntry.metadata.responseId,
+      itemId: activeEntry.metadata.itemId,
+      contentIndex: activeEntry.metadata.contentIndex || 0,
+      audioEndMs: Math.round(alreadyPlayedMs + elapsedCurrentMs),
     };
   }
 
-  addCompletedChunkPlayback(chunk) {
-    if (!chunk?.metadata?.itemId) {
+  addCompletedChunkPlayback(entry) {
+    if (!entry?.metadata?.itemId) {
       return;
     }
 
-    const itemKey = this.playbackKey(chunk.metadata);
-    this.playedMsByItem.set(itemKey, (this.playedMsByItem.get(itemKey) || 0) + chunk.durationMs);
+    const itemKey = this.playbackKey(entry.metadata);
+    this.playedMsByItem.set(itemKey, (this.playedMsByItem.get(itemKey) || 0) + entry.durationMs);
+
+    while (this.playedMsByItem.size > this.maxTrackedItems) {
+      const oldestKey = this.playedMsByItem.keys().next().value;
+      this.playedMsByItem.delete(oldestKey);
+    }
   }
 
-  finishAudioIfIdle(metadata = {}) {
-    if (!this.receivedAudioDone || this.isPlaying || this.audioQueue.length > 0 || this.currentChunk) {
+  finishAudioIfIdle() {
+    if (!this.receivedAudioDone || this.scheduledSources.size > 0) {
       return;
     }
 
     this.receivedAudioDone = false;
-    this.onAudioDone(metadata);
+    this.turnActive = false;
+    this.nextPlayTime = 0;
+    this.sendSafe({ type: 'playback_state', data: { playing: false } });
+    this.onAudioDone(this.lastAudioDoneMetadata);
   }
 
   playbackKey(metadata) {
@@ -288,9 +430,7 @@ class RealtimeAudioClient {
   startHeartbeat() {
     this.stopHeartbeat();
     this.heartbeatInterval = setInterval(() => {
-      if (this.ws?.readyState === WebSocket.OPEN) {
-        this.ws.send(JSON.stringify({ type: 'heartbeat' }));
-      }
+      this.sendSafe({ type: 'heartbeat' });
     }, this.heartbeatIntervalMs);
   }
 
@@ -301,20 +441,29 @@ class RealtimeAudioClient {
     }
   }
 
-  async tryReconnect() {
-    if (this.reconnectAttempts >= this.maxReconnectAttempts) {
-      this.onError('Maximum reconnect attempts reached');
-      return;
-    }
-
+  scheduleReconnect() {
+    if (!this.shouldReconnect) return;
     this.reconnectAttempts += 1;
-    const delay = Math.min(1000 * (2 ** this.reconnectAttempts), 10000);
-    setTimeout(() => {
-      this.connect().catch((error) => this.onError(error.message || String(error)));
+    const baseDelay = Math.min(1000 * (2 ** Math.min(this.reconnectAttempts - 1, 4)), 15000);
+    const jitter = Math.floor(Math.random() * 400);
+    const delay = baseDelay + jitter;
+    this.onStatus(`Reconnecting in ${(delay / 1000).toFixed(1)}s (attempt ${this.reconnectAttempts})...`);
+    this.reconnectTimer = setTimeout(() => {
+      this.connect().catch((error) => {
+        this.onError(error.message || String(error));
+        if (this.shouldReconnect) {
+          this.scheduleReconnect();
+        }
+      });
     }, delay);
   }
 
   close() {
+    this.shouldReconnect = false;
+    if (this.reconnectTimer) {
+      clearTimeout(this.reconnectTimer);
+      this.reconnectTimer = null;
+    }
     this.stopHeartbeat();
     this.interrupt(false);
     if (this.audioContext && this.audioContext.state !== 'closed') {
@@ -328,8 +477,8 @@ class RealtimeAudioClient {
   base64ToArrayBuffer(base64) {
     const binaryString = atob(base64);
     const bytes = new Uint8Array(binaryString.length);
-    for (let index = 0; index < binaryString.length; index += 1) {
-      bytes[index] = binaryString.charCodeAt(index);
+    for (let i = 0; i < binaryString.length; i += 1) {
+      bytes[i] = binaryString.charCodeAt(i);
     }
     return bytes.buffer;
   }

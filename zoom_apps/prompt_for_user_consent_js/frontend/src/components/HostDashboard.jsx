@@ -1,5 +1,5 @@
-import React from 'react';
-import { Container, Row, Col, Card, Badge } from 'react-bootstrap';
+import React, { useState } from 'react';
+import { Container, Row, Col, Card, Badge, Button, ButtonGroup, Form } from 'react-bootstrap';
 import ConsentPrompt from './ConsentPrompt';
 import ConsentNotification from './ConsentNotification';
 import ParticipantList from './ParticipantList';
@@ -9,9 +9,38 @@ import { useZoomSDK } from '../contexts/ZoomSDKContext';
 import { useWebSocket } from '../contexts/WebSocketContext';
 
 function HostDashboard({ runningContext, userContextStatus }) {
-  const { consentState } = useConsent();
-  const { participants } = useZoomSDK();
+  const { consentState, updatePolicyMode, loading } = useConsent();
+  const { participants, meetingContext, getAuthHeaders } = useZoomSDK();
   const { isConnected, meetingRoomJoined } = useWebSocket();
+  const [downloadError, setDownloadError] = useState(null);
+
+  const handleDownloadAudit = async (format) => {
+    if (!meetingContext?.meetingUUID) return;
+    setDownloadError(null);
+    try {
+      const url = `/api/consent/${encodeURIComponent(meetingContext.meetingUUID)}/audit?format=${format}`;
+      const response = await fetch(url, {
+        credentials: 'include',
+        headers: getAuthHeaders()
+      });
+      if (!response.ok) {
+        throw new Error(`Audit export failed (${response.status})`);
+      }
+      const blob = await response.blob();
+      const objectUrl = window.URL.createObjectURL(blob);
+      const link = document.createElement('a');
+      link.href = objectUrl;
+      link.download = `consent-audit-${meetingContext.meetingUUID}.${format}`;
+      document.body.appendChild(link);
+      link.click();
+      link.remove();
+      window.URL.revokeObjectURL(objectUrl);
+    } catch (err) {
+      setDownloadError(err.message || 'Failed to download audit trail');
+    }
+  };
+
+  const currentPolicyMode = consentState.policyMode || 'unanimous';
 
   return (
     <Container className="host-dashboard">
@@ -66,7 +95,50 @@ function HostDashboard({ runningContext, userContextStatus }) {
             rtmsStatus={consentState.rtmsStatus}
             rtmsPausedReason={consentState.rtmsPausedReason}
             unanimousConsent={consentState.unanimousConsent}
+            policyMode={currentPolicyMode}
           />
+
+          <Card className="mb-4">
+            <Card.Header>
+              <h6 className="mb-0">Consent Policy &amp; Audit</h6>
+            </Card.Header>
+            <Card.Body>
+              <Form.Group className="mb-3">
+                <Form.Label className="small fw-semibold">Enforcement Policy</Form.Label>
+                <Form.Select
+                  size="sm"
+                  value={currentPolicyMode}
+                  disabled={loading || !meetingContext?.meetingUUID}
+                  onChange={(e) => updatePolicyMode(e.target.value)}
+                >
+                  <option value="unanimous">Unanimous Consent Gate (Pause/Stop RTMS)</option>
+                  <option value="redact">Per-Participant Redaction (Redact Unconsented)</option>
+                </Form.Select>
+              </Form.Group>
+
+              <div className="d-grid gap-2">
+                <ButtonGroup size="sm">
+                  <Button
+                    variant="outline-primary"
+                    disabled={!meetingContext?.meetingUUID}
+                    onClick={() => handleDownloadAudit('json')}
+                  >
+                    Audit Trail (JSON)
+                  </Button>
+                  <Button
+                    variant="outline-secondary"
+                    disabled={!meetingContext?.meetingUUID}
+                    onClick={() => handleDownloadAudit('csv')}
+                  >
+                    Audit Trail (CSV)
+                  </Button>
+                </ButtonGroup>
+                {downloadError && (
+                  <small className="text-danger">{downloadError}</small>
+                )}
+              </div>
+            </Card.Body>
+          </Card>
 
           <Card className="mb-4">
             <Card.Header>

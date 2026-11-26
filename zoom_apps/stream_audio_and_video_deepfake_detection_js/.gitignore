@@ -7,6 +7,8 @@ logs/*
 !logs/.gitkeep
 
 # Generated preview / inference media
+tmp_hls/
+tmp_clips/
 public/hls/*
 !public/hls/.gitkeep
 public/hls/**/*.m3u8

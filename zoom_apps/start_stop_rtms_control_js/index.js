@@ -1,11 +1,19 @@
 import { RTMSManager } from '../../library/javascript/rtmsManager/RTMSManager.js';
+import { TranscriptRevisionStore } from '../../library/javascript/rtmsManager/utils/TranscriptRevisionStore.js';
 import WebhookManager from '../../library/javascript/webhookManager/WebhookManager.js';
+import WebsocketManager from '../../library/javascript/webSocketManager/WebsocketManager.js';
+import { FrontendManager } from '../../library/javascript/rtmsManager/FrontendManager.js';
 import { FrontendWssManager } from '../../library/javascript/rtmsManager/FrontendWssManager.js';
-import express from 'express';
 import { closeHttpServer, installGracefulShutdown } from '../../library/javascript/commonHelpers/gracefulShutdown.js';
+import {
+  MeetingTelemetryTracker,
+  createRegistrationAuthorizer,
+  decryptZoomAppContext,
+  mintWsAuthToken
+} from './rtmsControlHelpers.js';
+import express from 'express';
 import http from 'http';
-import https from 'https';
-import { WebSocket } from 'ws';
+import crypto from 'crypto';
 import dotenv from 'dotenv';
 import path from 'path';
 import { fileURLToPath } from 'url';
@@ -18,18 +26,21 @@ dotenv.config({ path: path.join(__dirname, '.env') });
 const { MEDIA_PARAMS } = RTMSManager;
 
 const config = {
-  port: process.env.PORT || 3000,
-  mode: process.env.MODE || 'webhook',
+  port: Number(process.env.PORT) || 3000,
+  mode: (process.env.MODE || 'webhook').trim().toLowerCase(),
   webhookPath: process.env.WEBHOOK_PATH || '/webhook',
   zoomWSURLForEvents: process.env.zoomWSURLForEvents || '',
-  clientId: process.env.ZOOM_CLIENT_ID,
-  clientSecret: process.env.ZOOM_CLIENT_SECRET,
-  zoomSecretToken: process.env.ZOOM_SECRET_TOKEN,
-  wsUrl: process.env.WS_URL || 'wss://yoururl.ngrok.com/ws',
-  s2sClientId: process.env.ZOOM_S2S_CLIENT_ID || null,
-  s2sClientSecret: process.env.ZOOM_S2S_CLIENT_SECRET || null,
-  accountId: process.env.ZOOM_ACCOUNT_ID || null,
+  clientId: process.env.ZOOM_CLIENT_ID || '',
+  clientSecret: process.env.ZOOM_CLIENT_SECRET || '',
+  secretToken: process.env.ZOOM_SECRET_TOKEN || '',
+  frontendWssUrl: process.env.WS_URL || process.env.FRONTEND_WSS_URL || '',
+  frontendWssAuthToken: process.env.FRONTEND_WSS_AUTH_TOKEN || '',
+  allowPreRtmsRegistration: ['1', 'true', 'yes', 'on'].includes(
+    String(process.env.ALLOW_PRE_RTMS_REGISTRATION || '').trim().toLowerCase()
+  )
 };
+
+const wsSigningSecret = config.clientSecret || config.secretToken || crypto.randomBytes(32).toString('hex');
 
 const rtmsConfig = {
   logging: 'info',
@@ -44,7 +55,7 @@ const rtmsConfig = {
     meeting: {
       clientId: config.clientId,
       clientSecret: config.clientSecret,
-      zoomSecretToken: config.zoomSecretToken,
+      secretToken: config.secretToken,
     },
   },
   mediaParams: {
@@ -58,8 +69,8 @@ const rtmsConfig = {
     },
     video: {
       contentType: MEDIA_PARAMS.MEDIA_CONTENT_TYPE_RAW_VIDEO,
-      codec: MEDIA_PARAMS.VIDEO_CODEC_H264,
-      resolution: MEDIA_PARAMS.VIDEO_RESOLUTION_720P,
+      codec: MEDIA_PARAMS.MEDIA_PAYLOAD_TYPE_H264,
+      resolution: MEDIA_PARAMS.MEDIA_RESOLUTION_HD,
       dataOpt: MEDIA_PARAMS.MEDIA_DATA_OPTION_VIDEO_SINGLE_ACTIVE_STREAM,
       fps: 25,
     },
@@ -73,157 +84,292 @@ const rtmsConfig = {
 const app = express();
 const server = http.createServer(app);
 
-app.use(express.json({ verify: (req, _res, buffer) => { req.rawBody = Buffer.from(buffer); } }));
-app.set('view engine', 'ejs');
-app.use(express.static(path.join(__dirname, 'public')));
-
-app.get('/', (req, res) => {
-  res.render('index', { websocketUrl: config.wsUrl });
+// Mint a short-lived HMAC token when Zoom delivers a verified x-zoom-app-context header.
+app.use((req, res, next) => {
+  res.locals.wsAuthToken = '';
+  if (req.method === 'GET' && req.path === '/') {
+    const contextHeader = req.headers['x-zoom-app-context'];
+    const context = decryptZoomAppContext(contextHeader, config.clientSecret);
+    if (context) {
+      res.locals.wsAuthToken = mintWsAuthToken(context, wsSigningSecret);
+    }
+  }
+  next();
 });
 
+const frontendManager = new FrontendManager({
+  config: {
+    port: config.port,
+    serveStaticEnabled: true,
+    viewsPath: path.join(__dirname, 'views'),
+    staticPath: path.join(__dirname, 'public'),
+    frontendWssUrl: config.frontendWssUrl,
+    frontendWssPath: '/ws'
+  },
+  app
+});
+frontendManager.setup();
+
 await RTMSManager.init(rtmsConfig);
+
+const transcriptStore = new TranscriptRevisionStore();
+const telemetryTracker = new MeetingTelemetryTracker();
+const streamToMeeting = new Map();
+
+const baseAuthorize = createRegistrationAuthorizer({
+  getActiveConnections: () => RTMSManager.getActiveConnections(),
+  staticAuthToken: config.frontendWssAuthToken,
+  signingSecret: wsSigningSecret,
+  allowPreRtmsRegistration: config.allowPreRtmsRegistration
+});
 
 const frontendWss = new FrontendWssManager({
   server,
   config: {
     frontendWssEnabled: true,
     frontendWssPath: '/ws'
+  },
+  authorizeRegistration: async (context) => {
+    const result = await baseAuthorize(context);
+    if (result.authorized && context.socket) {
+      const { meetingUUID } = result;
+      setImmediate(() => {
+        if (context.socket.readyState !== 1) return;
+        const snapshot = telemetryTracker.getSnapshot(meetingUUID);
+        if (snapshot) {
+          context.socket.send(JSON.stringify(snapshot));
+        }
+        const sentences = transcriptStore.sentences().filter((s) => String(s.rtmsId || '') === String(meetingUUID));
+        if (sentences.length > 0) {
+          context.socket.send(JSON.stringify({
+            type: 'transcript_history',
+            meetingUuid: meetingUUID,
+            items: sentences.slice(-50).map((sentence) => ({
+              key: `${sentence.streamId}:${sentence.channelId ?? sentence.userId ?? null}:${sentence.sentenceId ?? `#${sentence.order}`}`,
+              sentenceId: sentence.sentenceId,
+              revision: sentence.revision,
+              user: sentence.userName || `User ${sentence.userId ?? 'unknown'}`,
+              userId: sentence.userId,
+              content: sentence.text,
+              timestamp: sentence.timestamp || Date.now()
+            }))
+          }));
+        }
+      });
+    }
+    return result;
   }
 });
 frontendWss.setup();
 
-RTMSManager.on('audio', ({ buffer, userId, userName, timestamp, meetingId, streamId, productType }) => {
-  console.log(`Audio received from ${userName || 'mixed'} (${buffer.length} bytes)`);
-  frontendWss.broadcastToMeeting(meetingId, {
-    type: 'audio',
-    user: userName || 'mixed',
-    userId,
-    size: buffer.length,
-    timestamp
+const telemetryTimer = setInterval(() => {
+  const snapshots = telemetryTracker.flushInterval();
+  for (const snapshot of snapshots) {
+    frontendWss.broadcastToMeeting(snapshot.meetingUuid, snapshot);
+  }
+}, 1000);
+telemetryTimer.unref?.();
+
+RTMSManager.on('audio', ({ buffer, userName, timestamp, meetingId, streamId }) => {
+  telemetryTracker.recordMedia(meetingId, 'audio', {
+    bytes: buffer?.length || 0,
+    userName: userName || 'mixed',
+    timestamp,
+    streamId
   });
 });
 
-RTMSManager.on('video', ({ buffer, userId, userName, timestamp, meetingId, streamId, productType }) => {
-  console.log(`Video received from ${userName} (${buffer.length} bytes)`);
-  frontendWss.broadcastToMeeting(meetingId, {
-    type: 'video',
-    user: userName,
-    userId,
-    size: buffer.length,
-    timestamp
+RTMSManager.on('video', ({ buffer, userName, timestamp, meetingId, streamId }) => {
+  telemetryTracker.recordMedia(meetingId, 'video', {
+    bytes: buffer?.length || 0,
+    userName: userName || 'active-speaker',
+    timestamp,
+    streamId
   });
 });
 
-RTMSManager.on('transcript', ({ text, userId, userName, timestamp, meetingId, streamId, productType }) => {
-  console.log(`Transcript from ${userName}: ${text}`);
-  frontendWss.broadcastToUser(meetingId, String(userId), {
+RTMSManager.on('screenshare', ({ buffer, userName, timestamp, meetingId, streamId }) => {
+  telemetryTracker.recordMedia(meetingId, 'screenshare', {
+    bytes: buffer?.length || 0,
+    userName: userName || 'presenter',
+    timestamp,
+    streamId
+  });
+});
+
+RTMSManager.on('transcript', ({
+  text,
+  userId,
+  userName,
+  sentenceId,
+  isUpdate,
+  attribute,
+  language,
+  startTime,
+  endTime,
+  timestamp,
+  meetingId,
+  streamId
+}) => {
+  const content = String(text ?? '').trim();
+  if (!content) return;
+
+  const displayName = userName || `User ${userId ?? 'unknown'}`;
+  const { action, key, sentence } = transcriptStore.apply({
+    streamId,
+    rtmsId: meetingId,
+    meetingId,
+    userId,
+    userName: displayName,
+    sentenceId,
+    isUpdate,
+    attribute,
+    language,
+    startTime,
+    endTime,
+    text: content,
+    timestamp: timestamp || Date.now()
+  });
+
+  telemetryTracker.recordMedia(meetingId, 'transcript', {
+    bytes: Buffer.byteLength(content, 'utf8'),
+    userName: displayName,
+    timestamp: sentence.timestamp,
+    streamId
+  });
+
+  frontendWss.broadcastToMeeting(meetingId, {
     type: 'transcript',
-    user: userName,
-    userId,
-    content: text,
-    timestamp
+    action,
+    key,
+    sentenceId: sentence.sentenceId,
+    revision: sentence.revision,
+    isUpdate: action === 'updated' || action === 'replaced',
+    user: sentence.userName || displayName,
+    userId: sentence.userId,
+    content: sentence.text,
+    timestamp: sentence.timestamp || Date.now(),
+    streamId,
+    meetingId
   });
 });
 
-RTMSManager.on('screenshare', ({ buffer, userId, userName, timestamp, meetingId, streamId, productType }) => {
-  console.log(`Screen share received from ${userName} (${buffer.length} bytes)`);
-  frontendWss.broadcastToMeeting(meetingId, {
-    type: 'screenshare',
-    user: userName,
-    userId,
-    size: buffer.length,
-    timestamp
-  });
-});
+RTMSManager.on('chat', ({ text, userId, userName, sender, timestamp, meetingId, streamId }) => {
+  const content = String(text ?? '').trim();
+  if (!content) return;
 
-RTMSManager.on('chat', ({ text, userId, userName, sender, timestamp, meetingId, streamId, productType }) => {
-  const displayName = userName ?? sender?.userName ?? sender?.user_name ?? `user ${userId ?? 'unknown'}`;
-  console.log(`Chat from ${displayName}: ${text}`);
+  const displayName = userName ?? sender?.userName ?? sender?.user_name ?? `User ${userId ?? 'unknown'}`;
+  telemetryTracker.recordMedia(meetingId, 'chat', {
+    bytes: Buffer.byteLength(content, 'utf8'),
+    userName: displayName,
+    timestamp,
+    streamId
+  });
+
   frontendWss.broadcastToMeeting(meetingId, {
     type: 'chat',
     user: displayName,
     userId,
-    content: text,
-    timestamp
+    content,
+    timestamp: timestamp || Date.now(),
+    streamId,
+    meetingId
   });
 });
 
 RTMSManager.on('meeting.rtms_started', (payload) => {
-  console.log(`RTMS started for meeting ${payload.meeting_uuid}`);
-  frontendWss.broadcastToMeeting(payload.meeting_uuid, {
+  const meetingUuid = payload?.meeting_uuid;
+  const streamId = payload?.rtms_stream_id || null;
+  if (!meetingUuid) return;
+
+  console.log(`[RTMSControl] RTMS started for meeting ${meetingUuid}`);
+  if (streamId) streamToMeeting.set(String(streamId), String(meetingUuid));
+  telemetryTracker.markStarted(meetingUuid, streamId);
+
+  frontendWss.broadcastToMeeting(meetingUuid, {
     type: 'rtms_started',
-    meetingUuid: payload.meeting_uuid
+    meetingUuid,
+    streamId,
+    timestamp: Date.now()
   });
 });
 
 RTMSManager.on('meeting.rtms_stopped', (payload) => {
-  console.log(`RTMS stopped for meeting ${payload.meeting_uuid}`);
-  frontendWss.broadcastToMeeting(payload.meeting_uuid, {
+  const streamId = payload?.rtms_stream_id || null;
+  const meetingUuid = payload?.meeting_uuid || (streamId ? streamToMeeting.get(String(streamId)) : null);
+  if (streamId) {
+    transcriptStore.clear(streamId);
+    streamToMeeting.delete(String(streamId));
+  }
+  if (!meetingUuid) return;
+
+  console.log(`[RTMSControl] RTMS stopped for meeting ${meetingUuid}`);
+  telemetryTracker.markStopped(meetingUuid, streamId);
+
+  frontendWss.broadcastToMeeting(meetingUuid, {
     type: 'rtms_stopped',
-    meetingUuid: payload.meeting_uuid
+    meetingUuid,
+    streamId,
+    stopReason: payload?.stop_reason ?? null,
+    timestamp: Date.now()
   });
 });
 
-RTMSManager.on('event', ({ eventCode, data, meetingId, streamId, productType }) => {
+RTMSManager.on('event', ({ eventCode, data = {}, meetingId }) => {
+  if (!meetingId) return;
   switch (eventCode) {
-    case RTMSManager.EVENT_CODES.ACTIVE_SPEAKER_CHANGE:
-      console.log(`Active speaker changed: ${data.user_name} (${data.user_id})`);
+    case RTMSManager.EVENT_CODES.ACTIVE_SPEAKER_CHANGE: {
+      const user = data.user_name || `User ${data.user_id ?? 'unknown'}`;
+      telemetryTracker.setActiveSpeaker(meetingId, { userId: data.user_id, userName: user });
       frontendWss.broadcastToMeeting(meetingId, {
         type: 'active_speaker',
-        user: data.user_name,
-        userId: data.user_id
+        user,
+        userId: data.user_id,
+        timestamp: Date.now()
       });
       break;
-    case RTMSManager.EVENT_CODES.PARTICIPANT_JOIN:
-      if (data.participants && Array.isArray(data.participants)) {
-        data.participants.forEach(p => {
-          console.log(`Participant joined: ${p.user_name} (${p.user_id})`);
-          frontendWss.broadcastToMeeting(meetingId, {
-            type: 'participant_join',
-            user: p.user_name,
-            userId: p.user_id
-          });
-        });
-      } else {
-        console.log(`Participant joined: ${data.user_name} (${data.user_id})`);
+    }
+    case RTMSManager.EVENT_CODES.PARTICIPANT_JOIN: {
+      const list = Array.isArray(data.participants) ? data.participants : [data];
+      telemetryTracker.addParticipants(meetingId, list);
+      for (const p of list) {
+        if (p?.user_id == null && !p?.user_name) continue;
         frontendWss.broadcastToMeeting(meetingId, {
           type: 'participant_join',
-          user: data.user_name,
-          userId: data.user_id
+          user: p.user_name || `User ${p.user_id ?? 'unknown'}`,
+          userId: p.user_id,
+          timestamp: Date.now()
         });
       }
       break;
-    case RTMSManager.EVENT_CODES.PARTICIPANT_LEAVE:
-      if (data.participants && Array.isArray(data.participants)) {
-        data.participants.forEach(p => {
-          console.log(`Participant left: ${p.user_name} (${p.user_id})`);
-          frontendWss.broadcastToMeeting(meetingId, {
-            type: 'participant_leave',
-            user: p.user_name,
-            userId: p.user_id
-          });
-        });
-      } else {
-        console.log(`Participant left: ${data.user_name} (${data.user_id})`);
+    }
+    case RTMSManager.EVENT_CODES.PARTICIPANT_LEAVE: {
+      const list = Array.isArray(data.participants) ? data.participants : [data];
+      telemetryTracker.removeParticipants(meetingId, list);
+      for (const p of list) {
+        if (p?.user_id == null && !p?.user_name) continue;
         frontendWss.broadcastToMeeting(meetingId, {
           type: 'participant_leave',
-          user: data.user_name,
-          userId: data.user_id
+          user: p.user_name || `User ${p.user_id ?? 'unknown'}`,
+          userId: p.user_id,
+          timestamp: Date.now()
         });
       }
       break;
+    }
   }
 });
 
+let eventWsManager = null;
+
 if (config.mode === 'webhook') {
-  console.log('Running in webhook mode');
-  
+  console.log('[RTMSControl] Running in webhook mode');
   const webhookManager = new WebhookManager({
     config: {
       webhookPath: config.webhookPath,
-      zoomSecretToken: config.zoomSecretToken,
+      zoomSecretToken: config.secretToken,
     },
-    app: app
+    app
   });
 
   webhookManager.on('event', (event, payload) => {
@@ -232,111 +378,47 @@ if (config.mode === 'webhook') {
   });
 
   webhookManager.setup();
-  
 } else if (config.mode === 'websocket') {
-  console.log('Running in WebSocket event mode');
-  
+  console.log('[RTMSControl] Running in WebSocket event mode');
   if (!config.zoomWSURLForEvents || !config.clientId || !config.clientSecret) {
     console.error('Missing required env vars: zoomWSURLForEvents, ZOOM_CLIENT_ID, or ZOOM_CLIENT_SECRET');
     process.exit(1);
   }
 
-  const accessToken = await new Promise((resolve) => {
-    const credentials = Buffer.from(`${config.clientId}:${config.clientSecret}`).toString('base64');
-    const options = {
-      method: 'POST',
-      hostname: 'zoom.us',
-      path: '/oauth/token?grant_type=client_credentials',
-      headers: {
-        'Authorization': `Basic ${credentials}`
-      }
-    };
-
-    const req = https.request(options, (res) => {
-      let body = '';
-      res.on('data', (chunk) => body += chunk);
-      res.on('end', () => {
-        if (res.statusCode === 200) {
-          const tokenData = JSON.parse(body);
-          console.log('Zoom access token received');
-          resolve(tokenData.access_token);
-        } else {
-          console.error(`Zoom token request failed: ${res.statusCode} ${body}`);
-          resolve(null);
-        }
-      });
-    });
-
-    req.on('error', (err) => {
-      console.error('HTTPS error requesting token:', err.message);
-      resolve(null);
-    });
-
-    req.end();
-  });
-
-  if (!accessToken) {
-    console.error('Failed to get access token');
-    process.exit(1);
-  }
-
-  const fullWsUrl = `${config.zoomWSURLForEvents}&access_token=${accessToken}`;
-  console.log('Connecting to Zoom Events WebSocket...');
-  
-  const eventWs = new WebSocket(fullWsUrl);
-
-  eventWs.on('open', () => {
-    console.log('Connected to Zoom Events WebSocket');
-    eventWs.send(JSON.stringify({ module: 'heartbeat' }));
-    console.log('Sent initial heartbeat');
-
-    setInterval(() => {
-      if (eventWs.readyState === WebSocket.OPEN) {
-        eventWs.send(JSON.stringify({ module: 'heartbeat' }));
-        console.log('Heartbeat sent');
-      }
-    }, 30000);
-  });
-
-  eventWs.on('message', async (message) => {
-    console.log('Received message from Zoom Event WebSocket');
-
-    try {
-      const msg = JSON.parse(message.toString());
-      if (msg.module === 'message' && msg.content) {
-        const eventData = JSON.parse(msg.content);
-        const event = eventData.event;
-        const payload = eventData.payload || {};
-
-        console.log(`Parsed Event: ${event}`);
-        RTMSManager.handleEvent(event, payload);
-      }
-    } catch (err) {
-      console.error('Error processing message:', err.message);
+  eventWsManager = new WebsocketManager({
+    config: {
+      zoomWSURLForEvents: config.zoomWSURLForEvents,
+      clientId: config.clientId,
+      clientSecret: config.clientSecret
     }
   });
-
-  eventWs.on('error', (err) => {
-    console.error(`WebSocket Error: ${err.message}`);
+  eventWsManager.on('event', (event, payload) => {
+    console.log('[EventWS] Event received:', event);
+    RTMSManager.handleEvent(event, payload);
   });
-
-  eventWs.on('close', (code, reason) => {
-    console.warn(`WebSocket closed | Code: ${code}, Reason: ${reason}`);
-  });
+  await eventWsManager.start();
+} else {
+  console.error(`[RTMSControl] Unsupported MODE "${config.mode}". Expected "webhook" or "websocket".`);
+  process.exit(1);
 }
 
-await RTMSManager.start();
-
 server.listen(config.port, () => {
-  console.log(`Server running at http://localhost:${config.port}`);
+  console.log(`[RTMSControl] Server running at http://localhost:${config.port}`);
   if (config.mode === 'webhook') {
-    console.log(`Webhook available at http://localhost:${config.port}${config.webhookPath}`);
+    console.log(`[RTMSControl] Webhook available at http://localhost:${config.port}${config.webhookPath}`);
   }
-  console.log(`Frontend WebSocket available at ws://localhost:${config.port}/ws`);
+  console.log(`[RTMSControl] Frontend WebSocket available at ws://localhost:${config.port}/ws`);
 });
 
-installGracefulShutdown({ name: 'RTMS Control', cleanup: async () => {
-  frontendWss.stop();
-  await closeHttpServer(server);
-  await RTMSManager.stop();
-} });
+installGracefulShutdown({
+  name: 'RTMS Control',
+  cleanup: async () => {
+    clearInterval(telemetryTimer);
+    if (eventWsManager) eventWsManager.stop();
+    transcriptStore.clear();
+    telemetryTracker.clear();
+    frontendWss.stop();
+    await closeHttpServer(server);
+    await RTMSManager.stop();
+  }
+});

@@ -1,13 +1,10 @@
 /**
  * RTMS Server using @zoom/rtms SDK
- * Captures transcripts from Zoom meetings when RTMS is started
+ * Captures transcripts from Zoom meetings when RTMS is started,
+ * enforcing server-side consent gating and handling transcript rewinds.
  *
- * Flow:
- * 1. Frontend calls zoomSdk.callZoomApi('startRTMS')
- * 2. Zoom sends meeting.rtms_started webhook to this server
- * 3. Server connects to RTMS stream via client.join(payload)
- * 4. Transcripts are received and saved to disk
- * 5. When stopped, meeting.rtms_stopped webhook fires
+ * Note: For RTMS Protocol V2 deployments not using `@zoom/rtms`, consider using
+ * `library/javascript/rtmsManager/RTMSManager.js` with `TranscriptRevisionStore`.
  */
 
 import rtms from '@zoom/rtms';
@@ -15,6 +12,14 @@ import fs from 'fs';
 import path from 'path';
 import { fileURLToPath } from 'url';
 import { config } from 'dotenv';
+import express from 'express';
+import crypto from 'node:crypto';
+import {
+  normalizeTranscriptArgs,
+  evaluateConsentGate,
+  isPolicyRunning,
+  MeetingTranscriptStore
+} from './transcriptPolicy.js';
 
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = path.dirname(__filename);
@@ -23,10 +28,13 @@ config({ path: path.join(__dirname, '../../.env') });
 // Store active RTMS clients by meeting UUID
 const activeClients = new Map();
 
+// Live server-side consent policy synced from backend by meeting UUID
+const meetingPolicies = new Map();
+
 // Transcript output directory
 const TRANSCRIPT_DIR = path.join(__dirname, '../app/data/transcripts');
+const BACKEND_URL = process.env.BACKEND_URL || 'http://backend:3000';
 
-// Ensure output directory exists
 if (!fs.existsSync(TRANSCRIPT_DIR)) {
   fs.mkdirSync(TRANSCRIPT_DIR, { recursive: true });
 }
@@ -41,83 +49,132 @@ Transcript Directory: ${TRANSCRIPT_DIR}
 ============================================================
 `);
 
+async function fetchBackendConsentPolicy(meetingUUID) {
+  const token = process.env.INTERNAL_WEBHOOK_TOKEN;
+  if (!token) return null;
+
+  try {
+    const url = `${BACKEND_URL}/api/consent/policy/internal?meetingId=${encodeURIComponent(meetingUUID)}`;
+    const response = await fetch(url, {
+      headers: { Authorization: `Bearer ${token}` }
+    });
+    if (!response.ok) return null;
+    const policy = await response.json();
+    meetingPolicies.set(meetingUUID, policy);
+    return policy;
+  } catch (error) {
+    console.warn(`⚠️  Could not fetch consent policy from backend for ${meetingUUID}: ${error.message}`);
+    return null;
+  }
+}
+
 /**
- * Note: We receive webhooks from our backend via POST /webhook endpoint
- * instead of using rtms.onWebhookEvent() which expects direct Zoom webhooks
+ * Rewrite transcript file with latest non-duplicate/rewound sentences.
  */
+function writeTranscriptSnapshot(entry) {
+  const header = [
+    'Zoom Meeting Transcript',
+    `Meeting UUID: ${entry.meetingUUID}`,
+    `Started: ${entry.startedAt}`,
+    '='.repeat(60),
+    ''
+  ].join('\n');
+
+  const body = entry.store.orderedLines().join('\n');
+  const footer = entry.stoppedAt
+    ? `\n\n${'='.repeat(60)}\nStopped: ${entry.stoppedAt}\n`
+    : '\n';
+
+  fs.writeFileSync(entry.filepath, `${header}${body}${footer}`, 'utf8');
+}
 
 /**
  * Handle RTMS started webhook
- * Connects to the RTMS stream and starts capturing transcripts
+ * Connects to the RTMS stream and starts capturing transcripts only when consent policy allows.
  */
 async function handleRTMSStarted(payload) {
-  const { meeting_uuid, rtms_stream_id, server_urls } = payload;
+  const { meeting_uuid, rtms_stream_id, server_urls, policy: incomingPolicy } = payload;
 
-  console.log(`Meeting UUID: ${meeting_uuid}`);
-  console.log(`Stream ID: ${rtms_stream_id}`);
-  console.log(`Server URL: ${server_urls}`);
+  if (incomingPolicy) {
+    meetingPolicies.set(meeting_uuid, incomingPolicy);
+  }
 
-  // Check if already connected to this meeting
+  let policy = meetingPolicies.get(meeting_uuid);
+  if (!policy) {
+    policy = await fetchBackendConsentPolicy(meeting_uuid);
+  }
+
+  if (!policy || !isPolicyRunning(policy) || (policy.policyMode === 'unanimous' && !policy.unanimousConsent)) {
+    console.warn(`🚫 Refusing to join RTMS stream for ${meeting_uuid}: consent gate not satisfied`);
+    return { started: false, reason: 'consent_gate_blocked' };
+  }
+
   if (activeClients.has(meeting_uuid)) {
     console.log('⚠️  Already connected to this meeting, skipping');
-    return;
+    return { started: true, alreadyConnected: true };
   }
 
   try {
-    // Create new RTMS client
     const client = new rtms.Client();
-    console.log('✅ RTMS Client created');
-
-    // Initialize transcript file for this meeting
-    const timestamp = new Date().toISOString().replace(/:/g, '-').split('.')[0];
-
-    // Sanitize meeting UUID for use in filename (remove / and other invalid chars)
+    const startedAt = new Date().toISOString();
+    const timestamp = startedAt.replace(/:/g, '-').split('.')[0];
     const sanitizedUUID = meeting_uuid.replace(/[/\\:*?"<>|]/g, '_');
 
     const filename = `transcript_${sanitizedUUID}_${timestamp}.txt`;
     const filepath = path.join(TRANSCRIPT_DIR, filename);
-    const stream = fs.createWriteStream(filepath, { flags: 'a' });
+    const store = new MeetingTranscriptStore();
 
-    console.log(`📝 Transcript file: ${filename}`);
+    const activeEntry = {
+      meetingUUID: meeting_uuid,
+      client,
+      store,
+      filepath,
+      filename,
+      startedAt,
+      stoppedAt: null
+    };
 
-    // Write header
-    stream.write(`Zoom Meeting Transcript\n`);
-    stream.write(`Meeting UUID: ${meeting_uuid}\n`);
-    stream.write(`Started: ${new Date().toISOString()}\n`);
-    stream.write(`${'='.repeat(60)}\n\n`);
+    writeTranscriptSnapshot(activeEntry);
 
-    // Set up transcript data handler
-    client.onTranscriptData((data, timestamp, metadata, user) => {
+    // Fix `@zoom/rtms` callback signature: (data, size, timestamp, metadata)
+    client.onTranscriptData((data, size, ts, metadata) => {
       try {
-        // Convert buffer to UTF-8 string
-        const text = data.toString('utf-8');
+        const parsed = normalizeTranscriptArgs(data, size, ts, metadata);
+        const currentPolicy = meetingPolicies.get(meeting_uuid);
+        const decision = evaluateConsentGate(currentPolicy, parsed);
 
-        // Format: [timestamp] userName: text
-        const date = new Date(timestamp);
-        const timeStr = date.toISOString();
-        const userName = user?.userName || 'Unknown';
+        if (decision.action === 'drop') {
+          console.log(`🚫 Dropped transcript (${decision.reason}) for meeting ${meeting_uuid}`);
+          return;
+        }
 
-        const line = `[${timeStr}] ${userName}: ${text}\n`;
+        const effectiveEntry = decision.action === 'redact'
+          ? {
+              ...parsed,
+              userName: 'Unconsented Participant',
+              text: '[REDACTED - Participant consent not granted]'
+            }
+          : parsed;
 
-        console.log(`📝 ${line.trim()}`);
-        stream.write(line);
+        const { action, record } = store.apply(effectiveEntry);
+        const timeStr = new Date(record.timestamp).toISOString();
+        const tag = action === 'updated' || action === 'recovered' ? ' [rewind]' : '';
+        console.log(`📝 [${timeStr}] ${record.userName}${tag}: ${record.text}`);
+
+        writeTranscriptSnapshot(activeEntry);
       } catch (error) {
         console.error('❌ Error processing transcript:', error);
       }
     });
 
-    // Set up audio data handler (we'll ignore audio data)
-    client.onAudioData((data, timestamp, metadata) => {
-      // No-op: We're only capturing transcripts
+    client.onAudioData((_data, _size, _ts, _metadata) => {
+      // No-op: Only capturing transcripts
     });
 
-    // Set up video data handler (we'll ignore video data)
-    client.onVideoData((data, timestamp, metadata) => {
-      // No-op: We're only capturing transcripts
+    client.onVideoData((_data, _size, _ts, _metadata) => {
+      // No-op: Only capturing transcripts
     });
 
-    // Connect to RTMS stream
-    console.log('🔌 Connecting to RTMS stream...');
     await client.join({
       meeting_uuid,
       rtms_stream_id,
@@ -126,65 +183,58 @@ async function handleRTMSStarted(payload) {
       secret: process.env.ZOOM_APP_CLIENT_SECRET
     });
 
-    console.log('✅ Connected to RTMS stream successfully');
-
-    // Store client and stream for cleanup
-    activeClients.set(meeting_uuid, { client, stream, filename });
-
-    console.log('🎙️  RTMS capture active - listening for transcripts...');
+    activeClients.set(meeting_uuid, activeEntry);
+    console.log(`🎙️  RTMS capture active for ${meeting_uuid} -> ${filename}`);
+    return { started: true, filename };
   } catch (error) {
-    console.error('❌ Failed to start RTMS capture:', error);
-    console.error('   Error details:', error.message);
-    console.error('   Make sure Client ID and Secret are correct');
+    console.error('❌ Failed to start RTMS capture:', error.message);
+    return { started: false, error: error.message };
   }
 }
 
 /**
  * Handle RTMS stopped webhook
- * Disconnects from stream and saves transcript file
+ * Disconnects from stream and saves final transcript snapshot
  */
 async function handleRTMSStopped(payload) {
   const { meeting_uuid } = payload;
 
-  console.log(`Meeting UUID: ${meeting_uuid}`);
-
-  // Check if we have an active client for this meeting
   if (!activeClients.has(meeting_uuid)) {
-    console.log('⚠️  No active RTMS client for this meeting');
     return;
   }
 
   try {
-    const { client, stream, filename } = activeClients.get(meeting_uuid);
-
-    console.log('🛑 Stopping RTMS capture...');
-
-    // Leave the RTMS stream
-    await client.leave();
-    console.log('✅ Disconnected from RTMS stream');
-
-    // Close transcript file
-    stream.write(`\n${'='.repeat(60)}\n`);
-    stream.write(`Stopped: ${new Date().toISOString()}\n`);
-    stream.end();
-    console.log(`✅ Transcript saved: ${filename}`);
-
-    // Remove from active clients
+    const entry = activeClients.get(meeting_uuid);
+    await entry.client.leave();
+    entry.stoppedAt = new Date().toISOString();
+    writeTranscriptSnapshot(entry);
     activeClients.delete(meeting_uuid);
-
-    console.log('✅ RTMS capture stopped successfully');
+    console.log(`✅ Transcript saved: ${entry.filename}`);
   } catch (error) {
-    console.error('❌ Failed to stop RTMS capture:', error);
-    console.error('   Error details:', error.message);
+    console.error('❌ Failed to stop RTMS capture:', error.message);
   }
 }
 
 /**
- * Handle graceful shutdown
+ * Handle live consent policy updates pushed by the backend.
  */
-// Express server for health checks and webhook reception
-import express from 'express';
-import crypto from 'node:crypto';
+async function handlePolicyUpdated(payload) {
+  const { meeting_uuid, policy } = payload || {};
+  if (!meeting_uuid || !policy) {
+    return;
+  }
+
+  meetingPolicies.set(meeting_uuid, policy);
+  console.log(
+    `🔐 Updated consent policy for ${meeting_uuid}: mode=${policy.policyMode}, status=${policy.rtmsStatus}, unanimous=${policy.unanimousConsent}`
+  );
+
+  // Immediately sever active RTMS stream if policy moved to stopped
+  if (policy.rtmsStatus === 'stopped' && activeClients.has(meeting_uuid)) {
+    await handleRTMSStopped({ meeting_uuid });
+  }
+}
+
 const app = express();
 app.use(express.json());
 
@@ -193,11 +243,11 @@ app.get('/health', (req, res) => {
     status: 'ok',
     message: 'RTMS Server running',
     activeConnections: activeClients.size,
+    trackedPolicies: meetingPolicies.size,
     transcriptDirectory: TRANSCRIPT_DIR
   });
 });
 
-// Webhook endpoint for receiving RTMS events from backend
 app.post('/webhook', (req, res, next) => {
   const expectedToken = process.env.INTERNAL_WEBHOOK_TOKEN;
   const receivedToken = req.headers.authorization?.replace(/^Bearer\s+/i, '');
@@ -213,20 +263,17 @@ app.post('/webhook', (req, res, next) => {
 }, async (req, res) => {
   const { event, payload } = req.body;
 
-  console.log(`\n${'='.repeat(60)}`);
-  console.log(`📨 Webhook received from backend: ${event}`);
-  console.log(`${'='.repeat(60)}`);
-  console.log('Payload:', JSON.stringify(payload, null, 2));
-
   try {
     if (event === 'meeting.rtms_started') {
-      await handleRTMSStarted(payload);
-      res.json({ success: true, message: 'RTMS started' });
+      const result = await handleRTMSStarted(payload);
+      res.json({ success: result.started, ...result });
     } else if (event === 'meeting.rtms_stopped') {
       await handleRTMSStopped(payload);
       res.json({ success: true, message: 'RTMS stopped' });
+    } else if (event === 'consent.policy_updated') {
+      await handlePolicyUpdated(payload);
+      res.json({ success: true, message: 'Consent policy updated' });
     } else {
-      console.log('⚠️  Unhandled event:', event);
       res.json({ success: false, message: 'Unknown event' });
     }
   } catch (error) {
@@ -250,9 +297,10 @@ const shutdown = (signal) => {
     const timeout = setTimeout(() => process.exit(1), 10000);
     timeout.unref();
     try {
-      for (const { client, stream } of activeClients.values()) {
-        await client.leave();
-        stream.end();
+      for (const entry of activeClients.values()) {
+        await entry.client.leave();
+        entry.stoppedAt = new Date().toISOString();
+        writeTranscriptSnapshot(entry);
       }
       activeClients.clear();
       if (server.listening) {

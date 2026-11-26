@@ -4,6 +4,10 @@ import { useWebSocket } from './WebSocketContext';
 
 const ConsentContext = createContext(null);
 
+function isActiveStatus(status) {
+  return status === 'running' || status === 'active';
+}
+
 export const useConsent = () => {
   const context = useContext(ConsentContext);
   if (!context) {
@@ -13,14 +17,16 @@ export const useConsent = () => {
 };
 
 export const ConsentProvider = ({ children }) => {
-  const { meetingContext, zoomSdk } = useZoomSDK();
+  const { meetingContext, zoomSdk, appContextToken, getAuthHeaders } = useZoomSDK();
   const { socket, isConnected, joinMeetingRoom } = useWebSocket();
 
   const [consentState, setConsentState] = useState({
     participants: [],
+    policyMode: 'unanimous',
     rtmsStatus: 'stopped',
     rtmsPausedReason: null,
-    unanimousConsent: false
+    unanimousConsent: false,
+    auditTrail: []
   });
 
   const [myConsentStatus, setMyConsentStatus] = useState('pending');
@@ -28,23 +34,26 @@ export const ConsentProvider = ({ children }) => {
   const [error, setError] = useState(null);
   const [lastRTMSStatus, setLastRTMSStatus] = useState('stopped');
 
+  const isHostOrCoHost =
+    meetingContext?.role === 'host' ||
+    meetingContext?.role === 'coHost' ||
+    meetingContext?.isHostOrCoHost === true;
+
   // Join WebSocket meeting room when connected
   useEffect(() => {
     if (isConnected && meetingContext?.meetingUUID) {
-      joinMeetingRoom(meetingContext.meetingUUID);
+      joinMeetingRoom(meetingContext.meetingUUID, appContextToken);
     }
-  }, [isConnected, meetingContext, joinMeetingRoom]);
+  }, [isConnected, meetingContext, appContextToken, joinMeetingRoom]);
 
   // Listen for WebSocket state updates
   useEffect(() => {
     if (!socket || !isConnected) return;
 
     const handleStateUpdate = (data) => {
-      console.log('📩 Consent state update received via WebSocket');
       setConsentState(data);
 
-      // Update my consent status if it changed
-      if (meetingContext?.participantUUID) {
+      if (meetingContext?.participantUUID && Array.isArray(data.participants)) {
         const myParticipant = data.participants.find(
           p => p.participantUUID === meetingContext.participantUUID
         );
@@ -55,7 +64,6 @@ export const ConsentProvider = ({ children }) => {
     };
 
     const handleRTMSStatusChange = (data) => {
-      console.log('📩 RTMS status change received:', data.rtmsStatus);
       setConsentState(prev => ({
         ...prev,
         rtmsStatus: data.rtmsStatus,
@@ -81,16 +89,19 @@ export const ConsentProvider = ({ children }) => {
     const fetchConsentState = async () => {
       try {
         const response = await fetch(
-          `/api/consent/status?meetingId=${encodeURIComponent(meetingContext.meetingUUID)}`
+          `/api/consent/status?meetingId=${encodeURIComponent(meetingContext.meetingUUID)}`,
+          {
+            credentials: 'include',
+            headers: getAuthHeaders()
+          }
         );
 
         if (response.ok) {
           const data = await response.json();
-          console.log('📥 Initial consent state fetched:', data);
           setConsentState(data);
+          setLastRTMSStatus(data.rtmsStatus || 'stopped');
 
-          // Find my consent status
-          const myParticipant = data.participants.find(
+          const myParticipant = (data.participants || []).find(
             p => p.participantUUID === meetingContext.participantUUID
           );
           if (myParticipant) {
@@ -103,59 +114,45 @@ export const ConsentProvider = ({ children }) => {
     };
 
     fetchConsentState();
-  }, [meetingContext]);
+  }, [meetingContext, getAuthHeaders]);
 
-  // Handle RTMS SDK calls when status changes
+  // Handle RTMS SDK calls when status changes — STRICTLY gated to host/co-host clients
   useEffect(() => {
     if (!zoomSdk || !meetingContext) return;
+    if (!isHostOrCoHost) {
+      setLastRTMSStatus(consentState.rtmsStatus);
+      return;
+    }
 
     const handleRTMSControl = async () => {
       const currentStatus = consentState.rtmsStatus;
 
-      // Detect status changes
       if (currentStatus === lastRTMSStatus) return;
 
-      console.log(`🎬 RTMS Status Change: ${lastRTMSStatus} → ${currentStatus}`);
-
       try {
-        if (currentStatus === 'running' && lastRTMSStatus === 'stopped') {
-          // Start RTMS when unanimous consent achieved
-          console.log('🚀 Starting RTMS...');
+        if (isActiveStatus(currentStatus) && lastRTMSStatus === 'stopped') {
           await zoomSdk.callZoomApi('startRTMS');
-          console.log('✅ RTMS started successfully');
-        } else if (currentStatus === 'paused' && lastRTMSStatus === 'running') {
-          // Pause RTMS when new participant joins
-          console.log('⏸️  Pausing RTMS...');
+        } else if (currentStatus === 'paused' && isActiveStatus(lastRTMSStatus)) {
           await zoomSdk.callZoomApi('pauseRTMS');
-          console.log('✅ RTMS paused successfully');
-        } else if (currentStatus === 'running' && lastRTMSStatus === 'paused') {
-          // Resume RTMS when new participant consents
-          console.log('▶️  Resuming RTMS...');
+        } else if (isActiveStatus(currentStatus) && lastRTMSStatus === 'paused') {
           await zoomSdk.callZoomApi('resumeRTMS');
-          console.log('✅ RTMS resumed successfully');
         } else if (currentStatus === 'stopped') {
-          // Stop RTMS (e.g., participant declined consent)
-          console.log('🛑 Stopping RTMS...');
           await zoomSdk.callZoomApi('stopRTMS');
-          console.log('✅ RTMS stopped successfully');
         }
 
         setLastRTMSStatus(currentStatus);
-      } catch (error) {
-        console.error('❌ RTMS SDK call failed:', error);
-        console.error('   Make sure startRTMS/stopRTMS/pauseRTMS/resumeRTMS are enabled in Zoom Marketplace');
+      } catch (err) {
+        console.error('❌ RTMS SDK call failed:', err);
       }
     };
 
     handleRTMSControl();
-  }, [consentState.rtmsStatus, zoomSdk, meetingContext, lastRTMSStatus]);
+  }, [consentState.rtmsStatus, zoomSdk, meetingContext, isHostOrCoHost, lastRTMSStatus]);
 
   // Submit consent function
   const submitConsent = useCallback(async (status) => {
-    // Validate required fields
     if (!meetingContext?.meetingUUID || !meetingContext?.participantUUID) {
       setError('Meeting information incomplete');
-      console.error('❌ Cannot submit consent: missing meeting context', meetingContext);
       return;
     }
 
@@ -163,18 +160,10 @@ export const ConsentProvider = ({ children }) => {
     setError(null);
 
     try {
-      console.log('📤 Submitting consent:', {
-        meetingId: meetingContext.meetingUUID,
-        participantId: meetingContext.participantUUID,
-        participantName: meetingContext.screenName,
-        status
-      });
-
       const response = await fetch('/api/consent/submit', {
         method: 'POST',
-        headers: {
-          'Content-Type': 'application/json'
-        },
+        credentials: 'include',
+        headers: getAuthHeaders({ 'Content-Type': 'application/json' }),
         body: JSON.stringify({
           meetingId: meetingContext.meetingUUID,
           participantId: meetingContext.participantUUID,
@@ -183,34 +172,58 @@ export const ConsentProvider = ({ children }) => {
         })
       });
 
-      console.log('📡 Fetch response status:', response.status, response.statusText);
-
       if (!response.ok) {
         const errorText = await response.text();
-        console.error('❌ Server returned error:', response.status, errorText);
         throw new Error(`Failed to submit consent: ${response.status} ${errorText}`);
       }
 
-      const data = await response.json();
+      await response.json();
       setMyConsentStatus(status);
-
-      console.log('✅ Consent submitted successfully:', data);
     } catch (err) {
       console.error('❌ Error submitting consent:', err);
-      console.error('❌ Error details:', {
-        message: err.message,
-        stack: err.stack
-      });
       setError(err.message);
     } finally {
       setLoading(false);
     }
-  }, [meetingContext]);
+  }, [meetingContext, getAuthHeaders]);
+
+  // Update consent policy mode ('unanimous' | 'redact') — host/co-host only
+  const updatePolicyMode = useCallback(async (policyMode) => {
+    if (!isHostOrCoHost || !meetingContext?.meetingUUID) {
+      return;
+    }
+
+    setLoading(true);
+    setError(null);
+    try {
+      const response = await fetch('/api/consent/policy', {
+        method: 'POST',
+        credentials: 'include',
+        headers: getAuthHeaders({ 'Content-Type': 'application/json' }),
+        body: JSON.stringify({
+          meetingId: meetingContext.meetingUUID,
+          policyMode
+        })
+      });
+
+      if (!response.ok) {
+        const errorText = await response.text();
+        throw new Error(`Failed to update policy mode: ${response.status} ${errorText}`);
+      }
+    } catch (err) {
+      console.error('❌ Error updating policy mode:', err);
+      setError(err.message);
+    } finally {
+      setLoading(false);
+    }
+  }, [isHostOrCoHost, meetingContext, getAuthHeaders]);
 
   const value = {
     consentState,
     myConsentStatus,
     submitConsent,
+    updatePolicyMode,
+    isHostOrCoHost,
     loading,
     error
   };
