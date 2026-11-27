@@ -160,8 +160,8 @@ Meeting ID, target user, policy snapshot, tenant gate verdict, client ID, active
 **Why did `rtms.request_status` never arrive after a denial?**
 `rtms.request_status` fires only when all three hold: the user is an invited participant, the start used the participant REST API with that user's token, and `meeting:update:participant_rtms_app_status` was already granted when that token was issued. Check webhook reachability first, then reauthorize the user, then reinstall if webhook URLs or scopes changed.
 
-**What if two of our users are in the same meeting?**
-Each user's installed app can trigger a separate stream with its own `operator_id`. Decide your meeting-level policy: first start wins (`MEETING_POLICY=first_wins`, the default in step 5), owner/host wins, or keep both and pay for both.
+**What if a host and participant (or two of our users) start the same RTMS app in one meeting?**
+When a host and a participant belong to the **same Zoom account** and start the **same RTMS Marketplace app**, Zoom deduplicates the stream by design and sends only **one** `meeting.rtms_started` webhook. If the original host configured auto-start for the app, the original host's `user_id` (`operator_id`) is always in the webhook payload—even if a same-account participant also has auto-start enabled or starts the app. That is expected behavior, not a missing webhook. When multiple users *do* produce separate streams with distinct `operator_id`s (for example, users in different Zoom accounts or separate participant starts when the original host did not start the app), enforce a meeting-level policy in step 5: first start wins (`MEETING_POLICY=first_wins`, the default), owner/host wins, or keep both and pay for both.
 
 **Is a REST start queued if the host has not joined yet?**
 Treat this as unverified. Partners report that requests sent before the host joins are not retried automatically. Either configure **Always allow** on the host's account, or record `waiting_for_host`, arm a watchdog, and send one fresh request when you detect the host has joined. Never poll on a timer.

@@ -96,7 +96,12 @@ Two invariants keep claims accurate:
 
 ## Two users in one meeting and capture filters
 
-Deduplication stops repeats of one stream, not two different users each starting your app in the same meeting.
+Zoom handles one common duplicate case before webhooks ever reach your server:
+
+- **Same account, same Marketplace app (host + participant):** When a host and a participant under the same Zoom account start the same RTMS Marketplace app, Zoom sends only **one** `meeting.rtms_started` event. This deduplication is by design.
+- **Host auto-start attribution:** If the original host configured auto-start for that app, the host's `user_id` (`operator_id`) always appears in the `meeting.rtms_started` webhook payload. Expect the host's ID rather than the participant's.
+
+Your own webhook and connection deduplication stops retries of that single stream. `MEETING_POLICY` handles the remaining multi-user cases where Zoom does emit separate streams with different `operator_id`s (such as users from different accounts or separate participant starts when the host did not start the app).
 
 ### Meeting policy (`MEETING_POLICY`)
 
