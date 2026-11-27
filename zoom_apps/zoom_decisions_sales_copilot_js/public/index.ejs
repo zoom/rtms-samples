@@ -1,0 +1,1087 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>Zoom Decisions Sales Copilot</title>
+  <script src="https://appssdk.zoom.us/sdk.js"></script>
+  <style>
+    :root {
+      --ink: #17221c;
+      --muted: #657168;
+      --paper: #f4f1e8;
+      --panel: #fffdf7;
+      --line: #d9d6ca;
+      --green: #176b4d;
+      --green-soft: #dcece3;
+      --amber: #b65d18;
+      --red: #a83d35;
+      --blue: #245f8f;
+      --shadow: 0 18px 46px rgba(35, 44, 37, 0.11);
+    }
+
+    * { box-sizing: border-box; }
+
+    body {
+      margin: 0;
+      color: var(--ink);
+      background:
+        linear-gradient(90deg, rgba(23, 107, 77, 0.05) 1px, transparent 1px),
+        linear-gradient(rgba(23, 107, 77, 0.05) 1px, transparent 1px),
+        var(--paper);
+      background-size: 28px 28px;
+      font-family: Georgia, 'Times New Roman', serif;
+    }
+
+    main {
+      width: min(100% - 28px, 900px);
+      margin: 0 auto;
+      padding: 20px 0 48px;
+    }
+
+    header {
+      display: flex;
+      align-items: flex-end;
+      justify-content: space-between;
+      gap: 20px;
+      padding: 10px 2px 18px;
+      border-bottom: 2px solid var(--ink);
+    }
+
+    .eyebrow, .label, .status, .confidence, .trend-pill {
+      font-family: 'Trebuchet MS', sans-serif;
+      letter-spacing: 0.08em;
+      text-transform: uppercase;
+    }
+
+    .eyebrow { margin: 0 0 6px; color: var(--green); font-size: 0.72rem; font-weight: 700; }
+    h1 { margin: 0; font-size: clamp(1.9rem, 6vw, 3.8rem); line-height: 0.92; font-weight: 500; }
+    .subtitle { max-width: 340px; margin: 0; color: var(--muted); font-size: 0.9rem; line-height: 1.45; }
+
+    .header-controls {
+      display: flex;
+      flex-wrap: wrap;
+      align-items: center;
+      gap: 10px;
+      margin-top: 12px;
+    }
+
+    .status {
+      display: inline-flex;
+      align-items: center;
+      gap: 7px;
+      font-size: 0.68rem;
+      color: var(--muted);
+    }
+
+    .status::before {
+      content: '';
+      width: 8px;
+      height: 8px;
+      border-radius: 50%;
+      background: var(--amber);
+    }
+
+    .status.connected::before { background: var(--green); }
+    .status.error::before { background: var(--red); }
+
+    .role-control {
+      display: inline-flex;
+      align-items: center;
+      gap: 8px;
+      padding: 5px 9px;
+      background: rgba(255, 253, 247, 0.85);
+      border: 1px solid var(--line);
+      font-family: 'Trebuchet MS', sans-serif;
+    }
+
+    .role-control label { color: var(--muted); font-size: 0.66rem; font-weight: 700; letter-spacing: 0.06em; text-transform: uppercase; }
+    .role-control select { color: var(--ink); background: transparent; border: 0; font: 700 0.76rem 'Trebuchet MS', sans-serif; cursor: pointer; }
+    .role-control select:focus-visible { outline: 2px solid var(--green); outline-offset: 2px; }
+
+    .toolbar-btn {
+      padding: 6px 10px;
+      border: 1px solid var(--line);
+      background: var(--panel);
+      color: var(--ink);
+      font: 700 0.72rem 'Trebuchet MS', sans-serif;
+      letter-spacing: 0.04em;
+      text-transform: uppercase;
+      cursor: pointer;
+    }
+
+    .toolbar-btn:hover:not(:disabled) { border-color: var(--green); background: var(--green-soft); }
+    .toolbar-btn:disabled { opacity: 0.45; cursor: not-allowed; }
+    .toolbar-btn.primary { background: var(--green); border-color: var(--green); color: #fff; }
+    .toolbar-btn.primary:hover:not(:disabled) { background: #12563d; }
+    .toolbar-btn.danger { color: var(--red); border-color: #dfbbb8; }
+
+    .hero-card, .card {
+      background: var(--panel);
+      border: 1px solid var(--line);
+      box-shadow: var(--shadow);
+    }
+
+    .hero-card {
+      margin-top: 20px;
+      padding: clamp(18px, 4vw, 32px);
+      border-top: 5px solid var(--green);
+    }
+
+    .hero-header {
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      gap: 10px;
+      flex-wrap: wrap;
+    }
+
+    .label { color: var(--muted); font-size: 0.68rem; font-weight: 700; }
+    #speaker { margin-top: 8px; color: var(--green); font-family: 'Trebuchet MS', sans-serif; font-weight: 700; }
+    #transcript { margin: 8px 0 0; font-size: clamp(1.15rem, 3.5vw, 1.8rem); line-height: 1.35; }
+    .hero-note { margin-top: 8px; font-family: 'Trebuchet MS', sans-serif; font-size: 0.72rem; color: var(--muted); }
+
+    .grid {
+      display: grid;
+      grid-template-columns: repeat(3, minmax(0, 1fr));
+      gap: 12px;
+      margin-top: 12px;
+    }
+
+    .card { min-width: 0; padding: 16px; }
+    .value-row { display: flex; align-items: baseline; justify-content: space-between; gap: 8px; margin-top: 8px; }
+    .value { margin: 8px 0 0; font-size: 1.15rem; overflow-wrap: anywhere; }
+    .value-row .value { margin-top: 0; }
+    .confidence { margin-top: 7px; color: var(--muted); font-size: 0.62rem; }
+
+    .trend-pill {
+      font-size: 0.62rem;
+      font-weight: 700;
+      padding: 2px 6px;
+      border: 1px solid var(--line);
+      background: #f7f4ec;
+      color: var(--muted);
+    }
+
+    .trend-pill.up-good { color: var(--green); border-color: #a9d4c2; background: var(--green-soft); }
+    .trend-pill.up-bad { color: var(--red); border-color: #e4b7b3; background: #fbeae9; }
+    .trend-pill.down-good { color: var(--green); border-color: #a9d4c2; background: var(--green-soft); }
+    .trend-pill.down-bad { color: var(--amber); border-color: #e6c6aa; background: #fcf1e6; }
+
+    .meter {
+      height: 7px;
+      margin-top: 9px;
+      overflow: hidden;
+      border-radius: 99px;
+      background: #e5e2d8;
+    }
+
+    .meter > span { display: block; width: 0; height: 100%; background: var(--green); transition: width 350ms ease; }
+    #risk-meter > span { background: var(--amber); }
+
+    .sparkline {
+      display: block;
+      width: 100%;
+      height: 24px;
+      margin-top: 8px;
+    }
+
+    .action {
+      grid-column: span 2;
+      background: var(--green);
+      color: #fffdf7;
+      border-color: var(--green);
+    }
+
+    .action .label, .action .confidence { color: #cce2d6; }
+    .action blockquote { margin: 12px 0 0; font-size: 1.12rem; line-height: 1.45; }
+    .placeholder { color: var(--muted); }
+
+    .history-section {
+      margin-top: 26px;
+      padding-top: 16px;
+      border-top: 2px solid var(--ink);
+    }
+
+    .history-heading {
+      display: flex;
+      flex-wrap: wrap;
+      align-items: center;
+      justify-content: space-between;
+      gap: 12px;
+      margin-bottom: 12px;
+    }
+
+    .history-heading h2 { margin: 0; font-size: 1.45rem; font-weight: 500; }
+    .export-controls { display: flex; flex-wrap: wrap; gap: 6px; }
+
+    .turn-history {
+      display: grid;
+      gap: 10px;
+      max-height: 580px;
+      overflow-y: auto;
+      padding-right: 4px;
+      scroll-behavior: smooth;
+    }
+
+    .turn {
+      padding: 14px 16px;
+      background: rgba(255, 253, 247, 0.92);
+      border: 1px solid var(--line);
+      border-left: 4px solid var(--line);
+    }
+
+    .turn.analyzed.buyer-turn { border-left-color: var(--green); }
+    .turn.failed { border-left-color: var(--red); }
+    .turn.seller-turn { border-left-color: var(--blue); }
+
+    .turn-meta {
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      gap: 10px;
+      color: var(--muted);
+      font-family: 'Trebuchet MS', sans-serif;
+      font-size: 0.72rem;
+    }
+
+    .turn-speaker { color: var(--ink); font-weight: 700; }
+
+    .turn-role-btn {
+      margin-left: 7px;
+      padding: 2px 7px;
+      border: 1px solid var(--line);
+      background: var(--green-soft);
+      color: var(--green);
+      font: 700 0.62rem 'Trebuchet MS', sans-serif;
+      letter-spacing: 0.05em;
+      text-transform: uppercase;
+      cursor: pointer;
+    }
+
+    .seller-turn .turn-role-btn {
+      color: var(--blue);
+      background: #e6f0f8;
+      border-color: #bed6e9;
+    }
+
+    .turn-text { margin: 8px 0 0; font-size: 1rem; line-height: 1.45; }
+    .turn-state { margin-top: 8px; color: var(--muted); font-family: 'Trebuchet MS', sans-serif; font-size: 0.72rem; }
+
+    .turn-decision {
+      display: none;
+      margin-top: 12px;
+      padding-top: 12px;
+      border-top: 1px solid var(--line);
+    }
+
+    .turn.analyzed.buyer-turn .turn-decision { display: block; }
+    .decision-summary { color: var(--muted); font-family: 'Trebuchet MS', sans-serif; font-size: 0.74rem; }
+    .choice-list { display: grid; gap: 7px; margin-top: 9px; }
+
+    .choice {
+      width: 100%;
+      padding: 9px 11px;
+      color: var(--ink);
+      text-align: left;
+      background: #f7f3e8;
+      border: 1px solid var(--line);
+      border-radius: 0;
+      cursor: pointer;
+      font: 700 0.78rem 'Trebuchet MS', sans-serif;
+    }
+
+    .choice:hover, .choice:focus-visible { border-color: var(--green); outline: none; }
+    .choice.selected { color: #fff; background: var(--green); border-color: var(--green); }
+    .choice small { float: right; margin-left: 10px; font-weight: 400; opacity: 0.8; }
+    .choice .recommended { color: var(--blue); margin-left: 7px; font-size: 0.62rem; text-transform: uppercase; }
+    .choice.selected .recommended { color: #fff; }
+    .selected-guidance { margin: 9px 0 0; line-height: 1.4; }
+
+    @media (max-width: 680px) {
+      header { display: block; }
+      .subtitle { margin-top: 12px; }
+      .grid { grid-template-columns: 1fr 1fr; }
+      .action { grid-column: 1 / -1; }
+    }
+
+    @media (max-width: 430px) {
+      main { width: min(100% - 18px, 900px); padding-top: 14px; }
+      .grid { grid-template-columns: 1fr; }
+      .action { grid-column: auto; }
+    }
+  </style>
+</head>
+<body>
+  <main>
+    <header>
+      <div>
+        <p class="eyebrow">Zoom Decisions · Live decision support</p>
+        <h1>Sales<br>Copilot</h1>
+        <div class="header-controls">
+          <div id="status" class="status">Connecting</div>
+          <div class="role-control">
+            <label for="viewer-role">My role</label>
+            <select id="viewer-role">
+              <option value="seller">Seller</option>
+              <option value="buyer">Buyer</option>
+            </select>
+          </div>
+          <button id="start-rtms" class="toolbar-btn primary" type="button" disabled>Start RTMS</button>
+          <button id="stop-rtms" class="toolbar-btn danger" type="button" disabled>Stop RTMS</button>
+        </div>
+      </div>
+      <p class="subtitle">Zoom Decisions turns each buyer RTMS turn into bounded, confidence-scored sales decisions while retaining seller and short turns for full dialogue context.</p>
+    </header>
+
+    <section class="hero-card" aria-live="polite">
+      <div class="hero-header">
+        <div class="label">Latest analyzed buyer turn</div>
+        <div id="rtms-pill" class="label">RTMS Idle</div>
+      </div>
+      <div id="speaker">Waiting for buyer speech</div>
+      <p id="transcript" class="placeholder">Buyer quotes and Zoom Decisions coaching metrics stay paired together here. Seller turns appear in the timeline below.</p>
+      <div id="latest-activity" class="hero-note"></div>
+    </section>
+
+    <section class="grid" aria-live="polite">
+      <article class="card"><div class="label">Buyer intent</div><div id="intent" class="value">—</div><div id="intent-confidence" class="confidence">No decision yet</div></article>
+      <article class="card"><div class="label">Deal stage</div><div id="stage" class="value">—</div><div id="stage-confidence" class="confidence">No decision yet</div></article>
+      <article class="card"><div class="label">Objection</div><div id="objection" class="value">—</div><div id="objection-confidence" class="confidence">No decision yet</div></article>
+      <article class="card action">
+        <div class="label">Recommended next move</div>
+        <div id="action" class="value">Wait for the buyer</div>
+        <blockquote id="suggestion">Listen first. Zoom Decisions will select one reviewed coaching phrase after the buyer speaks.</blockquote>
+        <div id="action-confidence" class="confidence">No decision yet</div>
+      </article>
+      <article class="card">
+        <div class="label">Purchase signal</div>
+        <div class="value-row">
+          <div id="purchase" class="value">0%</div>
+          <span id="purchase-trend" class="trend-pill">—</span>
+        </div>
+        <div class="meter"><span id="purchase-meter"></span></div>
+        <svg id="purchase-spark" class="sparkline" viewBox="0 0 120 24" preserveAspectRatio="none" aria-hidden="true"></svg>
+        <div class="confidence">Probability trend</div>
+      </article>
+      <article class="card">
+        <div class="label">Deal risk</div>
+        <div class="value-row">
+          <div id="risk" class="value">0.0 / 4</div>
+          <span id="risk-trend" class="trend-pill">—</span>
+        </div>
+        <div id="risk-meter" class="meter"><span></span></div>
+        <svg id="risk-spark" class="sparkline" viewBox="0 0 120 24" preserveAspectRatio="none" aria-hidden="true"></svg>
+        <div id="risk-confidence" class="confidence">No decision yet</div>
+      </article>
+    </section>
+
+    <section class="history-section" aria-labelledby="history-title">
+      <div class="history-heading">
+        <div>
+          <h2 id="history-title">Conversation history</h2>
+          <p style="margin:2px 0 0;color:var(--muted);font-size:0.78rem;">Click any role badge to switch Buyer ⇄ Seller</p>
+        </div>
+        <div class="export-controls">
+          <button id="export-md" class="toolbar-btn" type="button">Export Markdown</button>
+          <button id="export-json" class="toolbar-btn" type="button">Export JSON</button>
+        </div>
+      </div>
+      <div id="turn-history" class="turn-history" aria-live="polite">
+        <div id="history-empty" class="turn placeholder">Transcript turns will appear here as they arrive.</div>
+      </div>
+    </section>
+  </main>
+
+  <script>
+    const WS_URL = <%- JSON.stringify(websocketUrl) %>;
+    const WS_AUTH_TOKEN = <%- JSON.stringify(typeof wsAuthToken === 'string' ? wsAuthToken : '') %>;
+
+    const statusElement = document.getElementById('status');
+    const rtmsPillElement = document.getElementById('rtms-pill');
+    const roleElement = document.getElementById('viewer-role');
+    const historyElement = document.getElementById('turn-history');
+    const startRtmsBtn = document.getElementById('start-rtms');
+    const stopRtmsBtn = document.getElementById('stop-rtms');
+    const exportMdBtn = document.getElementById('export-md');
+    const exportJsonBtn = document.getElementById('export-json');
+
+    const turns = new Map(); // turnId -> entry
+    const speakerRoleOverrides = new Map(); // speakerKey -> 'buyer' | 'seller'
+    const maxVisibleTurns = 100;
+
+    let socket = null;
+    let reconnectAttempts = 0;
+    let reconnectTimer = null;
+    let isRegistered = false;
+    let zoomContext = null;
+    let dashboardTurnId = null;
+
+    const roleStorageKey = 'zoom-decisions-sales-copilot-role';
+    const savedRole = sessionStorage.getItem(roleStorageKey);
+    if (savedRole === 'buyer' || savedRole === 'seller') roleElement.value = savedRole;
+
+    const humanize = (value) => String(value || 'unclear').replaceAll('_', ' ');
+    const percent = (value) => `${Math.round(Math.max(0, Math.min(1, Number(value) || 0)) * 100)}%`;
+    const setText = (id, value) => { document.getElementById(id).textContent = value; };
+    const normalizeIdentity = (value) => String(value ?? '').trim().toLowerCase();
+
+    function speakerKeyFor(transcript) {
+      if (transcript.speakerKey) return transcript.speakerKey;
+      const id = normalizeIdentity(transcript.userId);
+      if (id) return `id:${id}`;
+      return `name:${normalizeIdentity(transcript.userName)}`;
+    }
+
+    function isCurrentUser(transcript) {
+      if (!zoomContext) return false;
+      const transcriptId = normalizeIdentity(transcript.userId);
+      if (transcriptId && zoomContext.identityIds.has(transcriptId)) return true;
+      const transcriptName = normalizeIdentity(transcript.userName);
+      return Boolean(transcriptName && zoomContext.userName && transcriptName === normalizeIdentity(zoomContext.userName));
+    }
+
+    function roleForTranscript(transcript) {
+      const key = speakerKeyFor(transcript);
+      if (speakerRoleOverrides.has(key)) return speakerRoleOverrides.get(key);
+      if (transcript.role === 'buyer' || transcript.role === 'seller') return transcript.role;
+      const viewerRole = roleElement.value;
+      if (isCurrentUser(transcript)) return viewerRole;
+      return viewerRole === 'seller' ? 'buyer' : 'seller';
+    }
+
+    function setStatus(text, kind = '') {
+      statusElement.textContent = text;
+      statusElement.className = `status ${kind}`.trim();
+    }
+
+    function sendWs(payload) {
+      if (socket && socket.readyState === WebSocket.OPEN) {
+        socket.send(JSON.stringify(payload));
+        return true;
+      }
+      return false;
+    }
+
+    function register() {
+      if (!zoomContext) return;
+      sendWs({
+        type: 'register',
+        meetingUUID: zoomContext.meetingUUID,
+        userID: String(zoomContext.userID),
+        token: WS_AUTH_TOKEN || undefined
+      });
+    }
+
+    function syncViewerRoleToBackend() {
+      if (!zoomContext || !isRegistered) return;
+      sendWs({
+        type: 'register_viewer_role',
+        userId: zoomContext.userID,
+        userName: zoomContext.userName,
+        identityIds: Array.from(zoomContext.identityIds),
+        role: roleElement.value
+      });
+    }
+
+    function formatTurnTime(timestamp) {
+      const rawTimestamp = Number(timestamp) || Date.now();
+      const timestampMs = rawTimestamp > 100000000000000 ? rawTimestamp / 1000 : rawTimestamp;
+      const date = new Date(timestampMs);
+      return Number.isNaN(date.getTime()) ? '' : date.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit', second: '2-digit' });
+    }
+
+    function createElement(tag, className, text) {
+      const element = document.createElement(tag);
+      if (className) element.className = className;
+      if (text != null) element.textContent = text;
+      return element;
+    }
+
+    function renderSparkline(svgId, values, maxVal, strokeColor) {
+      const svg = document.getElementById(svgId);
+      if (!svg) return;
+      while (svg.firstChild) svg.removeChild(svg.firstChild);
+      if (!values || values.length < 2) return;
+
+      const width = 120;
+      const height = 24;
+      const pad = 3;
+      const points = values.map((val, idx) => {
+        const x = pad + (idx / (values.length - 1)) * (width - pad * 2);
+        const clamped = Math.max(0, Math.min(maxVal, Number(val) || 0));
+        const y = height - pad - (clamped / maxVal) * (height - pad * 2);
+        return `${x.toFixed(1)},${y.toFixed(1)}`;
+      }).join(' ');
+
+      const ns = 'http://www.w3.org/2000/svg';
+      const polyline = document.createElementNS(ns, 'polyline');
+      polyline.setAttribute('fill', 'none');
+      polyline.setAttribute('stroke', strokeColor);
+      polyline.setAttribute('stroke-width', '2');
+      polyline.setAttribute('points', points);
+      svg.appendChild(polyline);
+    }
+
+    function updateTrends() {
+      const buyerAnalyses = Array.from(turns.values())
+        .filter((e) => e.role === 'buyer' && e.analysis)
+        .map((e) => e.analysis);
+
+      const purchaseSeries = buyerAnalyses.map((a) => Number(a.purchaseSignal) || 0);
+      const riskSeries = buyerAnalyses.map((a) => Number(a.dealRisk?.value) || 0);
+
+      renderSparkline('purchase-spark', purchaseSeries, 1, '#176b4d');
+      renderSparkline('risk-spark', riskSeries, 4, '#b65d18');
+
+      const purchaseEl = document.getElementById('purchase-trend');
+      const riskEl = document.getElementById('risk-trend');
+
+      if (purchaseSeries.length >= 2) {
+        const deltaPct = Math.round((purchaseSeries[purchaseSeries.length - 1] - purchaseSeries[purchaseSeries.length - 2]) * 100);
+        if (deltaPct > 2) {
+          purchaseEl.textContent = `↑ +${deltaPct}%`;
+          purchaseEl.className = 'trend-pill up-good';
+        } else if (deltaPct < -2) {
+          purchaseEl.textContent = `↓ ${deltaPct}%`;
+          purchaseEl.className = 'trend-pill down-bad';
+        } else {
+          purchaseEl.textContent = '→ steady';
+          purchaseEl.className = 'trend-pill';
+        }
+      } else {
+        purchaseEl.textContent = '—';
+        purchaseEl.className = 'trend-pill';
+      }
+
+      if (riskSeries.length >= 2) {
+        const deltaRisk = riskSeries[riskSeries.length - 1] - riskSeries[riskSeries.length - 2];
+        if (deltaRisk > 0.15) {
+          riskEl.textContent = `↑ +${deltaRisk.toFixed(1)}`;
+          riskEl.className = 'trend-pill up-bad';
+        } else if (deltaRisk < -0.15) {
+          riskEl.textContent = `↓ ${deltaRisk.toFixed(1)}`;
+          riskEl.className = 'trend-pill down-good';
+        } else {
+          riskEl.textContent = '→ steady';
+          riskEl.className = 'trend-pill';
+        }
+      } else {
+        riskEl.textContent = '—';
+        riskEl.className = 'trend-pill';
+      }
+    }
+
+    function refreshTurnRole(entry) {
+      const role = roleForTranscript(entry.transcript);
+      const ownTurn = isCurrentUser(entry.transcript);
+      entry.role = role;
+      entry.roleButton.textContent = `${ownTurn ? 'You · ' : ''}${role} ⇄`;
+      entry.card.classList.toggle('buyer-turn', role === 'buyer');
+      entry.card.classList.toggle('seller-turn', role === 'seller');
+
+      if (role === 'seller') {
+        entry.state.textContent = 'Seller turn · kept in Zoom Decisions dialogue context (inference skipped).';
+      } else if (entry.analysis) {
+        entry.state.textContent = `Analyzed in ${entry.analysis.latencyMs} ms`;
+      } else if (entry.failedMessage) {
+        entry.state.textContent = entry.failedMessage;
+      } else {
+        entry.state.textContent = entry.analysisPending
+          ? 'Zoom Decisions is evaluating this buyer turn...'
+          : 'Saved in dialogue context; too short for standalone inference.';
+      }
+    }
+
+    function resetDashboard() {
+      dashboardTurnId = null;
+      setText('speaker', 'Waiting for buyer speech');
+      setText('transcript', 'Buyer quotes and Zoom Decisions coaching metrics stay paired together here. Seller turns appear in the timeline below.');
+      document.getElementById('transcript').classList.add('placeholder');
+      setText('intent', '—');
+      setText('intent-confidence', 'No buyer decision yet');
+      setText('stage', '—');
+      setText('stage-confidence', 'No buyer decision yet');
+      setText('objection', '—');
+      setText('objection-confidence', 'No buyer decision yet');
+      setText('action', 'Wait for the buyer');
+      setText('suggestion', 'The latest analyzed buyer turn will provide reviewed coaching choices.');
+      setText('action-confidence', 'No buyer decision yet');
+      setText('purchase', '0%');
+      document.getElementById('purchase-meter').style.width = '0%';
+      setText('risk', '0.0 / 4');
+      document.querySelector('#risk-meter > span').style.width = '0%';
+      setText('risk-confidence', 'No buyer decision yet');
+      updateTrends();
+    }
+
+    function renderDashboard(entry) {
+      const analysis = entry.analysis;
+      if (!analysis || entry.role !== 'buyer') return;
+      dashboardTurnId = entry.transcript.id;
+
+      setText('speaker', `${entry.transcript.userName || 'Buyer'} · Buyer`);
+      setText('transcript', entry.transcript.text);
+      document.getElementById('transcript').classList.remove('placeholder');
+
+      setText('intent', humanize(analysis.buyerIntent.value));
+      setText('intent-confidence', `${percent(analysis.buyerIntent.confidence)} confidence`);
+      setText('stage', humanize(analysis.dealStage.value));
+      setText('stage-confidence', `${percent(analysis.dealStage.confidence)} confidence`);
+      setText('objection', humanize(analysis.objection.value));
+      setText('objection-confidence', `${percent(analysis.objection.confidence)} confidence`);
+
+      const selectedAction = entry.selectedOption
+        || analysis.actionOptions?.find((option) => option.recommended)
+        || analysis.nextAction;
+      setText('action', selectedAction.label);
+      setText('suggestion', selectedAction.suggestion);
+      setText(
+        'action-confidence',
+        `${percent(selectedAction.probability ?? selectedAction.confidence)} probability${selectedAction.recommended ? ' · Zoom Decisions pick' : ' · selected alternative'}`
+      );
+      setText('purchase', percent(analysis.purchaseSignal));
+      document.getElementById('purchase-meter').style.width = percent(analysis.purchaseSignal);
+      const risk = Math.max(0, Math.min(4, Number(analysis.dealRisk.value) || 0));
+      setText('risk', `${risk.toFixed(1)} / 4`);
+      document.querySelector('#risk-meter > span').style.width = `${risk / 4 * 100}%`;
+      setText('risk-confidence', `${percent(analysis.dealRisk.confidence)} confidence`);
+      updateTrends();
+    }
+
+    function refreshAllRoles() {
+      for (const entry of turns.values()) refreshTurnRole(entry);
+      const latestBuyerAnalysis = Array.from(turns.values())
+        .reverse()
+        .find((entry) => entry.role === 'buyer' && entry.analysis);
+      if (latestBuyerAnalysis) renderDashboard(latestBuyerAnalysis);
+      else resetDashboard();
+    }
+
+    function upsertTranscriptTurn(message) {
+      const transcript = message.transcript;
+      if (!transcript?.id) return null;
+
+      const existing = turns.get(transcript.id);
+      if (existing) {
+        existing.transcript = { ...existing.transcript, ...transcript };
+        existing.textNode.textContent = existing.transcript.text;
+        existing.timeNode.textContent =
+          formatTurnTime(existing.transcript.timestamp) + (existing.transcript.revision > 0 ? ' (revised)' : '');
+        existing.analysisPending = Boolean(message.analysisPending);
+        refreshTurnRole(existing);
+        if (existing.transcript.id === dashboardTurnId && existing.role === 'buyer') {
+          setText('transcript', existing.transcript.text);
+        }
+        return existing;
+      }
+
+      document.getElementById('history-empty')?.remove();
+
+      const card = createElement('article', 'turn');
+      card.dataset.turnId = transcript.id;
+      const meta = createElement('div', 'turn-meta');
+      const speakerIdentity = createElement('div');
+      const roleButton = createElement('button', 'turn-role-btn');
+      roleButton.type = 'button';
+      roleButton.title = 'Toggle speaker role between Buyer and Seller';
+
+      speakerIdentity.append(
+        createElement('span', 'turn-speaker', transcript.userName || 'Unknown participant'),
+        roleButton
+      );
+      const timeNode = createElement(
+        'time',
+        '',
+        formatTurnTime(transcript.timestamp) + (transcript.revision > 0 ? ' (revised)' : '')
+      );
+      meta.append(speakerIdentity, timeNode);
+
+      const textNode = createElement('p', 'turn-text', transcript.text);
+      const stateNode = createElement('div', 'turn-state', '');
+      const decision = createElement('div', 'turn-decision');
+      const summary = createElement('div', 'decision-summary');
+      const choices = createElement('div', 'choice-list');
+      const guidance = createElement('p', 'selected-guidance');
+      decision.append(summary, choices, guidance);
+      card.append(meta, textNode, stateNode, decision);
+      historyElement.append(card);
+
+      const entry = {
+        card,
+        textNode,
+        timeNode,
+        state: stateNode,
+        summary,
+        choices,
+        guidance,
+        roleButton,
+        transcript,
+        analysisPending: Boolean(message.analysisPending),
+        analysis: null,
+        selectedOption: null,
+        failedMessage: null
+      };
+
+      roleButton.addEventListener('click', () => {
+        const nextRole = entry.role === 'buyer' ? 'seller' : 'buyer';
+        const key = speakerKeyFor(entry.transcript);
+        speakerRoleOverrides.set(key, nextRole);
+        refreshAllRoles();
+        sendWs({
+          type: 'set_speaker_role',
+          speakerKey: key,
+          userId: entry.transcript.userId,
+          userName: entry.transcript.userName,
+          role: nextRole
+        });
+      });
+
+      turns.set(transcript.id, entry);
+      refreshTurnRole(entry);
+
+      while (turns.size > maxVisibleTurns) {
+        const oldestId = turns.keys().next().value;
+        turns.get(oldestId)?.card.remove();
+        turns.delete(oldestId);
+        if (oldestId === dashboardTurnId) dashboardTurnId = null;
+      }
+      historyElement.scrollTop = historyElement.scrollHeight;
+
+      if (entry.role === 'buyer' && !dashboardTurnId) {
+        setText('speaker', `${entry.transcript.userName || 'Buyer'} · Buyer`);
+        setText('transcript', entry.transcript.text);
+        document.getElementById('transcript').classList.remove('placeholder');
+      } else if (entry.role === 'seller') {
+        setText('latest-activity', `Latest seller turn (${entry.transcript.userName || 'Seller'}): "${entry.transcript.text.slice(0, 90)}"`);
+      }
+
+      return entry;
+    }
+
+    function selectAction(entry, option, button) {
+      entry.choices.querySelectorAll('.choice').forEach((choice) => choice.classList.remove('selected'));
+      button.classList.add('selected');
+      entry.selectedOption = option;
+      entry.guidance.textContent = option.suggestion;
+      if (entry.transcript.id === dashboardTurnId) {
+        setText('action', option.label);
+        setText('suggestion', option.suggestion);
+        setText('action-confidence', `${percent(option.probability ?? option.confidence)} probability${option.recommended ? ' · Zoom Decisions pick' : ' · selected alternative'}`);
+      }
+    }
+
+    function updateTurnAnalysis(message) {
+      const turnId = message.turnId || message.transcript?.id;
+      let current = turns.get(turnId);
+      if (!current && message.transcript) {
+        current = upsertTranscriptTurn({ transcript: message.transcript, analysisPending: true });
+      }
+      if (!current) return null;
+
+      current.failedMessage = null;
+      current.card.classList.remove('failed');
+      current.analysis = message.analysis;
+      current.analysisPending = false;
+      current.card.classList.add('analyzed');
+      current.summary.textContent = `${humanize(message.analysis.buyerIntent.value)} intent · ${humanize(message.analysis.dealStage.value)} stage · ${humanize(message.analysis.objection.value)}`;
+      current.choices.replaceChildren();
+
+      const options = message.analysis.actionOptions || [message.analysis.nextAction];
+      options.forEach((option) => {
+        const button = createElement('button', 'choice');
+        button.type = 'button';
+        button.append(document.createTextNode(option.label || humanize(option.value)));
+        if (option.recommended) button.append(createElement('span', 'recommended', 'Zoom pick'));
+        button.append(createElement('small', '', percent(option.probability ?? option.confidence)));
+        button.addEventListener('click', () => selectAction(current, option, button));
+        current.choices.append(button);
+        if (option.recommended) selectAction(current, option, button);
+      });
+
+      refreshTurnRole(current);
+      return current;
+    }
+
+    function markTurnFailed(turnId, message) {
+      const entry = turnId ? turns.get(turnId) : null;
+      if (!entry) return;
+      entry.failedMessage = message;
+      entry.card.classList.add('failed');
+      entry.state.textContent = message;
+    }
+
+    function buildRecapData() {
+      const allTurns = Array.from(turns.values());
+      const analyzedBuyerTurns = allTurns.filter((e) => e.role === 'buyer' && e.analysis);
+      const latest = analyzedBuyerTurns[analyzedBuyerTurns.length - 1]?.analysis || null;
+      const objections = analyzedBuyerTurns
+        .map((e) => e.analysis.objection?.value)
+        .filter((v) => v && v !== 'no_objection');
+
+      return {
+        exportedAt: new Date().toISOString(),
+        meetingUUID: zoomContext?.meetingUUID || null,
+        summary: {
+          totalTurns: allTurns.length,
+          analyzedBuyerTurns: analyzedBuyerTurns.length,
+          latestDealStage: latest ? latest.dealStage.value : null,
+          latestPurchaseSignal: latest ? latest.purchaseSignal : null,
+          latestDealRisk: latest ? latest.dealRisk.value : null,
+          detectedObjections: Array.from(new Set(objections))
+        },
+        turns: allTurns.map((e) => ({
+          id: e.transcript.id,
+          timestamp: e.transcript.timestamp,
+          speaker: e.transcript.userName,
+          role: e.role,
+          text: e.transcript.text,
+          selectedAction: e.selectedOption?.label || e.analysis?.nextAction?.label || null,
+          analysis: e.analysis ? {
+            buyerIntent: e.analysis.buyerIntent.value,
+            objection: e.analysis.objection.value,
+            dealStage: e.analysis.dealStage.value,
+            purchaseSignal: e.analysis.purchaseSignal,
+            dealRisk: e.analysis.dealRisk.value
+          } : null
+        }))
+      };
+    }
+
+    function buildRecapMarkdown(recap) {
+      const lines = [
+        '# Zoom Decisions Sales Call Recap',
+        `- Exported: ${recap.exportedAt}`,
+        `- Meeting UUID: ${recap.meetingUUID || 'N/A'}`,
+        `- Deal Stage: ${recap.summary.latestDealStage ? humanize(recap.summary.latestDealStage) : 'N/A'}`,
+        `- Purchase Signal: ${recap.summary.latestPurchaseSignal != null ? percent(recap.summary.latestPurchaseSignal) : 'N/A'}`,
+        `- Deal Risk: ${recap.summary.latestDealRisk != null ? `${Number(recap.summary.latestDealRisk).toFixed(1)} / 4` : 'N/A'}`,
+        `- Objections Raised: ${recap.summary.detectedObjections.length > 0 ? recap.summary.detectedObjections.map(humanize).join(', ') : 'None'}`,
+        '',
+        '## Transcript & Coaching Decisions'
+      ];
+
+      recap.turns.forEach((t) => {
+        const tag = t.role === 'seller' ? '[Seller]' : '[Buyer]';
+        lines.push(`- **${formatTurnTime(t.timestamp)} ${tag} ${t.speaker}:** ${t.text}`);
+        if (t.analysis) {
+          lines.push(`  - Intent: ${humanize(t.analysis.buyerIntent)} | Stage: ${humanize(t.analysis.dealStage)} | Objection: ${humanize(t.analysis.objection)} | Move: ${t.selectedAction || 'N/A'}`);
+        }
+      });
+
+      return lines.join('\n');
+    }
+
+    function downloadFile(filename, content, mimeType) {
+      const blob = new Blob([content], { type: mimeType });
+      const url = URL.createObjectURL(blob);
+      const a = document.createElement('a');
+      a.href = url;
+      a.download = filename;
+      document.body.appendChild(a);
+      a.click();
+      a.remove();
+      URL.revokeObjectURL(url);
+    }
+
+    exportMdBtn.addEventListener('click', () => {
+      const recap = buildRecapData();
+      downloadFile(`sales-recap-${Date.now()}.md`, buildRecapMarkdown(recap), 'text/markdown;charset=utf-8');
+    });
+
+    exportJsonBtn.addEventListener('click', () => {
+      const recap = buildRecapData();
+      downloadFile(`sales-recap-${Date.now()}.json`, JSON.stringify(recap, null, 2), 'application/json;charset=utf-8');
+    });
+
+    roleElement.addEventListener('change', () => {
+      sessionStorage.setItem(roleStorageKey, roleElement.value);
+      syncViewerRoleToBackend();
+      refreshAllRoles();
+    });
+
+    startRtmsBtn.addEventListener('click', async () => {
+      try {
+        startRtmsBtn.disabled = true;
+        await zoomSdk.startRTMS();
+        rtmsPillElement.textContent = 'RTMS Starting...';
+      } catch (err) {
+        setStatus(err?.message || 'Failed to start RTMS', 'error');
+      } finally {
+        startRtmsBtn.disabled = false;
+      }
+    });
+
+    stopRtmsBtn.addEventListener('click', async () => {
+      try {
+        stopRtmsBtn.disabled = true;
+        await zoomSdk.stopRTMS();
+        rtmsPillElement.textContent = 'RTMS Stopped';
+      } catch (err) {
+        setStatus(err?.message || 'Failed to stop RTMS', 'error');
+      } finally {
+        stopRtmsBtn.disabled = false;
+      }
+    });
+
+    function connectWebSocket() {
+      if (reconnectTimer) {
+        clearTimeout(reconnectTimer);
+        reconnectTimer = null;
+      }
+      if (socket && (socket.readyState === WebSocket.OPEN || socket.readyState === WebSocket.CONNECTING)) {
+        return;
+      }
+
+      setStatus(reconnectAttempts > 0 ? 'Reconnecting...' : 'Connecting');
+      socket = new WebSocket(WS_URL);
+
+      socket.addEventListener('open', () => {
+        reconnectAttempts = 0;
+        setStatus('Backend connected');
+        register();
+      });
+
+      socket.addEventListener('message', (event) => {
+        let message;
+        try {
+          message = JSON.parse(event.data);
+        } catch {
+          return;
+        }
+
+        if (message.type === 'ping') return sendWs({ type: 'pong' });
+        if (message.type === 'connected') return register();
+
+        if (message.type === 'registration_success') {
+          isRegistered = true;
+          setStatus('Listening for transcript', 'connected');
+          syncViewerRoleToBackend();
+          return;
+        }
+
+        if (message.type === 'session_snapshot' && message.snapshot) {
+          const snap = message.snapshot;
+          rtmsPillElement.textContent = snap.rtmsActive ? 'RTMS Live' : 'RTMS Idle';
+          (snap.speakers || []).forEach((s) => {
+            if (s.speakerKey && (s.role === 'buyer' || s.role === 'seller')) {
+              speakerRoleOverrides.set(s.speakerKey, s.role);
+            }
+          });
+          (snap.turns || []).forEach((item) => {
+            upsertTranscriptTurn({
+              transcript: item.transcript,
+              analysisPending: item.analysisPending
+            });
+            if (item.analysis) {
+              updateTurnAnalysis({
+                turnId: item.transcript.id,
+                transcript: item.transcript,
+                analysis: item.analysis
+              });
+            }
+          });
+          refreshAllRoles();
+          return;
+        }
+
+        if (message.type === 'rtms_started') {
+          rtmsPillElement.textContent = 'RTMS Live';
+          setStatus('RTMS active · listening', 'connected');
+          return;
+        }
+
+        if (message.type === 'rtms_stopped') {
+          rtmsPillElement.textContent = 'RTMS Stopped';
+          setStatus('RTMS stopped', '');
+          return;
+        }
+
+        if (message.type === 'roles_updated' && Array.isArray(message.speakers)) {
+          message.speakers.forEach((s) => {
+            if (s.speakerKey && (s.role === 'buyer' || s.role === 'seller')) {
+              speakerRoleOverrides.set(s.speakerKey, s.role);
+            }
+          });
+          refreshAllRoles();
+          return;
+        }
+
+        if (message.type === 'transcript_turn') {
+          rtmsPillElement.textContent = 'RTMS Live';
+          upsertTranscriptTurn(message);
+          return;
+        }
+
+        if (message.type === 'sales_analysis') {
+          const entry = updateTurnAnalysis(message);
+          if (entry?.role === 'buyer') renderDashboard(entry);
+          setStatus('Listening for transcript', 'connected');
+          return;
+        }
+
+        if (message.type === 'analysis_error') {
+          markTurnFailed(message.turnId, message.message);
+          setStatus(message.message || 'Analysis temporarily unavailable', 'error');
+          return;
+        }
+
+        if (message.type === 'error') {
+          isRegistered = false;
+          setStatus(message.message || 'Backend registration pending', 'error');
+        }
+      });
+
+      socket.addEventListener('close', () => {
+        isRegistered = false;
+        const delayMs = Math.min(15000, 1000 * Math.pow(2, reconnectAttempts));
+        reconnectAttempts += 1;
+        setStatus(`Reconnecting in ${Math.round(delayMs / 1000)}s...`, 'error');
+        reconnectTimer = setTimeout(connectWebSocket, delayMs);
+      });
+
+      socket.addEventListener('error', () => {
+        // close event handles backoff reconnect
+      });
+    }
+
+    connectWebSocket();
+
+    (async () => {
+      try {
+        const configRes = await zoomSdk.config({
+          version: '0.16.31',
+          capabilities: ['getRunningContext', 'getMeetingUUID', 'getUserContext', 'startRTMS', 'stopRTMS']
+        });
+        const unsupported = new Set(configRes?.unsupportedApis || []);
+        if (!unsupported.has('startRTMS')) startRtmsBtn.disabled = false;
+        if (!unsupported.has('stopRTMS')) stopRtmsBtn.disabled = false;
+
+        const [runningContext, meeting, user] = await Promise.all([
+          zoomSdk.getRunningContext(),
+          zoomSdk.getMeetingUUID(),
+          zoomSdk.getUserContext()
+        ]);
+        if (runningContext.context !== 'inMeeting') throw new Error('Open this app during a Zoom meeting');
+        const rawIdentityIds = [
+          user.participantUUID,
+          user.participantUuid,
+          user.participantId,
+          user.userId,
+          user.id
+        ];
+        zoomContext = {
+          meetingUUID: meeting.meetingUUID,
+          userID: rawIdentityIds.find((value) => value != null && value !== ''),
+          identityIds: new Set(rawIdentityIds.map(normalizeIdentity).filter(Boolean)),
+          userName: user.screenName || user.displayName || user.userName || user.name || ''
+        };
+        refreshAllRoles();
+        register();
+      } catch (error) {
+        setStatus(error.message || 'Zoom Apps SDK unavailable', 'error');
+      }
+    })();
+  </script>
+</body>
+</html>
